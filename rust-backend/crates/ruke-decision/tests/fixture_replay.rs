@@ -157,6 +157,19 @@ fn intent_matcher_vectors_replay_full_envelope_fields() {
             v["confidence"].as_f64().expect("vector confidence"),
             "confidence for {prompt:?}"
         );
+        // F02: requested deliverables are recorded explicitly, in
+        // first-appearance order; a miss records none. This is what lets a
+        // multi-deliverable turn arm EVERY contract instead of losing one.
+        assert_eq!(
+            env.task_constraints,
+            v["task_constraints"]
+                .as_array()
+                .expect("vector task_constraints")
+                .iter()
+                .map(|x| x.as_str().expect("constraint string"))
+                .collect::<Vec<_>>(),
+            "task_constraints for {prompt:?}"
+        );
     }
     let blank = &fix["blankMessage"];
     let env = get_decision_sync(blank["prompt"].as_str().unwrap(), &[]);
@@ -297,9 +310,10 @@ fn core_skill_decision_block_fixture_04_string_equal() {
         block, expected,
         "<decision_skill> block must be string-identical to the injected system content"
     );
-    // 11144 = JS content length (UTF-16 units); block_bytes 11204 = UTF-8
-    // bytes — the gap is the skill text's non-ASCII characters.
-    assert_eq!(js_len(&block), 11144, "UTF-16 units of the recorded block");
+    // 11988 = JS content length (UTF-16 units) as of the 2026-11-16 F02
+    // re-record (the decision_skill block now carries the typed multi-deliverable
+    // note); the re-recorded block_bytes anchor below pins the UTF-8 length.
+    assert_eq!(js_len(&block), 11988, "UTF-16 units of the recorded block");
 
     let anchor = &fix["upstreamCalls"][0]["anchors"][0];
     assert_eq!(

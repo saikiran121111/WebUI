@@ -1,0 +1,25 @@
+0.0s  == integrated dev gate pass 2 ==
+0.3s  before start: freeRAM_MB=7000 vram_used_total_MiB=9485, 12288
+0.3s  supervisor pid=16272
+1.3s  READY  python discovery+health :: port=62533 pid=21956 health=200 heavyImportsAtStartup=0
+1.3s  READY  rust /api/ruke/health :: 200 {"ok":true,"version":"0.1.0","user_turn_active":false}
+3.3s  READY  next :3000 answering :: status=404
+10.4s  GET / first hit -> 200 in 7.1s bytes=29049
+10.4s  rust ml-status live=true "heavy_imports_at_startup":[]
+10.7s  MEM[ready] owned=5 totalMB=2445 next=2396 rust=14 python=35 browser=0 other=0
+10.7s      pid=21956 python.exe 30MB
+10.7s      pid=27700 node.exe 79MB
+10.7s      pid=24968 node.exe 2317MB
+31.1s  idle+20s freeRAM_MB=4370 vram=9485, 12288
+31.5s  MEM[idle20s] owned=5 totalMB=2454 next=2405 rust=14 python=35 browser=0 other=0
+31.5s      pid=21956 python.exe 30MB
+31.5s      pid=27700 node.exe 79MB
+31.5s      pid=24968 node.exe 2326MB
+31.9s  owned next child pid=27700 (kill ONLY this one)
+33.0s  READY  supervisor exited :: gone
+36.4s  PORT 3000 listeners after teardown = 0
+36.8s  PORT 3101 listeners after teardown = 0
+37.0s  ruke-server procs left = 0
+37.0s  ruke_ml python procs left = 0
+37.0s  foreign Strata python pids still present (must be 2) = 2
+37.3s  END afterRAM_MB=6847 vram=9485, 12288

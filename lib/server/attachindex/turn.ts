@@ -3,9 +3,15 @@ import path from "node:path";
 import { injectSystemBefore } from "../../skills/lazy";
 import { embedOne } from "./embed";
 import { generateNotes, notesVersion } from "./notes";
-import { routeQuery, type RoutedQuery } from "./router";
+import {
+  fingerprintQuery,
+  isContinuationAsk,
+  routeQuery,
+  type RouteAxis,
+  type RoutedQuery,
+} from "./router";
 import { retrieveEvidence, type RetrieveOpts } from "./retrieve";
-import { indexDir, readIndex, readNotes, readShown, writeShown } from "./store";
+import { indexDir, readIndex, readNotes, readShownEntry, writeShown } from "./store";
 import type { LoadedIndex } from "./types";
 
 /**
@@ -193,25 +199,30 @@ export async function buildAttachmentTurn(
   signal?: AbortSignal,
   /** I24: the model this turn answers with — notes are distilled by it and cached under it. */
   model?: string,
+  /** F07: the conversation this turn belongs to; the shown ledger is scoped to it. */
+  conversationId?: string,
 ): Promise<number> {
   const refs = collectAttachmentRefs(messages);
   if (!refs.length) return 0;
 
   const blocks: string[] = [];
   const images: { url: string; at: number }[] = [];
-  // Retrieval runs on the anchored query (short follow-ups inherit the
-  // previous question's topic); the injected blocks still answer the user's
-  // actual wording.
-  //
-  // I22: anchoring is for questions that carry NO retrieval intent of their
-  // own. If the raw question already routes somewhere specific — timestamps,
-  // "last 10 minutes", "module 3", "every mention", "summarize" — prepending
-  // the previous question dilutes the exact tokens that decide the route and
-  // the time window. Those questions are used verbatim.
+  // Which query the retrieval runs on (F07, 2026-11-15): RAW FIRST. The raw
+  // question keeps its own tokens, so an explicit phrase ("every mention",
+  // "summarize", "at 1:45") still decides the route and the time window, and
+  // an unrelated short follow-up is no longer glued onto the previous topic.
+  // anchorQuery stays available as a BOUNDED FALLBACK, consulted only when
+  // the raw question retrieved nothing at all for an attachment.
   const trimmedQ = (question ?? "").trim();
-  const direct = routeQuery(trimmedQ);
-  const rq =
-    trimmedQ && direct.mode !== "point_qa" ? trimmedQ : anchorQuery(question, messages, userIdx);
+  // F07 (2026-11-15) RAW-FIRST. The previous question used to be prepended
+  // eagerly for any short follow-up, so an UNRELATED short question ("what
+  // about the CPU fan?") inherited the previous whale question and retrieved
+  // whale passages for it. The raw question is now the retrieval query; the
+  // antecedent is consulted only if the raw question found NOTHING at all
+  // (bounded to one extra attempt per attachment, below). Routing decisions
+  // are never diluted by an antecedent either.
+  const anchored = anchorQuery(question, messages, userIdx);
+  const rawQ = trimmedQ || anchored;
 
   // I05: the whole turn shares ONE evidence budget across attachments.
   let turnUsed = 0;
@@ -227,7 +238,15 @@ export async function buildAttachmentTurn(
       continue;
     }
 
-    const routed: RoutedQuery = routeQuery(rq);
+    // F07: the time axis comes from the INDEX, never from the attachment's
+    // name or a guess about its category. No duration and no timed chunk means
+    // this content has no timeline, so a "1:20" ratio inside a document must
+    // not invent a video window.
+    const axis: RouteAxis =
+      (index.meta.durationSec ?? 0) > 0 || index.chunks.some(c => c.startSec != null)
+        ? "time"
+        : "text";
+    const routed: RoutedQuery = routeQuery(rawQ, { axis });
 
     // I22: "the last N minutes" has no absolute anchor until the index's own
     // duration is known. Unknown duration → honest best-effort hybrid rather
@@ -275,14 +294,24 @@ export async function buildAttachmentTurn(
     try {
       // I25: the browser walking away must release the shared model slot —
       // the signal gates the wait before load and between batches.
-      queryVec = await embedOne(rq, signal);
+      queryVec = await embedOne(rawQ, signal);
     } catch {
       // Embed model unavailable: BM25 alone still ranks the passages.
     }
 
-    // I20: passages an earlier turn already served for this attachment are
-    // demoted, so "keep going" surfaces NEW content instead of the same hits.
-    const shown = readShown(ref.attId);
+    // I20 + F07: the "already shown" ledger is scoped to THIS conversation and
+    // records WHICH query produced it. An exact repeat of a question this
+    // conversation already answered from this attachment gets its own top
+    // passages BACK (reproduced: a repeated exact question lost its answer
+    // because the passages it had been shown were demoted below unrelated
+    // text). Exhaustive scans and explicit continuation asks rotate instead,
+    // so "keep going" still surfaces fresh material.
+    const queryFp = fingerprintQuery(rawQ);
+    const entry = readShownEntry(ref.attId, conversationId);
+    const shownFor = entry?.ids ?? [];
+    const repeatAsk = !!entry && entry.q !== "" && entry.q === queryFp;
+    const scanMode = routed.mode === "exhaustive";
+    const demote = repeatAsk && !scanMode && !isContinuationAsk(rawQ) ? [] : shownFor;
 
     // I05: the attachment competes for the turn's REMAINING budget.
     const remaining = TURN_BUDGET - turnUsed;
@@ -296,16 +325,50 @@ export async function buildAttachmentTurn(
     }
     const budget = Math.min(PER_REF_BUDGET, remaining);
 
-    let opts: RetrieveOpts = { ...routed, demote: shown, budget };
+    let opts: RetrieveOpts = { ...routed, demote, budget };
     if (routed.mode === "sequential") {
       const blk = index.meta.spineBlocks?.[routed.blockIndex ?? -1];
       opts = blk
-        ? { mode: "sequential", range: { from: blk.chunkFrom, to: blk.chunkTo }, demote: shown, budget }
-        : { mode: "point_qa", demote: shown, budget }; // "module 9" in a 3-block spine → best-effort hybrid
+        ? { mode: "sequential", range: { from: blk.chunkFrom, to: blk.chunkTo }, demote, budget }
+        : { mode: "point_qa", demote, budget }; // "module 9" in a 3-block spine → best-effort hybrid
     }
 
-    const ev = retrieveEvidence(index, rq, queryVec, opts);
+    let ev = retrieveEvidence(index, rawQ, queryVec, opts);
+
+    // F07: anchored fallback, LAZILY and at most once more. Only when the raw
+    // question found nothing at all does the previous question's topic get
+    // prepended; the routing decision stays the raw question's own.
+    if (!ev.text && anchored && anchored !== rawQ) {
+      let fallbackVec: number[] = [];
+      try {
+        fallbackVec = await embedOne(anchored, signal);
+      } catch {
+        // Same seam: BM25 alone still ranks the passages.
+      }
+      ev = retrieveEvidence(index, anchored, fallbackVec, opts);
+    }
     if (!ev.text) continue;
+
+    // F14: machine-readable COVERAGE, inside the block the model actually
+    // reads. Every number is read off THIS turn's retrieval (never inferred),
+    // and the ranking mode is reported honestly: a lexical-only pass must not
+    // be dressed up as semantic retrieval. The selection law stays intact --
+    // a file that exists locally is not evidence that any given part of it was
+    // READ. New text is ASCII-only so the Rust mirror can be byte-identical.
+    const frames = nearestFrames(index, ev.frameAts);
+    const totalChunks = index.meta.chunkCount || index.chunks.length;
+    const totalFrames = index.meta.frames?.length ?? 0;
+    const covered =
+      `\n[coverage: ${ev.chunkIdxs.length} of ${totalChunks} indexed passages of "${ref.name}" were shown this turn` +
+      (ev.dropped > 0
+        ? `; ${ev.dropped} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)`
+        : ev.truncated
+          ? "; more passages matched than this turn's budget could show"
+          : "; no matched passage was withheld from this turn") +
+      `; ranking mode: ${ev.vectorMode === "hybrid" ? "semantic + lexical" : "lexical only"}` +
+      (ev.vectorReason ? ` (${ev.vectorReason})` : "") +
+      (totalFrames > 0 ? `; ${frames.length} of ${totalFrames} saved keyframes shown` : "") +
+      " -- anything outside this selection was NOT read this turn]";
 
     blocks.push(
       `<knowledge_index name="${ref.name}">\n` +
@@ -318,11 +381,16 @@ export async function buildAttachmentTurn(
           : ev.truncated
             ? "\n[more relevant passages exist; this turn's budget showed the best ones]"
             : "") +
+        covered +
         `\n${rules(ref)}\n</knowledge_index>`,
     );
     turnUsed += ev.text.length;
-    if (ev.chunkIdxs.length) writeShown(ref.attId, [...new Set([...shown, ...ev.chunkIdxs])]);
-    images.push(...nearestFrames(index, ev.frameAts));
+    if (ev.chunkIdxs.length)
+      writeShown(ref.attId, [...new Set([...shownFor, ...ev.chunkIdxs])], {
+        conversationId,
+        queryFp,
+      });
+    images.push(...frames);
   }
 
   if (!blocks.length && !images.length) return 0;

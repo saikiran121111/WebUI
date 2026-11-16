@@ -31,9 +31,9 @@ export const RECENT_TAIL = 4;
 export const COMPACTION_SYSTEM_PROMPT = `You are an expert Context Compaction Engine. Your job is to compress a long conversation history into a high-density state snapshot.
 
 ### STRICT RULES
-1. **Zero Knowledge Loss:** You must NEVER lose active user constraints, final decisions, exact technical identifiers (file paths, variable names, API endpoints, formulas), or unfinished tasks.
-2. **Maximum Compression (~95% Target):** Ruthlessly delete conversational filler, greetings, intermediate debugging logs, superseded code drafts, and repetitive explanations. Keep only the final truth.
-3. **Adaptive Length (Quality First):** Compress as tightly as possible (aiming for ~5% of original size), but NEVER drop critical context just to make the output shorter. Zero quality loss is your #1 priority.
+1. **This is a lossy summary. Minimize loss, never claim it is impossible:** You must carry every active user constraint, final decision, exact technical identifier (file paths, variable names, API endpoints, formulas), and unfinished task. Do NOT assert that nothing was lost — that is not verifiable. Where a detail cannot fit, say so in one line instead of dropping it silently.
+2. **Copy constraints in the user's own words:** In section 1, QUOTE explicit user constraints verbatim rather than paraphrasing them. A paraphrase is where "answer in Telugu" silently becomes "respond concisely". The system also appends the raw user turns separately, so a paraphrase cannot be relied on.
+3. **Compression is a best effort, not a promise:** Ruthlessly delete conversational filler, greetings, intermediate debugging logs, superseded code drafts, and repetitive explanations — roughly 5% of the original size when that is safe. An under-compressed snapshot beats a lossy one; never trade away a constraint to hit a ratio.
 4. **Preserve Awareness (Breadcrumbs):** If a topic, bug, or idea is completely finished or rejected, do NOT delete it completely. Record a 1-line "breadcrumb" in the Topic Index so the main model knows the conversation happened.
 5. **Merge Previous State:** If the history already contains an existing <compacted_context> block, merge its information with the newer messages into one updated block.
 
@@ -87,6 +87,74 @@ export const COMPACTION_ANCHOR_PROMPT =
   'Your entire reply must be only this block, starting with the literal characters "<compacted_context>" and ending with "</compacted_context>". Do not write anything else.';
 
 export type CompactMode = "auto" | "manual";
+
+/**
+ * F21 — durable anchors, folded OUTSIDE the model.
+ *
+ * A compaction summary is a lossy product of a small local model, and the old
+ * prompt promised "Zero Knowledge Loss" from a ~95% compression target — a
+ * claim nothing could verify. The verifiable part is done in code instead:
+ * the user's OWN words are kept. No keyword cascade and no classifier — the
+ * turns that carry the user's authority are their turns, so the most recent
+ * folded user turns ride along verbatim inside a machine-readable block,
+ * bounded so the safety net can never eat the prompt budget it replaced.
+ */
+export const DURABLE_USER_TURNS = 6;
+export const DURABLE_TURN_CHARS = 400;
+export const DURABLE_TOTAL_CHARS = 2400;
+export const DURABLE_BLOCK_TAG = "durable_user_turns";
+
+export interface DurableUserTurn {
+  text: string;
+  truncated: boolean;
+}
+
+/** Most recent folded USER turns, oldest-first, bounded per turn and in total. */
+export function collectDurableUserTurns(
+  folded: Array<{ role: string; content: string }>,
+  opts: { maxTurns?: number; perTurnChars?: number; totalChars?: number } = {},
+): DurableUserTurn[] {
+  const maxTurns = Math.max(0, opts.maxTurns ?? DURABLE_USER_TURNS);
+  const perTurn = Math.max(0, opts.perTurnChars ?? DURABLE_TURN_CHARS);
+  const total = Math.max(0, opts.totalChars ?? DURABLE_TOTAL_CHARS);
+  const picked: DurableUserTurn[] = [];
+  let used = 0;
+  for (let i = folded.length - 1; i >= 0 && picked.length < maxTurns; i--) {
+    const m = folded[i];
+    if (!m || m.role !== "user") continue;
+    const raw = (m.content ?? "").trim();
+    if (!raw) continue;
+    // A previous snapshot is a summary, not the user's own words.
+    if (raw.startsWith("<compacted_context>")) continue;
+    const truncated = perTurn > 0 && raw.length > perTurn;
+    const text = truncated ? raw.slice(0, perTurn) : raw;
+    if (used + text.length > total) break; // budget spent — keep the newer turns
+    used += text.length;
+    picked.push({ text, truncated });
+  }
+  return picked.reverse();
+}
+
+/**
+ * The machine-readable block appended after the snapshot. Empty string when
+ * there is nothing new to say (the summary already quotes the turn verbatim),
+ * so repeated compactions cannot stack the same constraint forever.
+ */
+export function renderDurableConstraints(
+  turns: DurableUserTurn[],
+  opts: { alreadyInSummary?: string } = {},
+): string {
+  const summary = opts.alreadyInSummary ?? "";
+  const kept = turns.filter((t) => !summary.includes(t.text));
+  if (!kept.length) return "";
+  const lines = kept.map((t) => "- " + t.text + (t.truncated ? " ...[truncated]" : ""));
+  return (
+    `\n\n<${DURABLE_BLOCK_TAG} source="verbatim-user-turns" ` +
+    `count="${kept.length}" note="not a summary: the user's own words, kept so an explicit request cannot be paraphrased away">\n` +
+    lines.join("\n") +
+    `\n</${DURABLE_BLOCK_TAG}>`
+  );
+}
 
 export interface CompactResult {
   ok: boolean;
@@ -418,10 +486,18 @@ export async function compactConversation(
   }
   const keptRefs = foldedRefs.slice(-MAX_COMPACT_REF_STUBS);
 
+  // F21: the durable part of the fold is computed in code, once, and reused by
+  // both the replacement message and the honest label.
+  const durableTurns = collectDurableUserTurns(toCompact);
+  const durableBlock = renderDurableConstraints(durableTurns, { alreadyInSummary: context });
+
   const replacementLlmMessages: Array<{ role: string; content: string; attachments?: Array<Record<string, unknown>> }> = [
     {
       role: "user",
-      content: "<compacted_context>\n" + context + "\n</compacted_context>",
+      // F21: the snapshot is a lossy summary; the verbatim user turns are the
+      // durable part and are appended by code, not by the model.
+      content:
+        "<compacted_context>\n" + context + "\n</compacted_context>" + durableBlock,
       ...(keptRefs.length ? { attachments: keptRefs } : {}),
     },
     ...tail.map((m) => {
@@ -446,6 +522,9 @@ export async function compactConversation(
       ...tail] as any,
   );
 
+  const durableKept = durableBlock
+    ? durableTurns.filter((t) => !context.includes(t.text)).length
+    : 0;
   return {
     ok: true,
     compacted: true,
@@ -454,6 +533,11 @@ export async function compactConversation(
     replacementLlmMessages: fullReplacement,
     beforeTokens: before,
     afterTokens: after,
-    label: `Context compacted (${formatTokens(before)} -> ${formatTokens(after)} tokens)`,
+    // Honest label: the token numbers are measured, and "folded into a summary"
+    // is stated so the divider never implies the folded turns stay readable.
+    label:
+      `Context compacted (${formatTokens(before)} -> ${formatTokens(after)} tokens) - ` +
+      `${toCompact.length} turns folded into a summary` +
+      (durableKept ? `, ${durableKept} user turn(s) kept verbatim` : ""),
   };
 }

@@ -9,8 +9,6 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
   WidthType, ShadingType, ImageRun, BorderStyle,
@@ -18,6 +16,7 @@ import {
 import { normalizeDocx, type DocxSpec, type DocxSection } from "./schemas";
 import { chartHtmlDocument } from "./chartHtml";
 import { renderChartPng, safeName } from "./pdfEngine";
+import { docTempPath } from "./tempFiles";
 
 // A4 in DXA (1440 DXA = 1 inch): 11906 × 16838, 1in margins.
 const PAGE_W = 11906;
@@ -36,7 +35,9 @@ const tableBorders = {
 
 async function chartImageParagraphs(section: Extract<DocxSection, { type: "chart" }>): Promise<Paragraph[]> {
   const id = crypto.randomUUID();
-  const tmpPng = path.join(os.tmpdir(), `temp_chart_${id}.png`);
+  // Helper, not an inline os.tmpdir() template — see lib/documents/tempFiles.ts
+  // (a statically analysable temp path makes `next build` glob the OS temp dir).
+  const tmpPng = docTempPath(id, ".png");
   try {
     const html = chartHtmlDocument({ ...section.chart, title: section.title || undefined }, { width: 640, height: 360, theme: "light" });
     const shot = await renderChartPng(html, { width: 640, height: 360, scale: 2 });

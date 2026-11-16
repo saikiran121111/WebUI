@@ -1,24 +1,29 @@
 import fs from "node:fs";
 import path from "node:path";
+import { conversationsDir } from "./dataRoot";
 
-const DATA_DIR = process.env.WEBUI_DATA_DIR ?? path.join(process.env.HOME!, ".local-intelligence", "conversations");
+// R6 (2026-11-15 brief 3.6): the root used to be computed at MODULE LOAD from
+// `process.env.HOME!`, which does not exist on native Windows. It is now a
+// lazy call into the shared platform-correct resolver, so an isolated
+// WEBUI_DATA_DIR set after import is honoured and nothing crashes at import.
+const DATA_DIR = (): string => conversationsDir();
 
 /** Make sure the conversations directory exists. */
 export function ensureDir() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(DATA_DIR(), { recursive: true });
 }
 
 /** Filename for a conversation. */
 function file(id: string): string {
   // Sanitise — IDs are already safe, but be defensive.
   const safe = id.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return path.join(DATA_DIR, `${safe}.json`);
+  return path.join(DATA_DIR(), `${safe}.json`);
 }
 
 export function listConversationsOnDisk(): { id: string; updatedAt: number }[] {
   ensureDir();
   try {
-    return fs.readdirSync(DATA_DIR)
+    return fs.readdirSync(DATA_DIR())
       .filter((f: string) => f.endsWith(".json"))
       .map((f: string) => {
         const id = f.slice(0, -5);
@@ -67,5 +72,5 @@ export function deleteConversationOnDisk(id: string): void {
 }
 
 export function getDataDir(): string {
-  return DATA_DIR;
+  return DATA_DIR();
 }

@@ -80,6 +80,8 @@ describe("golden: decision envelope serialization", () => {
     expect(r.status).toBe(200);
     expect(envelope!.active_mode).toBe("excel");
     expect(envelope!.decided_by).toBe("in-process-deliverable-match");
+    // F02: the requested deliverable is recorded explicitly (provenance: this scan).
+    expect(envelope!.task_constraints).toEqual(["deliverable-request=excel"]);
     expect(envelope!.confidence).toBe(0.8); // §4a: a verb-bound match never claims 1
     expect(r.bodyText).toContain('"confidence":0.8');
     expect(r.bodyText).not.toContain('"confidence":0.80');
@@ -90,8 +92,9 @@ describe("golden: decision envelope serialization", () => {
     const { envelope } = await recordDecision(
       "decision/02-route-standard-with-history.json",
       "POST /api/decision — no intent match (standard_chat) with conversationHistory",
-      "§4a no-intent miss still yields decided_by 'in-process-deliverable-match' with active_mode " +
-        "standard_chat (NOT a fallback flag) and honest confidence 0.5: the envelope is ALWAYS built; " +
+      "F02 (2026-11-16): a no-intent miss records decided_by 'in-process-deliverable-none' with " +
+        "active_mode standard_chat (NOT a fallback flag) and honest confidence 0.5 - a miss is never " +
+        "reported as a match: the envelope is ALWAYS built; " +
         "stripped_prompt is ALWAYS verbatim equal to the incoming message — history never alters it. " +
         "CONTRACT DISCOVERY: the history field the route reads is named 'conversationHistory' (an " +
         "unknown 'history' key is silently ignored). skill_to_load is null for standard_chat; " +
@@ -103,7 +106,9 @@ describe("golden: decision envelope serialization", () => {
       }),
     );
     expect(envelope!.active_mode).toBe("standard_chat");
+    expect(envelope!.decided_by).toBe("in-process-deliverable-none");
     expect(envelope!.stripped_prompt).toBe(msg);
+    expect(envelope!.task_constraints).toEqual([]);
     expect(envelope!.skill_to_load).toBeNull();
     expect(envelope!.enable_validator).toBe("standard_chat");
     expect(envelope!.confidence).toBe(0.5); // §4a: an uncertain outcome never claims 1
@@ -154,13 +159,13 @@ describe("golden: decision envelope serialization", () => {
     const LEDGER = [
       { path: "active_mode", comparison: "byte-exact", note: "string enum of mode ids" },
       { path: "confidence", comparison: "byte-exact", note: '§4a honest outcomes: 0.8 renders "0.8" and 0.5 renders "0.5" (JS shortest-roundtrip floats; serde_json emits identical bytes for these). The integral repair-passthrough 1 renders as integer "1" — a bare serde_json f64 prints "1.0", so ruke-contracts keeps the integer branch. Do NOT normalize the TS side.' },
-      { path: "decided_by", comparison: "byte-exact", note: '"in-process-deliverable-match" | "in-process-deliverable-ambiguous" (§4a mixed deliverables) | "in-process-fallback" (internal-only) | (chat-internal-only: "repair-passthrough")' },
+      { path: "decided_by", comparison: "byte-exact", note: 'F02 honest vocabulary: "in-process-deliverable-none" (no deliverable requested - a miss never claims a match) | "in-process-deliverable-match" (exactly one) | "in-process-deliverable-multiple" (two+ requested deliverables; the retired -ambiguous label conflated them with uncertainty and silently lost one output) | "in-process-fallback" (internal-only) | (chat-internal-only: "repair-passthrough")' },
       { path: "stripped_prompt", comparison: "byte-exact", note: "ALWAYS verbatim === incoming message" },
       { path: "skill_to_load", comparison: "byte-exact", note: "core skill name (MODE_SKILL) or null; null MUST serialize as JSON null (present), not omitted" },
       { path: "allowed_code_fence", comparison: "byte-exact", note: "string or null; null MUST serialize as JSON null (present), not omitted" },
       { path: "disable_validators", comparison: "byte-exact", note: "string array; ORDER significant (RENDERER_MODES order minus the active mode)" },
       { path: "enable_validator", comparison: "byte-exact", note: "ALWAYS the active mode id (observed for excel AND standard_chat)" },
-      { path: "task_constraints", comparison: "byte-exact", note: "always [] in the in-process engine" },
+      { path: "task_constraints", comparison: "byte-exact", note: "F02: 'deliverable-request=<mode>' entries in first-appearance order; [] when nothing was requested. Provenance is the in-process scan, and the injection layer arms every recorded deliverable contract instead of inventing a single winner." },
       { path: "extracted_entities", comparison: "byte-exact", note: "always [] in the in-process engine" },
       { path: "lfm_latency_ms", comparison: "byte-exact", note: "always 0 (in-process)" },
     ];

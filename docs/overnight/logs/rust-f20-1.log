@@ -1,0 +1,1453 @@
+﻿cargo :    Compiling serde_core v1.0.229
+At line:46 char:102
++ ... st-backend; cargo test -p ruke-skills --target-dir D:\Projects\WebUI\ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling serde_core v1.0.229:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling aho-corasick v1.1.5
+   Compiling once_cell v1.21.4
+   Compiling windows-sys v0.61.2
+   Compiling tempfile v3.27.0
+   Compiling regex-automata v0.4.18
+   Compiling serde_json v1.0.154
+   Compiling regex v1.13.1
+   Compiling ruke-skills v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-skills)
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:157:27
+    |
+157 |     r"(?i)https?://[^\s)\"\x27<>]*(?:images?/generations|videos?/generations|text-to-image|text-to-video|img2img|
+txt2img|dream/subm...
+    |                           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:157:158
+    |
+157 | ...t-to-video|img2img|txt2img|dream/submit|imagine/submit|generate\?)",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:158:11
+    |
+158 |     r"(?i)\b(?:post|put)\s+[^\n]{0,80}(?:images?/generations|videos?/generations|imagine/submit|dream/submit)",
+    |           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:158:25
+    |
+158 |     r"(?i)\b(?:post|put)\s+[^\n]{0,80}(?:images?/generations|videos?/generations|imagine/submit|dream/submit)",
+    |                         ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:158:30
+    |
+158 |     r"(?i)\b(?:post|put)\s+[^\n]{0,80}(?:images?/generations|videos?/generations|imagine/submit|dream/submit)",
+    |                              ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:159:11
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:159:31
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |                               ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:159:34
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |                                  ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:159:42
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |                                          ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:159:57
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |                                                         ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:159:77
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |                                                                             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:159:93
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |                                                                                             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:160:11
+    |
+160 |     r"(?i)\b(?:midjourney|stable[_-]?diffusion|stability[_-]?ai|comfyui|leonardo[_-]?ai|runway[_-]?ml|ideogram|re
+plicate|flux|sora)...
+    |           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:160:199
+    |
+160 | ...?(?:api|access)?[_-]?(?:api[_-]?)?(?:key|token|secret|url|base)\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:161:11
+    |
+161 |     r"(?i)\b(?:image|video)[_-]?(?:generation)?[_-]?(?:api|endpoint)[_-]?(?:key|token|url|base)\b",
+    |           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:161:96
+    |
+161 |     r"(?i)\b(?:image|video)[_-]?(?:generation)?[_-]?(?:api|endpoint)[_-]?(?:key|token|url|base)\b",
+    |                                                                                                ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:162:14
+    |
+162 |     r"(?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]
+*generation",
+    |              ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:162:31
+    |
+162 |     r"(?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]
+*generation",
+    |                               ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:162:79
+    |
+162 |     r"(?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]
+*generation",
+    |                                                                               ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:162:85
+    |
+162 |     r"(?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]
+*generation",
+    |                                                                                     ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:162:111
+    |
+162 |     r"(?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]
+*generation",
+    |                                                                                                               ^
+
+error: prefix `generation` is unknown
+   --> crates\ruke-skills\src\modality.rs:162:115
+    |
+162 |     r"(?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]
+*generation",
+    |                                                                                                                  
+ ^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+162 |     r"(?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]
+*generation ",
+    |                                                                                                                  
+           +
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:11
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:53
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |                                                     ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:62
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |                                                              ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:70
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |                                                                      ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:92
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |                                                                                            ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:106
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |                                                                                                          ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:110
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |                                                                                                              ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:119
+    |
+163 |     r"(?i)\b(?:requires|needs|depend(?:s|ing)? 
+on)[^\n]{0,60}\b(?:an?\s+)?(?:image|video)[-\s]*generation\b[^\n]{0,30}\b(?:api|serv...
+    |                                                                                                                  
+     ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:163:160
+    |
+163 | ...eneration\b[^\n]{0,30}\b(?:api|service|model|provider|endpoint)\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:169:15
+    |
+169 | ...   r"(?i)\b(?:imagine|prompt|prompts|prompting|upscale|upscales|variations?|remix|outpaint|inpaint|img2img|txt
+2img|denoise|sampl...
+    |             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:169:181
+    |
+169 | ...mg|denoise|sampler|steps|seed|negative prompt|aspect 
+ratio|--ar\b|workflow|workflows|pipeline|pipelines|sketch|generate|generate...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:169:447
+    |
+169 | ...ng|run|runs|running|execute|executes|call|calls|invoke|invokes)\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:176:15
+    |
+176 | ...   r"(?i)\b(?:requires?|required|requirement|needs?|depending on|depends? on|depend 
+on|prerequisite|prerequisites|install(?:ling...
+    |             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:176:172
+    |
+176 | ...requisites|install(?:ling)?|set up|setup of|must use|must have)\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:182:15
+    |
+182 | ...   r"(?i)\b(?:images?|videos?|clips?|footage|pictures?|thumbnails?|illustrations?|logos?|posters?|frames?|artw
+ork|photos?|icons?...
+    |             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:182:241
+    |
+182 | ...acters?|backgrounds?|sprites?|animation|portraits?|wallpapers?)\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:15
+    |
+189 | ...   r"(?i)\b(?:do not|don[\x27]t|dont|does not|doesn[\x27]t|doesnt|did not|didn[\x27]t|didnt|will 
+not|won[\x27]t|cannot|can[\x27]...
+    |             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:31
+    |
+189 | ...   r"(?i)\b(?:do not|don[\x27]t|dont|does not|doesn[\x27]t|doesnt|did not|didn[\x27]t|didnt|will 
+not|won[\x27]t|cannot|can[\x27]...
+    |                             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:58
+    |
+189 | ...   r"(?i)\b(?:do not|don[\x27]t|dont|does not|doesn[\x27]t|doesnt|did not|didn[\x27]t|didnt|will 
+not|won[\x27]t|cannot|can[\x27]...
+    |                                                        ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:85
+    |
+189 | ...   r"(?i)\b(?:do not|don[\x27]t|dont|does not|doesn[\x27]t|doesnt|did not|didn[\x27]t|didnt|will 
+not|won[\x27]t|cannot|can[\x27]...
+    |                                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:111
+    |
+189 | ...   r"(?i)\b(?:do not|don[\x27]t|dont|does not|doesn[\x27]t|doesnt|did not|didn[\x27]t|didnt|will 
+not|won[\x27]t|cannot|can[\x27]...
+    |                                                                                                             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:129
+    |
+189 | ...   r"(?i)\b(?:do not|don[\x27]t|dont|does not|doesn[\x27]t|doesnt|did not|didn[\x27]t|didnt|will 
+not|won[\x27]t|cannot|can[\x27]...
+    |                                                                                                                  
+             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:158
+    |
+189 | ...nt|will not|won[\x27]t|cannot|can[\x27]t|cant|could not|couldn[\x27]t|should not|shouldn[\x27]t|would 
+not|wouldn[\x27]t|never|no...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:184
+    |
+189 | ...not|can[\x27]t|cant|could not|couldn[\x27]t|should not|shouldn[\x27]t|would not|wouldn[\x27]t|never|no 
+need|not need|not want|no...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:208
+    |
+189 | ...d not|couldn[\x27]t|should not|shouldn[\x27]t|would not|wouldn[\x27]t|never|no need|not need|not want|not 
+use|not using|not to u...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:499
+    |
+189 | ... of|rather than|unlike|compared? 
+(?:to|with)|comparison|versus|\bvs\b|alternative(?:s)?|explain(?:s|ing)?|discuss(?:es|ing)?|rev...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:503
+    |
+189 | ...rather than|unlike|compared? 
+(?:to|with)|comparison|versus|\bvs\b|alternative(?:s)?|explain(?:s|ing)?|discuss(?:es|ing)?|review(...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:656
+    |
+189 | ...e[sd]?|analyze[sd]?|comparing|pros and cons|history|architectur\w*|paper|benchmark(?:s|ing)?|guide to 
+avoiding)\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:189:704
+    |
+189 | ...ory|architectur\w*|paper|benchmark(?:s|ing)?|guide to avoiding)\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:15
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:25
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                       ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:32
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                              ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:35
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                 ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:42
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                        ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:45
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:53
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:56
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                      ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:62
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                            ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:65
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                               ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:75
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                         ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:78
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                            ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:86
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                    ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:89
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                       ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:96
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                              ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:99
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                                 ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:106
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                                        ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:113
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                                               ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:116
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                                                  
+^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:128
+    |
+196 | ...   r"(?i)\bthree(?:\.?js)?\b|\bwebgl\b|\bwebgpu\b|\bglsl\b|\bshaders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|
+\bprocedural\b|\bi...
+    |                                                                                                                  
+            ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:131
+    |
+196 | ...haders?\b|\bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|\bprocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatpl
+otlib\b|\bplotly\b...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:142
+    |
+196 | ...bcanvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|\bprocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bp
+lotly\b|\breportla...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:145
+    |
+196 | ...nvas\b|\bsvgs?\b|\bd3(?:\.?js)?\b|\bprocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplot
+ly\b|\breportlab\b...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:156
+    |
+196 | ...gs?\b|\bd3(?:\.?js)?\b|\bprocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\brepo
+rtlab\b|\bhtml[\s-...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:159
+    |
+196 | ...\b|\bd3(?:\.?js)?\b|\bprocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportl
+ab\b|\bhtml[\s-]ca...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:168
+    |
+196 | ...:\.?js)?\b|\bprocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bht
+ml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:171
+    |
+196 | ...?js)?\b|\bprocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[
+\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:183
+    |
+196 | 
+...ocedural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:186
+    |
+196 | ...dural\b|\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:194
+    |
+196 | ...\bisometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:197
+    |
+196 | ...sometric\b|\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:208
+    |
+196 | ...\bdiagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:211
+    |
+196 | ...iagrams?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:218
+    |
+196 | ...?\b|\bcharts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:196:228
+    |
+196 | ...ts?\b|\bmatplotlib\b|\bplotly\b|\breportlab\b|\bhtml[\s-]canvas\b",
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:201:75
+    |
+201 | static FRAME_SPLIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?;:\n|()\[\]#]+").unwrap());
+    |                                                                           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:201:80
+    |
+201 | static FRAME_SPLIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?;:\n|()\[\]#]+").unwrap());
+    |                                                                                ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:201:82
+    |
+201 | static FRAME_SPLIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?;:\n|()\[\]#]+").unwrap());
+    |                                                                                  ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:206:35
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n"))
+    |                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:206:37
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n"))
+    |                                     ^
+
+error: prefix `n` is unknown
+   --> crates\ruke-skills\src\modality.rs:206:38
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n"))
+    |                                      ^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+206 |         .split(&markdown.replace("\r\n ", "\n").replace('\r', "\n"))
+    |                                       +
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:206:43
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n"))
+    |                                           ^
+
+error: prefix `n` is unknown
+   --> crates\ruke-skills\src\modality.rs:206:44
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n"))
+    |                                            ^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+206 |         .split(&markdown.replace("\r\n", "\n ").replace('\r', "\n"))
+    |                                             +
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:206:63
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n"))
+    |                                                               ^
+
+error: prefix `n` is unknown
+   --> crates\ruke-skills\src\modality.rs:206:64
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n"))
+    |                                                                ^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+206 |         .split(&markdown.replace("\r\n", "\n").replace('\r', "\n "))
+    |                                                                 +
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:22
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                      ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:31
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                               ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:43
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:65
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                                                 ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:90
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                                                                          ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:93
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                                                                             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:100
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                                                                                    ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:108
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                                                                                            ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:120
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                                                                                                  
+      ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:123
+    |
+213 |     Regex::new(r"(?i)\bimage[-\s]*generat|\bimage[_-]generation|\bimages?[/-]generations?\b|\btext[\s-]*to[\s-]*i
+mages?\b|\bimg2img...
+    |                                                                                                                  
+         ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:132
+    |
+213 | ...ages?[/-]generations?\b|\btext[\s-]*to[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourn
+ey\b|midjourney[_-...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:135
+    |
+213 | ...s?[/-]generations?\b|\btext[\s-]*to[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\
+b|midjourney[_-]|\...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:144
+    |
+213 | ...erations?\b|\btext[\s-]*to[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjour
+ney[_-]|\bstable[\...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:147
+    |
+213 | ...tions?\b|\btext[\s-]*to[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney
+[_-]|\bstable[\s-]...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:151
+    |
+213 | ...s?\b|\btext[\s-]*to[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney[_-]
+|\bstable[\s-]*dif...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:160
+    |
+213 | ...xt[\s-]*to[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney[_-]|\bstable
+[\s-]*diffusion\b|...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:166
+    |
+213 | ...]*to[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney[_-]|\bstable[\s-]*
+diffusion\b|stable...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:169
+    |
+213 | ...o[\s-]*images?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney[_-]|\bstable[\s-]*dif
+fusion\b|stable[_-...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:181
+    |
+213 | ...s?\b|\bimg2img\b|\btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney[_-]|\bstable[\s-]*diffusion\b|sta
+ble[_-]diffusion|\...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:199
+    |
+213 | ...btxt2img\b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney[_-]|\bstable[\s-]*diffusion\b|stable[_-]diffusion|\
+bdiffusion[\s-]*xl...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:208
+    |
+213 | ...b|\bd[\s-]*all[\s-]*e\b|\bmidjourney\b|midjourney[_-]|\bstable[\s-]*diffusion\b|stable[_-]diffusion|\bdiffusio
+n[\s-]*xl\b|\bcomf...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:222
+    |
+213 | ...[\s-]*e\b|\bmidjourney\b|midjourney[_-]|\bstable[\s-]*diffusion\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\b
+comfy[\s-]?ui\b|\b...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:245
+    |
+213 | ...b|midjourney[_-]|\bstable[\s-]*diffusion\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleona
+rdo\.ai\b|\bideogr...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:257
+    |
+213 | ...[_-]|\bstable[\s-]*diffusion\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\b
+ideogram\b|\bseedr...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:264
+    |
+213 | ...stable[\s-]*diffusion\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogra
+m\b|\bseedream\b|\...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:267
+    |
+213 | ...ble[\s-]*diffusion\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b
+|\bseedream\b|\bre...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:275
+    |
+213 | ...*diffusion\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedr
+eam\b|\brecraft\b|...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:282
+    |
+213 | ...ion\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\
+brecraft\b|\badobe...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:285
+    |
+213 | ...\b|stable[_-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\bre
+craft\b|\badobe[\s...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:295
+    |
+213 | ..._-]diffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\b
+adobe[\s-]*firefly...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:299
+    |
+213 | ...iffusion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badob
+e[\s-]*firefly\b|\...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:302
+    |
+213 | ...usion|\bdiffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\
+s-]*firefly\b|\bgo...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:312
+    |
+213 | ...ffusion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefl
+y\b|\bgoogle[\s-]*...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:315
+    |
+213 | ...sion[\s-]*xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b
+|\bgoogle[\s-]*ima...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:325
+    |
+213 | ...xl\b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[
+\s-]*imagen\b|\bfl...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:328
+    |
+213 | ...b|\bcomfy[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-
+]*imagen\b|\bflux[...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:337
+    |
+213 | ...[\s-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\
+b|\bflux[\s.-][12]...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:340
+    |
+213 | ...-]?ui\b|\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\
+bflux[\s.-][12]\b|...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:348
+    |
+213 | ...\bleonardo\.ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s
+.-][12]\b|generate...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:360
+    |
+213 | ...ai\b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|ge
+nerate\s+(?:an?\s+...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:363
+    |
+213 | ...b|\bideogram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|gener
+ate\s+(?:an?\s+)?i...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:372
+    |
+213 | ...ram\b|\bseedream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:
+an?\s+)?images?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:383
+    |
+213 | ...dream\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:an?\s+)?ima
+ges?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:386
+    |
+213 | 
+...am\b|\brecraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:an?\s+)?images?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:393
+    |
+213 | ...recraft\b|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:an?\s+)?images?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:402
+    |
+213 | ...|\badobe[\s-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:an?\s+)?images?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:413
+    |
+213 | ...-]*firefly\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:an?\s+)?images?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:422
+    |
+213 | ...y\b|\bgoogle[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:an?\s+)?images?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:213:434
+    |
+213 | ...[\s-]*imagen\b|\bflux[\s.-][12]\b|generate\s+(?:an?\s+)?images?\b")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:22
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                      ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:31
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                               ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:43
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                           ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:65
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                                                 ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:90
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                                                                          ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:93
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                                                                             ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:100
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                                                                                    ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:108
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                                                                                            ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:120
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                                                                                                  
+      ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:123
+    |
+217 |     Regex::new(r"(?i)\bvideo[-\s]*generat|\bvideo[_-]generation|\bvideos?[/-]generations?\b|\btext[\s-]*to[\s-]*v
+ideos?\b|\bimage[\...
+    |                                                                                                                  
+         ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:131
+    |
+217 | ...ideos?[/-]generations?\b|\btext[\s-]*to[\s-]*videos?\b|\bimage[\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|tu
+rbo)\b|\brunway[\s...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:139
+    |
+217 | ...-]generations?\b|\btext[\s-]*to[\s-]*videos?\b|\bimage[\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\
+brunway[\s-]*(?:ml...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:149
+    |
+217 | ...ons?\b|\btext[\s-]*to[\s-]*videos?\b|\bimage[\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s
+-]*(?:ml|[23])\b|\...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:152
+    |
+217 | ...?\b|\btext[\s-]*to[\s-]*videos?\b|\bimage[\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*
+(?:ml|[23])\b|\bve...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:159
+    |
+217 | ...ext[\s-]*to[\s-]*videos?\b|\bimage[\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[
+23])\b|\bveo[\s-]*...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:182
+    |
+217 | ...?\b|\bimage[\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\
+b|\bpika[\s-]*(?:l...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:185
+    |
+217 | ...|\bimage[\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\
+bpika[\s-]*(?:labs...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:194
+    |
+217 | ...\s-]*to[\s-]*video\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-
+]*(?:labs|1|2)\b|\...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:210
+    |
+217 | ...eo\b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b
+|\bkling[\s-]*(?:a...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:213
+    |
+217 | ...b|\bsora[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\b
+kling[\s-]*(?:ai|[...
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:219
+    |
+217 | ...ra[\s-]*(?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[
+\s-]*(?:ai|[\d@])")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:228
+    |
+217 | ...?:[23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[\s-]*(?:a
+i|[\d@])")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:231
+    |
+217 | ...23]|two|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[\s-]*(?:ai|[
+\d@])")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:238
+    |
+217 | ...|turbo)\b|\brunway[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[\s-]*(?:ai|[\d@])")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:255
+    |
+217 | ...y[\s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[\s-]*(?:ai|[\d@])")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:258
+    |
+217 | ...s-]*(?:ml|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[\s-]*(?:ai|[\d@])")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:266
+    |
+217 | ...l|[23])\b|\bveo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[\s-]*(?:ai|[\d@])")
+    |                                                                   ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:217:278
+    |
+217 | ...veo[\s-]*[23]\b|\bpika[\s-]*(?:labs|1|2)\b|\bkling[\s-]*(?:ai|[\d@])")
+    |                                                                   ^
+
+error: prefix `generation` is unknown
+   --> crates\ruke-skills\src\modality.rs:225:25
+    |
+225 |         out.push("image-generation");
+    |                         ^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+225 |         out.push("image-generation ");
+    |                                   +
+
+error: prefix `generation` is unknown
+   --> crates\ruke-skills\src\modality.rs:228:25
+    |
+228 |         out.push("video-generation");
+    |                         ^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+228 |         out.push("video-generation ");
+    |                                   +
+
+error: prefix `art` is unknown
+   --> crates\ruke-skills\src\modality.rs:325:34
+    |
+325 |             "uses Midjourney for art",
+    |                                  ^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+325 |             "uses Midjourney for art ",
+    |                                     +
+
+error: prefix `poster` is unknown
+   --> crates\ruke-skills\src\modality.rs:326:47
+    |
+326 |             "now stable diffusion renders the poster",
+    |                                               ^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+326 |             "now stable diffusion renders the poster ",
+    |                                                     +
+
+error: prefix `docs` is unknown
+   --> crates\ruke-skills\src\modality.rs:337:40
+    |
+337 |             "image generation endpoint docs",
+    |                                        ^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+337 |             "image generation endpoint docs ",
+    |                                            +
+
+error: prefix `notes` is unknown
+   --> crates\ruke-skills\src\modality.rs:338:31
+    |
+338 |             "Image generation notes",
+    |                               ^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+338 |             "Image generation notes ",
+    |                                    +
+
+error: prefix `script` is unknown
+   --> crates\ruke-skills\src\modality.rs:339:40
+    |
+339 |             "generate AI images with a script",
+    |                                        ^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+339 |             "generate AI images with a script ",
+    |                                              +
+
+error: prefix `pipeline` is unknown
+   --> crates\ruke-skills\src\modality.rs:340:28
+    |
+340 |             "text-to-image pipeline",
+    |                            ^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+340 |             "text-to-image pipeline ",
+    |                                    +
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:349:34
+    |
+349 |             "# CSV charting guide\nExplain why you should NOT use Midjourney for tabular data.",
+    |                                  ^
+
+error: prefix `clips` is unknown
+   --> crates\ruke-skills\src\modality.rs:355:20
+    |
+355 |             "sora2 clips",
+    |                    ^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+355 |             "sora2 clips ",
+    |                         +
+
+error: prefix `Firefly` is unknown
+   --> crates\ruke-skills\src\modality.rs:357:18
+    |
+357 |             "use Firefly",
+    |                  ^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+357 |             "use Firefly ",
+    |                         +
+
+error: prefix `Midjourney` is unknown
+   --> crates\ruke-skills\src\modality.rs:358:50
+    |
+358 |             "a three.js skill that also mentions Midjourney",
+    |                                                  ^^^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+358 |             "a three.js skill that also mentions Midjourney ",
+    |                                                            +
+
+error: prefix `garden` is unknown
+   --> crates\ruke-skills\src\modality.rs:361:31
+    |
+361 |             "fireflies in the garden",
+    |                               ^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+361 |             "fireflies in the garden ",
+    |                                     +
+
+error: prefix `friends` is unknown
+   --> crates\ruke-skills\src\modality.rs:362:24
+    |
+362 |             "imaginary friends",
+    |                        ^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+362 |             "imaginary friends ",
+    |                               +
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:363:17
+    |
+363 |             "---\nname: humanizer\ndescription: Remove AI writing patterns.\n---\nRewrite the text.",
+    |                 ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:363:34
+    |
+363 |             "---\nname: humanizer\ndescription: Remove AI writing patterns.\n---\nRewrite the text.",
+    |                                  ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:363:76
+    |
+363 |             "---\nname: humanizer\ndescription: Remove AI writing patterns.\n---\nRewrite the text.",
+    |                                                                            ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:363:81
+    |
+363 |             "---\nname: humanizer\ndescription: Remove AI writing patterns.\n---\nRewrite the text.",
+    |                                                                                 ^
+
+error: unknown start of token: \
+   --> crates\ruke-skills\src\modality.rs:365:27
+    |
+365 |             "# Clean Skill\nPlain body only.",
+    |                           ^
+
+error: prefix `diagrams` is unknown
+   --> crates\ruke-skills\src\modality.rs:376:41
+    |
+376 |             "three.js isometric anatomy diagrams",
+    |                                         ^^^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+376 |             "three.js isometric anatomy diagrams ",
+    |                                                 +
+
+error: prefix `canvas` is unknown
+   --> crates\ruke-skills\src\modality.rs:377:55
+    |
+377 |             "renders charts and generates images with canvas",
+    |                                                       ^^^^^^ unknown prefix
+    |
+    = note: prefixed identifiers and literals are reserved since Rust 2021
+help: consider inserting whitespace here
+    |
+377 |             "renders charts and generates images with canvas ",
+    |                                                             +
+
+error: unexpected closing delimiter: `}`
+   --> crates\ruke-skills\src\modality.rs:393:5
+    |
+159 |     r"(?i)\b(?:curl|wget|fetch\s*\(|axios\.post|requests\.(?:post|get)|httpx\.post|urllib)[^\n]{0,160}(?:images?/
+generations|videos...
+    |             - the nearest open delimiter
+...
+390 |         ] {
+    |         - missing open `[` for this delimiter
+...
+393 |     }
+    |     ^ unexpected closing delimiter
+
+error: could not compile `ruke-skills` (lib) due to 195 previous errors
+warning: build failed, waiting for other jobs to finish...

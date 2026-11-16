@@ -154,6 +154,15 @@ SERP + pages via tool envelopes.
    order. The `X-Web-Citations`/`X-Search-Gate` header pair is GONE from EVERY chat response:
    the legacy stream:false path is a PLAIN FORWARD (`web-search/02`) — headers, stage frames,
    tools and evidence are all absent there.
+   TERMINAL-OWNERSHIP LAW (F16, 2026-11-15 brief): the completion snapshot rides BEFORE the
+   single `data: [DONE]` sentinel, never after it. Anything emitted after the terminal sentinel
+   is chunking-dependent dead bytes — the client stops at `[DONE]`, so the final ledger/citation
+   snapshot silently disappeared depending on how the network split frames. Corpus bytes for
+   `web-search/01`, `03`, `04` were re-recorded through the sanctioned `RUKE_GOLDEN_UPDATE=1`
+   seam (never hand-edited) and the diff was verified frame-by-frame: identical frame multisets,
+   identical non-body sections, ONLY the trailing `web_meta` ↔ `done` pair swapped. Re-record is
+   only ever legitimate for a documented contract change like this one — never to silence a
+   failing assertion.
 7. `metasearch()` leaves an uncleared 15 s hard-cap `setTimeout` after every call (delays vitest
    worker exit; harmless) — Part 6 port must still honour the 15 s cap semantics.
 8. Gate regexes `KNOWN_SITE_TOKEN_RE`/`DOMAIN_TLD_TOKEN_RE` in `search-gate.ts` are defined but

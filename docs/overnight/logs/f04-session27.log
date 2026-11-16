@@ -1,0 +1,23 @@
+SESSION 27 - F04 task-scope leakage (TS + Rust, closed offline)
+law: carriesOwnTask (TS) == carries_own_task (Rust)
+  head slot after CONTINUATION_SCAFFOLD/ARTICLES/PREPS/ONLY_LEAD/COPULAS;
+  reset only when that head is a CONTENT token (outside every closed-class
+  vocabulary of this law) AND another content token follows it.
+  Rationale: this domain's action verbs, shopping/UI nouns, scaffolding and
+  anaphora cues are ALL closed class, so a content head is by construction a
+  fresh predicate. Noun fragments stay continuations ("the chargers again").
+changed: lib/decision/task-scope.ts (carriesOwnTask + NON_HEAD_OPENERS + merge rules 2/3 gated)
+         rust-backend/crates/ruke-server/src/task_scope.rs (carries_own_task, is_non_head_opener, merge rules 2/3)
+         rust-backend/fixtures/task-scope/cases.json (+3 merge cases, +8 comment law lines, shared by both languages)
+         __tests__/decision/task-scope.test.ts (+3 law/safety/positive-control tests)
+         rust task_scope.rs #[cfg(test)] (+3 f04 tests)
+gates:
+  npx vitest run __tests__/decision -> 86 passed / 86, exit 0
+  cargo test -p ruke-server --lib f04 --target-dir D:\Projects\WebUI\target-ci -> 3 passed, exit 0
+  cargo test -p ruke-server --lib --target-dir D:\Projects\WebUI\target-ci -> 220 passed / 0 failed, exit 0
+    (corpus_merges now replays the 3 new F04 legs in Rust too)
+classification: F04 = REPRODUCED (poem/pronoun turn inherited the whole prior scope,
+including operate intent + destination, which routes the browser loop) and FIXED.
+positive controls kept: "add bread too", "the chargers again", "on the checkout page"
+still carry the operate session; "What is its rating?" keeps the SUBJECT as evidence
+scope while intent research stays NON-operational (no mandatoryHosts wall, no browser).

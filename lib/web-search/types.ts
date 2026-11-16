@@ -172,6 +172,16 @@ export interface EvidencePassage {
    * FIRST original wins across repeated filter passes.
    */
   originalPassageText?: string;
+  /**
+   * F06 (2026-11-16 brief): a backup copy nobody reads is not evidence
+   * access. These are the [start, end) spans of the KEPT blocks inside the
+   * LF-normalized canonical bytes (`originalPassageText`, CRLF folded), in
+   * document order and non-overlapping - so the removed text is exactly
+   * their complement and a consumer can recover an omitted block by
+   * address instead of re-fetching or re-guessing. Absent whenever no
+   * filter pass mutated this passage (no-copy-on-unchanged law).
+   */
+  filterKeptRanges?: Array<[number, number]>;
   bm25Score: number;
 }
 

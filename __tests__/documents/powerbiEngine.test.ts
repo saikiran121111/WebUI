@@ -96,8 +96,14 @@ describe("powerbi engine (PBIP + TMDL + PBIR)", () => {
     const lines = csv.split("\r\n");
     expect(lines[0]).toBe("Date,Region,Revenue,Cost");
     expect(lines[1]).toBe("2024-01-15,NA,120000,80000");
-    expect(lines[2]).toBe("2024-02-10,EMEA,95000,0");
-    expect(csv).not.toContain(",,");
+    // F11: the null Cost is a BLANK field, not a fabricated 0 and not the text "N/A".
+    expect(lines[2]).toBe("2024-02-10,EMEA,95000,");
+    // The row still has exactly the header's cell count (the package gate enforces it).
+    expect(csv.split("\r\n")[2].split(",").length).toBe(4);
+    // ...and the decision is reported, not hidden inside the file.
+    expect(out.datasetIssues).toEqual([
+      expect.objectContaining({ column: "Cost", row: 2, reason: "missing_value" }),
+    ]);
 
     // embedded .pbit is itself a valid zip with the model definition
     const pbitRaw = zip["Sales_Analysis/Sales_Analysis.pbit"];

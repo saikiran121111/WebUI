@@ -1,0 +1,20 @@
+F06 gate (session 35, 2026-11-16) - native Windows, isolated test data
+
+[1] npx tsc --noEmit --incremental false                 exit 0
+[2] npx vitest run (5 touched files)                     exit 0  5 files / 156 tests
+    first attempt: 10 failures in mhr-e-retrievable-evidence
+      cause: tools.ts imported mapSpansThroughKept from the module the suite replaces
+             with a test double -> real address algebra was mocked away
+      fix:   new leaf module lib/web-search/range-math.ts (segment-filter re-exports it)
+             test doubles and goldens untouched
+[3] npx vitest run __tests__/web-search                  exit 0  68 files / 864 passed / 2 skipped
+
+New model-facing behavior pinned (segment-canonical-recovery.test.ts):
+  - first read of a focus-filtered page: filteredChars > 0, truncated: true, hint offered,
+    and the answer block is NOT in the served text (positive control: the filter still filters)
+  - continuation:true on the same URL: answer recovered from the retained CANONICAL bytes,
+    same [S#], no new citation, extractCalls stays 1 (zero network), recoveredFilteredChars > 0
+  - third round: exhausted:true, no re-served text, provenanceMismatch:false
+  - retained block: id "S1#b1", contentHash matches /^[0-9a-f]{8}$/, filteredOutRanges non-empty,
+    servedRanges are in-bounds canonical coordinates
+  - two filter hops: kept ranges still reconstruct the CURRENT view out of the ORIGINAL bytes

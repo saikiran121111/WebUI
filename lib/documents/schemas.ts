@@ -6,6 +6,8 @@
  * both server engines and client viewers.
  */
 
+import { parseNumericLiteral, looksMissing } from "./valueModel";
+
 export type CellFormat = "currency" | "percent" | "date" | "number" | "integer" | "text";
 
 // ---------- resume ----------
@@ -117,6 +119,14 @@ export function normalizeDocx(raw: any): DocxSpec | null {
 // ---------- xlsx ----------
 export interface XlsxColumn {
   key: string; label: string; width?: number; format: CellFormat;
+  /** F11: how a missing/blank/invalid value is materialized. Default "blank" -
+   *  the engine must not invent 0 for an absent measurement. */
+  nullPolicy?: "blank" | "zero" | "text";
+  /** F11: currency symbol or ISO code for format "currency" (default "$"). */
+  currency?: string;
+  /** F11: what a BARE number means in a percent column. Without it the number is
+   *  kept un-scaled instead of being guessed from its magnitude. */
+  percentScale?: "fraction" | "points";
   validation?: { type: "list"; values: string[] } | { type: "decimal"; min?: number; max?: number };
 }
 /**
@@ -319,12 +329,24 @@ export function normalizeXlsx(raw: any): XlsxSpec | null {
     const columns: XlsxColumn[] = arr(sh.columns).map((c: any, i: number) => {
       const key = str(c?.key ?? c?.id ?? c?.name, "col" + (i + 1));
       const fmt = FORMATS.has(str(c?.format) as CellFormat) ? (c.format as CellFormat) : "text";
+      const npRaw = str(c?.nullPolicy ?? c?.nulls ?? c?.empty);
+      const nullPolicy = ["blank", "zero", "text"].includes(npRaw) ? (npRaw as "blank" | "zero" | "text") : undefined;
+      const declaredCurrency = c?.currency != null && String(c.currency).trim() ? String(c.currency).trim().slice(0, 8) : undefined;
+      const psRaw = str(c?.percentScale ?? c?.percentConvention ?? c?.percent);
+      const percentScale = psRaw === "points" ? "points" : psRaw === "fraction" ? "fraction" : undefined;
       const validation = c?.validation && typeof c.validation === "object"
         ? (str(c.validation.type) === "list"
             ? { type: "list" as const, values: arr(c.validation.values).map((v) => str(v)).filter(Boolean) }
             : { type: "decimal" as const, min: c.validation.min == null ? undefined : Number(c.validation.min), max: c.validation.max == null ? undefined : Number(c.validation.max) })
         : undefined;
-      return { key, label: str(c?.label ?? c?.header, key), width: c?.width ? Number(c.width) || undefined : undefined, format: fmt, validation };
+      return {
+        key, label: str(c?.label ?? c?.header, key),
+        width: c?.width ? Number(c.width) || undefined : undefined,
+        format: fmt, validation,
+        ...(nullPolicy ? { nullPolicy } : {}),
+        ...(declaredCurrency ? { currency: declaredCurrency } : {}),
+        ...(percentScale ? { percentScale } : {}),
+      };
     });
     if (!columns.length) continue;
     const rawRows = arr(sh.rows ?? sh.data);
@@ -492,6 +514,8 @@ export interface BiMeasure { name: string; dax: string }
 export interface BiVisual { type: "kpi" | "bar" | "area" | "donut" | "waterfall" | "table"; title: string; dimension?: string; measure?: string; format?: "currency" | "percent" | "number"; columns?: string[] }
 export interface BiSlicer { field: string; type: "list" | "date-range" }
 export interface PowerbiSpec {
+  /** F11: value decisions the normalizer made on the dataset (not a fence field). */
+  datasetIssues?: BiValueIssue[];
   filename: string;
   dataset: { columns: BiColumn[]; rows: (string | number | null)[][] };
   measures: BiMeasure[];
@@ -512,7 +536,9 @@ function inferType(values: unknown[]): BiColumnType {
     if (typeof v === "number") { num++; continue; }
     const s = String(v).trim();
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) { date++; continue; }
-    if (s !== "" && !isNaN(Number(s.replace(/[$,%]/g, "")))) num++;
+    // F11: currency/percent literals ("Rs 1,200", "12%") count as numbers; the old
+    // strip-[$,%] hack made non-$ currency NaN, so the column inferred as string.
+    if (parseNumericLiteral(s) !== null) num++;
   }
   if (!total) return "string";
   if (date / total > 0.6) return "date";
@@ -521,17 +547,51 @@ function inferType(values: unknown[]): BiColumnType {
 }
 
 /** Zero-null sanitization: numeric → 0, text/date → "N/A". */
-export function sanitizeBiDataset(columns: BiColumn[], rows: unknown[][]): (string | number | null)[][] {
-  return rows.map((r) => columns.map((c, i) => {
+/**
+ * F11 dataset sanitization. Absent or unparseable values in a numeric column are
+ * no longer turned into a measured zero: they become a blank cell (null) or keep
+ * their literal text, and every decision is reported in the returned issues so
+ * the build can surface it instead of shipping a fabricated measurement.
+ * Currency and percent literals are parsed properly (non-"$" symbols included).
+ */
+export function sanitizeBiDataset(
+  columns: BiColumn[],
+  rows: unknown[][],
+): { rows: (string | number | null)[][]; issues: BiValueIssue[] } {
+  const issues: BiValueIssue[] = [];
+  const out = rows.map((r, ri) => columns.map((c, i) => {
     const v = r?.[i];
     if (c.type === "number") {
-      if (typeof v === "number" && isFinite(v)) return v;
-      const n = Number(String(v ?? "").replace(/[$,%\s]/g, ""));
-      return isFinite(n) ? n : 0;
+      if (typeof v === "number") {
+        if (Number.isFinite(v)) return v;
+        issues.push({ column: c.name, row: ri + 1, raw: String(v), reason: "non_finite", action: "blank cell - NaN/Infinity is not a measurement" });
+        return null;
+      }
+      if (looksMissing(v)) {
+        issues.push({ column: c.name, row: ri + 1, raw: v == null ? "" : String(v), reason: "missing_value", action: "blank cell instead of 0 (unknown is not zero)" });
+        return null;
+      }
+      const parsed = parseNumericLiteral(String(v));
+      if (parsed === null) {
+        issues.push({ column: c.name, row: ri + 1, raw: String(v), reason: "not_a_number", action: "kept the text verbatim in a numeric column" });
+        return String(v);
+      }
+      return parsed.percent ? parsed.num / 100 : parsed.num;
     }
     if (v == null || v === "") return "N/A";
     return String(v);
   }));
+  return { rows: out, issues };
+}
+
+/** F11: one value-decision record surfaced by the document engines. */
+export interface BiValueIssue {
+  column: string;
+  /** 1-based data row index (not a spreadsheet address). */
+  row: number;
+  raw: string;
+  reason: string;
+  action: string;
 }
 
 export function normalizePowerbi(raw: any): PowerbiSpec | null {
@@ -542,7 +602,9 @@ export function normalizePowerbi(raw: any): PowerbiSpec | null {
     name: str(c?.name ?? c?.label, "col" + (i + 1)),
     type: BI_TYPES.has(str(c?.type) as BiColumnType) ? (c.type as BiColumnType) : inferType(ds.rows.map((r: any) => r?.[i])),
   }));
-  const rows = sanitizeBiDataset(columns, ds.rows);
+  const bi = sanitizeBiDataset(columns, ds.rows);
+  const rows = bi.rows;
+  const biIssues = bi.issues;
   const measures: BiMeasure[] = arr(raw.measures).map((m: any) => ({ name: str(m?.name), dax: str(m?.dax ?? m?.expression) })).filter((m) => m.name && m.dax);
   if (!measures.length) {
     const numCol = columns.find((c) => c.type === "number");
@@ -564,6 +626,7 @@ export function normalizePowerbi(raw: any): PowerbiSpec | null {
   }
   const slicers: BiSlicer[] = arr(raw.slicers).map((s: any) => ({ field: str(s?.field), type: (s?.type === "date-range" ? "date-range" : "list") as BiSlicer["type"] })).filter((s) => s.field);
   return {
+    ...(biIssues.length ? { datasetIssues: biIssues } : {}),
     filename: str(raw.filename, "powerbi_report"),
     dataset: { columns, rows },
     measures, visuals, slicers,

@@ -27,11 +27,23 @@
 import { metasearch, normalizeUrl } from "./metasearch";
 import { extractUrl, renumberPackets } from "./extractor";
 import { applySegmentFilter } from "./segment-filter";
+import { mapSpansThroughKept } from "./range-math";
 import { collectRouteLinks, focusTokens } from "./route-links";
 import { isSafeUrlWithDns } from "./ssrf";
 import type { SearchDecision, RankedResult } from "./types";
 import { retrievalModeForFreshness } from "./types";
 import { domainWithin } from "./domain-match";
+// F13/P7 (brief part 8): the media-evidence contract. Types + the ranking
+// law live in one place (lib/server/attachindex/media-hints.ts, mirrored by
+// python-backend/ruke_ml/video/search_hints.py); the tool layer only CONSUMES
+// them, so a search-tool argument can be derived from stored evidence while
+// the derivation law stays single-owned.
+import {
+  MEDIA_HINT_QUERY_CAP,
+  clueKey,
+  mediaHintQueryPairs,
+  type MediaHint,
+} from "../server/attachindex/media-hints";
 import {
   isEnforceableScope,
   isOperationalScope,
@@ -274,6 +286,15 @@ export interface WebToolSession {
    * passages, not a byte-store that could serve stale text as live.
    */
   docStore: Map<string, RetainedDoc>;
+  /**
+   * F13/P7 (brief part 8): evidence clues derived from the attachment
+   * timelines THIS turn references (transcript/OCR/scene evidence with real
+   * source seconds). They may join the real web_search arguments below so
+   * media evidence can actually steer retrieval instead of only being read
+   * as text. Empty for turns with no indexed media - and an injected clue is
+   * always labelled, never laundered into a model-authored query.
+   */
+  mediaHints: MediaHint[];
 }
 
 /** Conversation identity a tool session journals research under. */
@@ -291,8 +312,27 @@ export interface WebToolConversation {
  * out, so continuation can compute the honest remainder.
  */
 export interface RetainedBlock {
+  /** F06 (2026-11-16 brief): the CANONICAL source bytes of this document
+   *  block, i.e. what was actually fetched BEFORE the focus filter pruned
+   *  the working view (LF-normalized). A retained copy that only holds the
+   *  filtered view cannot give back the evidence the filter could not see,
+   *  so continuation would silently re-offer a partial page as the whole
+   *  page. Canonical bytes plus ranges make the omitted text addressable.
+   *  Immutable after the block is retained. */
   text: string;
+  /** Raw [start, end) spans of `text` already handed out. */
   servedRanges: Array<[number, number]>;
+  /** F06: canonical spans the fetch-side focus filter removed from the
+   *  working view. They are NOT served yet, and continuation serves them
+   *  when the investigator asks for what the first pass left out. */
+  filteredOutRanges: Array<[number, number]>;
+  /** F06 provenance: FNV-1a 32 over the canonical bytes. Read by the
+   *  continuation path to prove the retained copy is still the bytes this
+   *  session fetched - never a decorative field. */
+  contentHash: string;
+  /** F06: stable address of this block within the session
+   *  ("S3#b2" == document block 2 of [S3], the block §2 names). */
+  id: string;
 }
 
 export interface RetainedDoc {
@@ -337,6 +377,56 @@ function complementRanges(served: Array<[number, number]>, len: number): Array<[
   return out;
 }
 
+/** FNV-1a 32 over the UTF-8 bytes, hex - the fingerprint idiom already
+ *  used by the attachment ledger. Bounded, stable, no dependency. */
+function contentFingerprint(text: string): string {
+  let h = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(text)) {
+    h ^= byte;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/** F06: the canonical bytes of a fetched passage plus the spans of the
+ *  working view inside them. An unfiltered passage IS its own canonical
+ *  text; a filtered one keeps the originals on `originalPassageText` with
+ *  the surviving spans on `filterKeptRanges`. Bad provenance degrades to
+ *  "treat the whole canonical block as one", never to a crash. */
+function canonicalPassage(passage: {
+  passageText: string;
+  originalPassageText?: string;
+  filterKeptRanges?: Array<[number, number]>;
+}): { text: string; kept: Array<[number, number]> } {
+  const raw = passage.originalPassageText;
+  if (raw === undefined) {
+    const t = passage.passageText;
+    return { text: t, kept: [[0, t.length]] };
+  }
+  const text = raw.replace(/\r\n/g, "\n");
+  const spans: Array<[number, number]> = [];
+  for (const r of passage.filterKeptRanges ?? []) {
+    if (!Array.isArray(r) || r.length !== 2) continue;
+    const a = Math.max(0, Math.min(text.length, Math.trunc(r[0])));
+    const b = Math.max(0, Math.min(text.length, Math.trunc(r[1])));
+    if (a < b) spans.push([a, b]);
+  }
+  return { text, kept: spans.length > 0 ? spans : [[0, text.length]] };
+}
+
+/** Overlap in characters between two sorted range lists. */
+function overlapChars(a: Array<[number, number]>, b: Array<[number, number]>): number {
+  let total = 0;
+  for (const [as, ae] of a) {
+    for (const [bs, be] of b) {
+      const lo = Math.max(as, bs);
+      const hi = Math.min(ae, be);
+      if (hi > lo) total += hi - lo;
+    }
+  }
+  return total;
+}
+
 /** MHR-E: seed the session's registry from prior-turn aliases (the
  *  rehydrated [S#] citation map) so a fresh fetch of a document this
  *  conversation already holds re-serves the SAME alias, every wave. */
@@ -370,6 +460,7 @@ export function makeWebToolSession(
   scope: TaskScope | null = null,
   liveRequired = false,
   conversation: WebToolConversation | null = null,
+  mediaHints: MediaHint[] = [],
 ): WebToolSession {
   return {
     searchSessionId: "ws-" + Math.random().toString(36).slice(2, 10),
@@ -383,6 +474,7 @@ export function makeWebToolSession(
     scope,
     liveRequired,
     conversation,
+    mediaHints,
     sourceRegistry: new Map(),
     docStore: new Map(),
   };
@@ -920,10 +1012,26 @@ async function readOneUrl(
     // retrieves). The old loop broke at the cap and the seventh block
     // simply did not exist as far as the session was concerned.
     const retainedBlocks: RetainedBlock[] = [];
+    // Parallel bookkeeping for the WORKING view (what is served and windowed
+    // this pass) versus the canonical bytes (what is retained): `viewLens`
+    // indexes the view text of each retained block, so served ranges recorded
+    // in view coordinates can be mapped onto canonical addresses.
+    const viewLens: number[] = [];
+    let filteredOutChars = 0;
     for (const p of packet.passages) {
       const t = p.passageText;
       if (t.trim() === "") continue;
-      retainedBlocks.push({ text: t, servedRanges: [] });
+      const canonical = canonicalPassage(p);
+      const ordinal = retainedBlocks.length + 1;
+      retainedBlocks.push({
+        text: canonical.text,
+        servedRanges: [],
+        filteredOutRanges: complementRanges(canonical.kept, canonical.text.length),
+        contentHash: contentFingerprint(canonical.text),
+        id: `${packet.sourceId}#b${ordinal}`,
+      });
+      viewLens.push(t.length);
+      filteredOutChars += Math.max(0, canonical.text.length - t.length);
       if (blocks.length >= MAX_PASSAGES_PER_PAGE) {
         droppedBlocks += 1;
         continue;
@@ -969,7 +1077,17 @@ async function readOneUrl(
       // MHR-E: record ONLY what was actually handed out, in raw block
       // coordinates, so a continuation can honestly compute the rest.
       const rb = retainedBlocks[blockNums[i]];
-      rb.servedRanges.push(...(winRanges[i] ?? [[0, rb.text.length]]));
+      // The window arithmetic ran on the working view; the ledger speaks
+      // canonical addresses, so translate once here. Unfiltered blocks map
+      // 1:1 (their kept list is the whole block).
+      const viewSpans: Array<[number, number]> =
+        winRanges[i] ?? [[0, viewLens[blockNums[i]]]];
+      rb.servedRanges.push(
+        ...mapSpansThroughKept(
+          complementRanges(rb.filteredOutRanges, rb.text.length),
+          viewSpans,
+        ),
+      );
     }
     if (kept.length === 0) {
       return {
@@ -1035,10 +1153,14 @@ async function readOneUrl(
         // WS11: a window drop is not invisible — count the focus-matched
         // clusters left outside the returned windows and hand the
         // investigator an explicit continuation affordance.
-        truncated: kept.length < blocks.length || blocksCut || droppedBlocks > 0,
+        truncated: kept.length < blocks.length || blocksCut || droppedBlocks > 0 || filteredOutChars > 0,
         ...(droppedBlocks > 0 ? { droppedBlocks } : {}),
         ...(droppedSections > 0 ? { droppedSections } : {}),
-        ...(droppedSections > 0 || droppedBlocks > 0
+        // F06: a focus filter pruned bytes out of the working view. The page
+        // entry says so, in characters, and the same continuation affordance
+        // hands them back - the pruned text is withheld, never destroyed.
+        ...(filteredOutChars > 0 ? { filteredChars: filteredOutChars } : {}),
+        ...(droppedSections > 0 || droppedBlocks > 0 || filteredOutChars > 0
           ? {
               continuationHint:
                 "focus-matched sections beyond the window budget were not returned; call read_page again on this URL with continuation:true (a different focus is allowed) to retrieve them without re-fetching",
@@ -1149,9 +1271,15 @@ async function readRetainedBatch(
     const servedTexts: string[] = [];
     const servedRefs: string[] = [];
     let contSectionsDropped = 0;
+    // F06: how much of what comes back is text the focus filter had pruned
+    // out of the first pass (recovered, not invented), and a provenance
+    // tripwire: the retained bytes must still hash to what was fetched.
+    let recoveredFilteredChars = 0;
+    let provenanceMismatch = false;
     for (let bi = 0; bi < doc.blocks.length; bi++) {
       if (servedTexts.length >= MAX_PASSAGES_PER_PAGE) break;
       const blk = doc.blocks[bi];
+      if (contentFingerprint(blk.text) !== blk.contentHash) provenanceMismatch = true;
       const pending = complementRanges(blk.servedRanges, blk.text.length);
       if (pending.length === 0) continue;
       const cand = pendingCandidate(blk.text, pending);
@@ -1166,6 +1294,7 @@ async function readRetainedBatch(
         ? mapWindowsToRaw(chosenToTuples(win.chosen), cand.segs)
         : cand.segs.map((s) => [s.from, s.to] as [number, number]);
       blk.servedRanges = mergeRanges([...blk.servedRanges, ...rawServed]);
+      recoveredFilteredChars += overlapChars(rawServed, blk.filteredOutRanges);
     }
     const stillPending = doc.blocks.some(
       (b) => complementRanges(b.servedRanges, b.text.length).length > 0,
@@ -1181,6 +1310,9 @@ async function readRetainedBatch(
         passages: [],
         passageRefs: [],
         exhausted: true,
+        // F06: exhausted describes the RETAINED canonical copy, so it must
+        // never claim more than the session actually holds.
+        ...(provenanceMismatch ? { provenanceMismatch: true } : {}),
       });
       continue;
     }
@@ -1195,6 +1327,10 @@ async function readRetainedBatch(
       passageRefs: servedRefs,
       truncated: stillPending,
       ...(contSectionsDropped > 0 ? { droppedSections: contSectionsDropped } : {}),
+      // F06: name the recovery honestly - this round handed back bytes an
+      // earlier focus pass had pruned from the working view.
+      ...(recoveredFilteredChars > 0 ? { recoveredFilteredChars } : {}),
+      ...(provenanceMismatch ? { provenanceMismatch: true } : {}),
       ...(stillPending || contSectionsDropped > 0
         ? {
             continuationHint:
@@ -1397,8 +1533,48 @@ export async function execWebSearchTool(
     }
   }
 
+  // F13/P7 (brief part 8, "connect video evidence to search"): a clue the
+  // media ACTUALLY contains - a visible URL, a quoted phrase, a proper noun -
+  // may join this call's real arguments, so a question about a video can
+  // reach the engines with evidence-derived text instead of only the model's
+  // guess. Laws: bounded (MEDIA_HINT_QUERY_CAP per call), never a duplicate
+  // of something already asked (script-preserving comparison, F05 law), and
+  // always LABELLED - the queryResults entry carries origin "media-evidence"
+  // plus its provenance, so the envelope never presents a derived query as a
+  // model-authored one. URL-shaped clues follow the existing url-shaped READ
+  // law (never an engine query). Scope, SSRF, freshness and read budgets are
+  // NOT bypassed: injected legs run through the same walls as model legs.
+  const evidenceOrigin = new Map<string, string>();
+  if (session.mediaHints.length > 0 && searchQueries.length > 0) {
+    const asked = searchQueries.map((q) => clueKey(q)).filter((k) => k !== "");
+    for (const pair of mediaHintQueryPairs(session.mediaHints, MEDIA_HINT_QUERY_CAP)) {
+      const key = clueKey(pair.query);
+      if (key === "") continue;
+      if (pair.hint.kind === "url" || URL_SHAPE.test(pair.query)) {
+        const target = pair.query.replace(/^"|"$/g, "");
+        const already = readUrls.some((u) => normalizeUrl(u) === normalizeUrl(target));
+        if (!already && normalizeUrl(target) !== "") {
+          readUrls.push(target);
+          notices.push(`media-evidence url routed to read_page semantics: ${target} (${pair.hint.provenance})`);
+        }
+        continue;
+      }
+      if (asked.some((a) => a.includes(key))) continue;
+      asked.push(key);
+      searchQueries.push(pair.query);
+      evidenceOrigin.set(pair.query, pair.hint.provenance);
+      notices.push(`media-evidence clue searched: ${pair.query} (${pair.hint.provenance})`);
+    }
+  }
+
   const failures: RetrievalFailureEntry[] = [];
-  const queryResults: { query: string; intent: string; resultCount: number }[] = [];
+  const queryResults: {
+    query: string;
+    intent: string;
+    resultCount: number;
+    origin?: string;
+    evidence?: string;
+  }[] = [];
   const merged: RankedResult[] = [];
   const seen = new Set<string>();
   if (searchQueries.length > 0) {
@@ -1417,7 +1593,14 @@ export async function execWebSearchTool(
       }),
     );
     for (const { query, rs } of perQuery) {
-      queryResults.push({ query, intent, resultCount: rs.length });
+      queryResults.push({
+        query,
+        intent,
+        resultCount: rs.length,
+        ...(evidenceOrigin.has(query)
+          ? { origin: "media-evidence", evidence: evidenceOrigin.get(query) }
+          : {}),
+      });
       for (const r of rs) {
         const key = normalizeUrl(r.url);
         if (seen.has(key)) continue;

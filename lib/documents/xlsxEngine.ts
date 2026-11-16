@@ -11,6 +11,10 @@ import { normalizeXlsx, cfColors, type XlsxSpec, type XlsxColumn, type XlsxCondi
 import { recalcWorkbook, type RecalcSheet } from "./recalc";
 import { safeName, renderChartPng } from "./pdfEngine";
 import { chartHtmlDocument } from "./chartHtml";
+import {
+  parseCellValue, displayValue, columnNumFmt, parseStrictNumber, resolvePercentScale,
+  type ColumnSemantics, type ParsedValue, type ScaleSource, type ValueIssue,
+} from "./valueModel";
 
 const NUMFMT: Record<string, string> = {
   currency: '$#,##0.00',
@@ -23,30 +27,54 @@ const NUMFMT: Record<string, string> = {
 
 const isFormula = (v: unknown): boolean => typeof v === "string" && v.trim().startsWith("=");
 
-function sanitizeValue(v: unknown, col: XlsxColumn): string | number {
-  if (col.format === "text" || col.format === "date") {
-    if (v == null || v === "") return "N/A";
-    return String(v);
-  }
-  if (v == null || v === "") return 0;
-  if (typeof v === "number") return isFinite(v) ? v : 0;
-  const n = Number(String(v).replace(/[$,%\s]/g, ""));
-  return isFinite(n) ? n : 0;
+/** F11: a spec column expressed in the shared value model's terms. */
+function sem(col: XlsxColumn): ColumnSemantics {
+  return { format: col.format, nullPolicy: col.nullPolicy, currency: col.currency, percentScale: col.percentScale };
 }
 
-/** Approximate on-screen text for width fitting (mirrors the client preview). */
-function previewText(v: unknown, col: XlsxColumn): string {
-  if (v == null || v === "") return col.format === "text" || col.format === "date" ? "N/A" : "0";
-  if (col.format === "text" || col.format === "date") return String(v);
-  const n = typeof v === "number" ? v : Number(String(v).replace(/[$,%\s]/g, ""));
-  if (!isFinite(n)) return String(v);
-  switch (col.format) {
-    case "currency": return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    case "percent": return (n <= 1.5 ? (n * 100).toFixed(1) : n.toFixed(1)) + "%";
-    case "integer": return Math.round(n).toLocaleString("en-US");
-    case "number": return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
-    default: return String(n);
-  }
+/** Back-compat shim for callers that only need the materialized value.
+ *  Prefer parseCellValue: it also reports WHY a value changed shape. */
+function sanitizeValue(v: unknown, colSem: ColumnSemantics): string | number | boolean | null {
+  return parseCellValue(v, colSem).value;
+}
+
+/** Number format for one cell: the value's own detected/declared semantics win. */
+function numFmtFor(parsed: ParsedValue, colSem: ColumnSemantics): string {
+  return parsed.numFmt ?? columnNumFmt(colSem);
+}
+
+/**
+ * F11: the column's value semantics, with the percent scale resolved from
+ * declarations only (percentScale, else the column's own decimal bounds).
+ * Resolved once per column so literals AND formulas in the same column
+ * render under one unit convention â€” a derived margin is still a margin.
+ */
+function colSemantics(col: XlsxColumn): { sem: ColumnSemantics; scaleSource: ScaleSource } {
+  const base = sem(col);
+  const v = col.validation as { type?: string; min?: number; max?: number } | undefined;
+  const r = resolvePercentScale(base, v && v.type === "decimal" ? { min: v.min, max: v.max } : undefined);
+  if (!r.scale) return { sem: base, scaleSource: "none" };
+  return { sem: { ...base, percentScale: r.scale }, scaleSource: r.source };
+}
+
+/** F11: one recorded value decision, addressable to a sheet/cell. */
+export interface XlsxValueIssue extends ValueIssue {
+  sheet: string;
+  /** A1 address, or "" when the decision is not cell-specific. */
+  cell: string;
+  column: string;
+  /** The literal from the request, verbatim ("" when the key was absent). */
+  raw: string;
+}
+
+/**
+ * Approximate on-screen text for width fitting (mirrors the client preview).
+ * F11: no scale guessed from magnitude — an undeclared percent renders as a
+ * plain number, and a blank cell has no display text at all.
+ */
+function previewText(v: unknown, colSem: ColumnSemantics): string {
+  if (v == null || v === "") return "";
+  return displayValue(v, colSem);
 }
 
 export interface XlsxBuildResult {
@@ -54,6 +82,9 @@ export interface XlsxBuildResult {
   filename: string;
   contentType: string;
   recalcErrors: number;
+  /** F11: every value the engine could not measure as given, and what it did
+   *  instead. Never empty when the engine declined to invent a measurement. */
+  valueIssues: XlsxValueIssue[];
 }
 
 export class XlsxRecalcError extends Error {
@@ -77,12 +108,26 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
   // Per-sheet geometry kept for the post-recalc width pass; formula cells are
   // tracked so the recalc RESULT can be cached into them (Excel/preview then
   // shows values immediately instead of blank "###" placeholders).
-  interface SheetCtx { ws: ExcelJS.Worksheet; sheet: (typeof spec.sheets)[number]; dataStart: number; dataEnd: number; totalRowIdx: number | null }
+  interface SheetCtx { ws: ExcelJS.Worksheet; sheet: (typeof spec.sheets)[number]; dataStart: number; dataEnd: number; totalRowIdx: number | null; colSem: ColumnSemantics[]; scaleSource: ScaleSource[] }
   const sheetCtx: SheetCtx[] = [];
   const formulaCells: { cell: ExcelJS.Cell; key: string; f: string }[] = [];
+  const valueIssues: XlsxValueIssue[] = [];
 
   for (const sheet of spec.sheets) {
     const ws = wb.addWorksheet(sheet.name);
+    const sems = sheet.columns.map((c) => colSemantics(c));
+    const seenScaleIssue = new Set<number>();
+    const scaleIssue = (ci: number, cellRef: string, raw: string) => {
+      if (sems[ci].scaleSource !== "bounds" || seenScaleIssue.has(ci)) return;
+      seenScaleIssue.add(ci);
+      const b = sheet.columns[ci].validation as { min?: number; max?: number } | undefined;
+      valueIssues.push({
+        sheet: sheet.name, cell: cellRef, column: sheet.columns[ci].key, raw,
+        reason: "percent_scale_undeclared",
+        detail: `column declares a ${b?.min}-${b?.max} range, so its numbers are ratios`,
+        action: "scaled with the 0-1 range this column declares; add percentScale (\"fraction\"|\"points\") to make that explicit",
+      });
+    };
     const cells = new Map<string, { formula?: string; value?: string | number | boolean | null }>();
     const colCount = sheet.columns.length;
     const dataStart = 2; // 1-based: header row is 1
@@ -106,18 +151,41 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
       const r = dataStart + ri;
       sheet.columns.forEach((col, ci) => {
         const cell = ws.getCell(r, ci + 1);
+        const cs = sems[ci].sem;
         const raw = row?.[col.key];
         if (isFormula(raw)) {
           const f = String(raw).trim().slice(1);
           cell.value = { formula: f };
           formulaCells.push({ cell, key: sheet.name + "!" + addr(ci + 1, r), f });
           cells.set(addr(ci + 1, r), { formula: "=" + f });
+          // F11: a formula inherits the COLUMN unit convention. Omitting it left
+          // a derived percentage printing as a bare ratio.
+          cell.numFmt = columnNumFmt(cs);
+          if (cs.format === "percent" && !cs.percentScale) {
+            valueIssues.push({
+              sheet: sheet.name, cell: addr(ci + 1, r), column: col.key, raw: String(raw),
+              reason: "percent_scale_undeclared",
+              detail: "formula in a percent column with no declared scale",
+              action: "formatted as a plain number â€” declare percentScale so a derived ratio is not shown un-scaled",
+            });
+          } else {
+            scaleIssue(ci, addr(ci + 1, r), String(raw));
+          }
         } else {
-          const v = sanitizeValue(raw, col);
-          cell.value = v;
-          cells.set(addr(ci + 1, r), { value: v });
+          const parsed = parseCellValue(raw, cs);
+          cell.value = parsed.value as unknown as ExcelJS.CellValue;
+          cells.set(addr(ci + 1, r), { value: parsed.value ?? null });
+          if (parsed.issue) {
+            valueIssues.push({
+              sheet: sheet.name, cell: addr(ci + 1, r), column: col.key,
+              raw: raw === undefined ? "" : String(raw), ...parsed.issue,
+            });
+          }
+          cell.numFmt = numFmtFor(parsed, cs);
+          if (parsed.issue?.reason === "percent_scale_undeclared" || cs.percentScale) {
+            if (sems[ci].scaleSource === "bounds") scaleIssue(ci, addr(ci + 1, r), String(raw ?? ""));
+          }
         }
-        cell.numFmt = NUMFMT[col.format] ?? NUMFMT.text;
         cell.border = { bottom: { style: "hair", color: { argb: "FFE5E7EB" } } };
         if (col.validation) {
           cell.dataValidation = col.validation.type === "list"
@@ -140,7 +208,7 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
           cell.value = { formula: f };
           formulaCells.push({ cell, key: sheet.name + "!" + addr(ci + 1, totalRowIdx), f });
           cells.set(addr(ci + 1, totalRowIdx), { formula: "=" + f });
-          cell.numFmt = NUMFMT[col.format] ?? NUMFMT.number;
+          cell.numFmt = columnNumFmt(sems[ci].sem);
         } else {
           cell.value = "—"; // zero-blank-cell mandate: never leave a total-row cell empty
           cells.set(addr(ci + 1, totalRowIdx), { value: "—" });
@@ -186,7 +254,7 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
     if (sheet.freezeHeader) ws.views = [{ state: "frozen", ySplit: 1, xSplit: 0 }];
 
     recalcSheets.push({ name: sheet.name, rowCount, colCount, cells });
-    sheetCtx.push({ ws, sheet, dataStart, dataEnd, totalRowIdx });
+    sheetCtx.push({ ws, sheet, dataStart, dataEnd, totalRowIdx, colSem: sems.map((s) => s.sem), scaleSource: sems.map((s) => s.scaleSource) });
   }
 
   // MANDATORY headless recalculation: errors_found must equal 0.
@@ -208,17 +276,18 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
   // formula source length, which is what produced the too-narrow columns.
   for (const ctx of sheetCtx) {
     ctx.sheet.columns.forEach((col, ci) => {
+      const cs = ctx.colSem[ci];
       let maxLen = String(col.label).length;
       ctx.sheet.rows.slice(0, 200).forEach((row, ri) => {
         const raw = row?.[col.key];
         const text = isFormula(raw)
-          ? previewText(recalc.computed.get(ctx.sheet.name + "!" + addr(ci + 1, ctx.dataStart + ri)), col)
-          : previewText(sanitizeValue(raw, col), col);
+          ? previewText(recalc.computed.get(ctx.sheet.name + "!" + addr(ci + 1, ctx.dataStart + ri)), cs)
+          : previewText(sanitizeValue(raw, cs), cs);
         if (text.length > maxLen) maxLen = text.length;
       });
       if (ctx.totalRowIdx) {
         const cv = recalc.computed.get(ctx.sheet.name + "!" + addr(ci + 1, ctx.totalRowIdx));
-        maxLen = Math.max(maxLen, cv === undefined ? 5 : previewText(cv, col).length);
+        maxLen = Math.max(maxLen, cv === undefined ? 5 : previewText(cv, cs).length);
       }
       ctx.ws.getColumn(ci + 1).width = col.width ?? Math.min(48, Math.max(10, Math.round(maxLen * 1.15) + 3));
     });
@@ -230,6 +299,7 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
     filename: safeName(spec.filename) + ".xlsx",
     contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     recalcErrors: 0,
+    valueIssues,
   };
 }
 
@@ -258,6 +328,14 @@ function resolveCfRange(cf: XlsxConditionalFormat, columns: XlsxColumn[], dataSt
   }
   return null;
 }
+/** F11: a conditional-format comparison value is a number or a quoted text
+ *  literal, never "Number(value) || 0" (which turns "OVERSPEND" into 0). */
+function cfCompareValue(v: unknown): number | string {
+  const n = parseStrictNumber(v);
+  if (n !== null) return n;
+  return '"' + String(v ?? "").replace(/["\\]/g, "") + '"';
+}
+
 function cfRuleToExcel(cf: XlsxConditionalFormat): ExcelJS.ConditionalFormattingRule {
   const c = cfColors(cf);
   // Partial style/rule objects: exceljs's full Style type demands numFmt/
@@ -269,8 +347,8 @@ function cfRuleToExcel(cf: XlsxConditionalFormat): ExcelJS.ConditionalFormatting
   } as unknown as ExcelJS.Style;
   const rule = ((): object => {
     switch (cf.rule) {
-      case "greaterThan": return { type: "cellIs", operator: "greaterThan", formulae: [Number(cf.value) || 0], style };
-      case "lessThan": return { type: "cellIs", operator: "lessThan", formulae: [Number(cf.value) || 0], style };
+      case "greaterThan": return { type: "cellIs", operator: "greaterThan", formulae: [cfCompareValue(cf.value)], style };
+      case "lessThan": return { type: "cellIs", operator: "lessThan", formulae: [cfCompareValue(cf.value)], style };
       case "equal": return { type: "cellIs", operator: "equal", formulae: [typeof cf.value === "number" ? cf.value : `"${String(cf.value ?? "")}"`], style };
       case "between": return { type: "cellIs", operator: "between", formulae: [cf.min ?? -1e12, cf.max ?? 1e12], style };
       case "containsText": return { type: "containsText", operator: "containsText", text: String(cf.value ?? ""), style };

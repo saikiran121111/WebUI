@@ -31,8 +31,15 @@ import {
   type AsrSegment,
 } from "./audio";
 import { buildAttachmentIndex } from "../attachindex/build";
-import { framesDir, hasIndex, removeIndex } from "../attachindex/store";
-import type { FrameEntry, TranscriptSegment } from "../attachindex/types";
+import { framesDir, hasIndex, indexDir, publishPaths, removeIndex, withIndexWriteLock } from "../attachindex/store";
+import { discardStaged } from "../attachindex/publish";
+import {
+  attachTimelineDir,
+  buildTimeline,
+  discardTimelineScratch,
+  type TimelineEvidence,
+} from "../attachindex/timeline";
+import type { FrameEntry, TranscriptSegment, TimelineSummary } from "../attachindex/types";
 
 export interface ExtractResult {
   name: string;
@@ -92,10 +99,11 @@ async function cappedOrIndexed(
   category: FileCategory,
   att: string | undefined,
   raw: string,
+  signal?: AbortSignal,
 ): Promise<ExtractResult> {
   const clean = (raw ?? "").replace(/\r\n/g, "\n").trim();
   if (att && clean.length > TEXT_CHAR_LIMIT) {
-    const indexed = await indexContent(name, category, att, clean);
+    const indexed = await indexContent(name, category, att, clean, {}, signal);
     return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
   }
   return { name, category, ...cap(clean) };
@@ -111,27 +119,54 @@ async function cappedOrIndexed(
  * the failure never touched. Only an attachment that had no index before this
  * run gets its partial debris cleaned up.
  */
-async function indexContent(
+export async function indexContent(
   name: string,
   category: FileCategory,
   attId: string,
   fullText: string,
-  extra: { segments?: TranscriptSegment[]; durationSec?: number; frames?: FrameEntry[] } = {},
-): Promise<Pick<ExtractResult, "indexed" | "chunkCount" | "spine">> {
+  extra: {
+    segments?: TranscriptSegment[];
+    durationSec?: number;
+    frames?: FrameEntry[];
+    /** F13: durable media baseline for a video/audio attachment. */
+    observations?: Array<Record<string, unknown>>;
+    timeline?: TimelineSummary;
+  } = {},
+  signal?: AbortSignal,
+): Promise<Pick<ExtractResult, "indexed" | "chunkCount" | "spine"> & { embedNote?: string }> {
   const hadIndex = hasIndex(attId);
   try {
-    const { chunkCount, spine } = await buildAttachmentIndex({
-      attId,
-      name,
-      category,
-      fullText,
-      ...extra,
-    });
-    return { indexed: true, chunkCount, spine };
+    // F10: one writer per attachment (a retried upload must not interleave with
+    // an older build) and the caller's signal reaches chunk, embed and commit.
+    const built = await withIndexWriteLock(attId, () =>
+      buildAttachmentIndex({
+        attId,
+        name,
+        category,
+        fullText,
+        ...extra,
+        signal,
+      }),
+    );
+    return {
+      indexed: true,
+      chunkCount: built.chunkCount,
+      spine: built.spine,
+      ...(built.embedNote ? { embedNote: built.embedNote } : {}),
+    };
   } catch (err: unknown) {
+    const aborted = (err as Error)?.name === "AbortError";
+    if (aborted) {
+      // F10: cancellation is not a defect and never destroys a good index.
+      // Only the staged attempt is thrown away.
+      try { discardStaged(publishPaths(attId), attId); } catch { /* best effort */ }
+      throw err;
+    }
     if (!hadIndex) removeIndex(attId);
+    else { try { discardStaged(publishPaths(attId), attId); } catch { /* staged only */ } }
     if ((err as NodeJS.ErrnoException)?.code === "ENOSPC") {
-      throw new Error(`Out of disk space while indexing ${name} — free some space and retry`);
+      const msg = (err as Error).message ?? "";
+      throw new Error(`Out of disk space while indexing ${name} - free some space and retry (${msg})`);
     }
     throw err;
   }
@@ -261,7 +296,7 @@ export async function extractFileFromPath(
         const body = transformText(category, dec.text).replace(/\r\n/g, "\n").trim();
         if (!body) return { name, category, text: "", truncated: false };
         const clean = encodingNote(dec) + body;
-        const indexed = await indexContent(name, category, att, clean);
+        const indexed = await indexContent(name, category, att, clean, {}, signal);
         return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
       }
       const { buf, partial } = readHead(srcPath, TEXT_READ_BYTES);
@@ -271,7 +306,7 @@ export async function extractFileFromPath(
         // the WHOLE decoded text, not the capped one textLikeResult would cut.
         const clean = encodingNote(dec) + transformText(category, dec.text).replace(/\r\n/g, "\n").trim();
         if (clean.length > TEXT_CHAR_LIMIT) {
-          const indexed = await indexContent(name, category, att, clean);
+          const indexed = await indexContent(name, category, att, clean, {}, signal);
           return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
         }
       }
@@ -318,13 +353,13 @@ export async function extractFileFromPath(
             `image-only (scanned) pages: ${listed} — those pages are NOT readable here (no OCR engine)]\n\n` +
             text;
         }
-        const r = await cappedOrIndexed(name, category, att, full);
+        const r = await cappedOrIndexed(name, category, att, full, signal);
         return { ...r, pages };
       }
       if (category === "office") {
         const text = officeText(buf, ext);
         if (!text.trim()) throw new Error("No readable text found in this document");
-        return await cappedOrIndexed(name, category, att, text);
+        return await cappedOrIndexed(name, category, att, text, signal);
       }
       if (category === "archive") {
         // The uploaded name is passed along because bare .bz2/.xz streams store
@@ -332,7 +367,7 @@ export async function extractFileFromPath(
         // A weak PK sniff can rescue a zip renamed .txt/.dat; the extension
         // then LIES about the container, so the sniffed magic decides instead.
         const arcExt = sniffed && sniffed.category === "archive" ? "zip" : ext;
-        return await cappedOrIndexed(name, category, att, await archiveText(buf, arcExt, name));
+        return await cappedOrIndexed(name, category, att, await archiveText(buf, arcExt, name), signal);
       }
       // Legacy .doc/.xls/.ppt/.mat have no public parser here — recover the
       // printable runs, which is what those formats store text as anyway.
@@ -383,7 +418,7 @@ export async function extractFileFromPath(
           const indexed = await indexContent(name, category, att, transcript, {
             segments: asSegments(segments),
             durationSec,
-          });
+          }, signal);
           return {
             name, category, ...indexed,
             transcript: transcript.slice(0, PREVIEW_CHARS),
@@ -399,6 +434,42 @@ export async function extractFileFromPath(
 
     case "video": {
       const { frames, durationSec } = await videoFramesFromPath(srcPath, { signal });
+      // F13/S60: one probe per upload, reused by the audio-failure classifier
+      // and by the durable media baseline. Lazy: the frames-only path with no
+      // attachment never pays for it.
+      let probeText: string | null = null;
+      const probeOnce = async (): Promise<string> => {
+        if (probeText === null) probeText = await probeInfo(srcPath, { signal });
+        return probeText;
+      };
+      // F13/S60: the cheap upload baseline (media identity, streams, duration,
+      // scene anchors, coverage). Built before the index because the index is
+      // the durable home for the record; null means nothing was published.
+      const buildBaseline = async (): Promise<TimelineEvidence | null> => {
+        if (!att) return null;
+        try {
+          return await buildTimeline({
+            attId: att,
+            srcPath,
+            probeText: await probeOnce(),
+            durationSec,
+            signal,
+          });
+        } catch {
+          return null; // a missing baseline never fails the upload
+        }
+      };
+      const publishBaseline = async (attId: string, baseline: TimelineEvidence): Promise<void> => {
+        try {
+          await withIndexWriteLock(attId, async () => {
+            if (!attachTimelineDir(indexDir(attId), baseline.scratchDir)) {
+              discardTimelineScratch(baseline.scratchDir);
+            }
+          });
+        } catch {
+          discardTimelineScratch(baseline.scratchDir);
+        }
+      };
       // The audio track carries narration — transcribe it when the clip has
       // one so the model hears the video, not just its sampled frames.
       // Keyframes run CONCURRENTLY with audio decode + transcription: on a
@@ -433,7 +504,7 @@ export async function extractFileFromPath(
         if (signal?.aborted) throw err as Error; // cancellation is not an audio defect
         // A failed probe answers in milliseconds, so classifying the
         // failure here can never hang the request.
-        const info = await probeInfo(srcPath, { signal });
+        const info = await probeOnce();
         speechIssue = /^\s*Stream\s+#\d+:\d+[^\r\n]*Audio/m.test(info)
           ? `its audio track could not be read (${(err as Error)?.message ?? "decode failed"})`
           : "it has no audio track";
@@ -454,10 +525,15 @@ export async function extractFileFromPath(
             `Video "${name}"${durationSec > 0 ? ` (${Math.round(durationSec)}s)` : ""}: ${speechIssue ?? "its spoken content could not be read"}. ` +
             `Its visual content WAS read: keyframes were sampled at ${keyframes.length} moment(s) across its timeline, each carrying its video timestamp, ` +
             `so questions about what is ON SCREEN at a given time can be answered from them; questions about what is SPOKEN cannot.`;
+          const baseline = await buildBaseline();
           const indexed = await indexContent(name, category, att, coverageNote, {
             durationSec,
             frames: keyframes,
-          });
+            ...(baseline ? { observations: baseline.observations, timeline: baseline.summary } : {}),
+          }, signal);
+          // The record lives INSIDE the published attachment dir, so it moves
+          // only after the generation switch (which renames the old dir aside).
+          if (baseline) await publishBaseline(att, baseline);
           return {
             name, category, ...indexed,
             frames, durationSec,
@@ -476,11 +552,14 @@ export async function extractFileFromPath(
         const keyframes: FrameEntry[] = (key ?? []).map(
           f => ({ at: f.at, file: "frames/" + f.name }),
         );
+        const baseline = await buildBaseline();
         const indexed = await indexContent(name, category, att, transcript, {
           segments: asSegments(segments),
           durationSec,
           frames: keyframes,
-        });
+          ...(baseline ? { observations: baseline.observations, timeline: baseline.summary } : {}),
+        }, signal);
+        if (baseline) await publishBaseline(att, baseline);
         return {
           name, category, ...indexed, frames, durationSec,
           transcript: transcript.slice(0, PREVIEW_CHARS),

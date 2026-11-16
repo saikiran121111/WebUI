@@ -2,6 +2,7 @@ import { bm25Scores, tokenize } from "./bm25";
 import { fmtStamp } from "./format";
 import type { RoutedQuery } from "./router";
 import type { IndexChunk, LoadedIndex } from "./types";
+import { assessVectors, comparableWith } from "./vectors";
 
 const BUDGET = Number(process.env.ATTACH_RETRIEVE_CHARS ?? 24000);
 const TOP_K = Number(process.env.ATTACH_TOP_K ?? 8);
@@ -20,12 +21,25 @@ export interface Evidence {
    * instead of letting "more exists, count unknown" stand.
    */
   dropped: number;
+  /**
+   * F09b/F14: what actually ranked this evidence. "lexical_only" means the
+   * stored embeddings were unusable (no stamp match, ragged dimensions, no
+   * vectors), so the turn can say so instead of implying semantic retrieval
+   * ran. Never inferred from a guess — read off the index's own assessment.
+   */
+  vectorMode: "hybrid" | "lexical_only";
+  vectorReason?: string;
 }
 
+/**
+ * F09b: a partial dot product over the SHORTER of two vectors is not a
+ * similarity — it is a truncated projection of two unrelated bases, and it
+ * silently ranks evidence. Mismatched lengths contribute nothing instead.
+ */
 function dot(a: number[], b: number[]): number {
+  if (a.length !== b.length) return Number.NEGATIVE_INFINITY;
   let s = 0;
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) s += a[i] * b[i];
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
   return s;
 }
 
@@ -60,6 +74,7 @@ function pack(
   priority: Map<number, number>,
   budget: number,
   demote?: number[],
+  vectors?: { mode: "hybrid" | "lexical_only"; reason?: string },
 ): Evidence {
   const chunks = index.chunks;
   const ordered = [...priority.entries()]
@@ -102,7 +117,15 @@ function pack(
   const frameAts = picked
     .map(i => chunks[i].startSec)
     .filter((n): n is number => n != null);
-  return { text, chunkIdxs: picked, frameAts, truncated, dropped };
+  return {
+    text,
+    chunkIdxs: picked,
+    frameAts,
+    truncated,
+    dropped,
+    vectorMode: vectors?.mode ?? "lexical_only",
+    vectorReason: vectors?.reason,
+  };
 }
 
 export interface RetrieveOpts extends RoutedQuery {
@@ -119,7 +142,7 @@ export interface RetrieveOpts extends RoutedQuery {
  * (keeps this function pure/synchronous for tests). Modes:
  *  - point_qa:   cosine top-20 + BM25 top-20 → RRF → top-K seeds → ±1 neighbors
  *  - exhaustive: same fusion, no top-K cutoff (budget caps output instead)
- *  - time_range: chunks overlapping [fromSec, toSec], chronological
+ *  - time_range: chunks overlapping [fromSec, toSec] (or any of `windows`), chronological
  *  - sequential: chunks in `range`, chronological
  */
 export function retrieveEvidence(
@@ -130,13 +153,35 @@ export function retrieveEvidence(
 ): Evidence {
   const chunks = index.chunks;
   const budget = opts.budget ?? BUDGET;
+  // F09b: the index decides whether its own vectors may be scored at all.
+  // An unstamped legacy index is assessed from the shapes actually stored.
+  const assess = index.vectors ?? assessVectors(index.meta, chunks);
+
 
   if (opts.mode === "sequential" && opts.range) {
     const priority = new Map<number, number>();
     for (let i = opts.range.from; i <= opts.range.to && i < chunks.length; i++) {
       if (i >= 0) priority.set(i, 1);
     }
-    return pack(index, priority, budget, opts.demote);
+    return pack(index, priority, budget, opts.demote, assess);
+  }
+
+  // F07: comparative asks carry SEPARATE cue windows. Matching each chunk
+  // against every window (once) keeps the selection anchored to the cues
+  // themselves instead of to everything in between them; insertion order is
+  // still chronological, exactly like the single-window branch below.
+  if (opts.mode === "time_range" && opts.windows?.length) {
+    const priority = new Map<number, number>();
+    for (const c of chunks) {
+      if (c.startSec == null) continue;
+      for (const w of opts.windows) {
+        if ((c.endSec ?? c.startSec) >= w.fromSec && c.startSec <= w.toSec) {
+          priority.set(c.i, 1);
+          break;
+        }
+      }
+    }
+    return pack(index, priority, budget, opts.demote, assess);
   }
 
   if (opts.mode === "time_range" && opts.fromSec != null) {
@@ -146,11 +191,11 @@ export function retrieveEvidence(
       if (c.startSec == null) continue;
       if ((c.endSec ?? c.startSec) >= opts.fromSec && c.startSec <= to) priority.set(c.i, 1);
     }
-    return pack(index, priority, budget, opts.demote);
+    return pack(index, priority, budget, opts.demote, assess);
   }
 
   // Hybrid: vector + BM25 fused with RRF.
-  const cos = chunks.map(c => dot(queryVec, c.vec));
+  const cos = chunks.map(c => dot(queryVec, c.vec ?? []));
   const bm = bm25Scores(query, chunks.map(c => tokenize(c.text)));
   const ids = chunks.map(c => c.i);
   // I20: an exhaustive sweep considers EVERY chunk, not the head of each
@@ -159,14 +204,31 @@ export function retrieveEvidence(
   // I21: an unavailable embedder leaves queryVec empty, and an all-zero
   // cosine channel would vote arbitrary chunk order into the fusion. With
   // no vector there is no cosine channel: BM25 ranks on its own.
-  const hasVec = queryVec.length > 0;
-  const byCos = hasVec ? [...ids].sort((a, b) => cos[b] - cos[a]).slice(0, cap) : [];
+  // F09b: the same honest rule covers an index whose stored vectors cannot be
+  // compared with this query vector (ragged, untagged or from another model).
+  const scored =
+    queryVec.length > 0 &&
+    chunks.some(c => (c.vec?.length ?? 0) === queryVec.length) &&
+    comparableWith({ ...assess, mode: "hybrid" as const }, queryVec);
+  const hasVec = assess.mode === "hybrid" && scored;
+  // Only comparable chunks enter the cosine channel; a NEGATIVE_INFINITY from a
+  // length mismatch must never reach the comparator (NaN order == arbitrary).
+  const comparable = ids.filter((_, pos) => Number.isFinite(cos[pos]));
+  const byCos = hasVec ? [...comparable].sort((a, b) => cos[b] - cos[a]).slice(0, cap) : [];
   const byBm = [...ids]
     .sort((a, b) => bm[b] - bm[a])
     .filter(i => bm[i] > 0)
     .slice(0, cap);
 
   const fused = rrfFuse(hasVec ? [byCos, byBm] : [byBm]);
+  const vectorMode: "hybrid" | "lexical_only" = hasVec ? "hybrid" : "lexical_only";
+  const vectorReason = hasVec
+    ? undefined
+    : assess.mode === "hybrid"
+      ? queryVec.length === 0
+        ? "no query embedding available"
+        : "query vector could not be compared with the stored vectors"
+      : assess.reason;
   let seeds = [...fused.entries()].sort((a, b) => b[1] - a[1]);
   if (opts.mode !== "exhaustive") seeds = seeds.slice(0, TOP_K);
 
@@ -181,5 +243,5 @@ export function retrieveEvidence(
       }
     }
   }
-  return pack(index, priority, budget, opts.demote);
+  return pack(index, priority, budget, opts.demote, { mode: vectorMode, reason: vectorReason });
 }

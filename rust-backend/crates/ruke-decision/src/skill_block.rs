@@ -8,14 +8,54 @@
 
 use std::path::Path;
 
-use ruke_contracts::decision::DecisionEnvelope;
+use ruke_contracts::decision::{DecisionEnvelope, RendererMode};
 use ruke_skills::core_skill::load_core_skill_bundle;
 
 use crate::contracts::mode_contract;
 
+/// F02: a multi-deliverable turn stays in `standard_chat` (one mode validator
+/// cannot own two fences), yet EVERY requested deliverable must be armed — the
+/// list is the envelope's own typed `task_constraints` (provenance: the
+/// scanner wrote it), never a re-parse of the prompt. Mirrors
+/// `requestedDeliverables` in `lib/decision/skill-loader.ts`.
+const DELIVERABLE_REQUEST_PREFIX: &str = "deliverable-request=";
+/// Bounded injection: two extra contracts is already a large prompt.
+pub const MAX_EXTRA_DELIVERABLE_CONTRACTS: usize = 2;
+
+/// Byte-identical to the TS `MULTI_DELIVERABLE_NOTE` (byte-exact replay class).
+pub const MULTI_DELIVERABLE_NOTE: &str = concat!(
+    "MULTI-DELIVERABLE TURN: the request asks for more than one deliverable. ",
+    "Emit one fenced block per contract above, in the order requested. ",
+    "Do not merge them and do not drop one.",
+);
+
+/// Requested deliverable modes other than the active one, in request order.
+pub fn requested_deliverables(env: &DecisionEnvelope) -> Vec<RendererMode> {
+    let mut out: Vec<RendererMode> = Vec::new();
+    for constraint in &env.task_constraints {
+        let Some(value) = constraint.strip_prefix(DELIVERABLE_REQUEST_PREFIX) else {
+            continue;
+        };
+        if value == "standard_chat" || value == env.active_mode.as_str() {
+            continue;
+        }
+        let Some(mode) = RendererMode::parse(value) else {
+            continue;
+        };
+        if out.contains(&mode) {
+            continue;
+        }
+        out.push(mode);
+        if out.len() >= MAX_EXTRA_DELIVERABLE_CONTRACTS {
+            break;
+        }
+    }
+    out
+}
+
 /// `buildDecisionSkillBlock`. Returns `None` exactly when the TS returns
-/// `null` (no skill bundle AND no contract — i.e. standard_chat with no
-/// skill).
+/// `null`: no skill bundle, no active-mode contract AND no typed deliverable
+/// request (i.e. ordinary standard_chat with nothing to produce).
 pub fn build_decision_skill_block(env: &DecisionEnvelope, root: &Path) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
 
@@ -31,6 +71,17 @@ pub fn build_decision_skill_block(env: &DecisionEnvelope, root: &Path) -> Option
     }
     if let Some(contract) = mode_contract(env.active_mode) {
         parts.push(contract.to_string());
+    }
+    let mut extras: Vec<String> = requested_deliverables(env)
+        .into_iter()
+        .filter_map(|mode| mode_contract(mode).map(str::to_string))
+        .collect();
+    let extra_contracts = extras.len();
+    // Same ORDER as the TS: every requested contract first, then the note —
+    // and only when there really is more than one contract to keep apart.
+    parts.append(&mut extras);
+    if extra_contracts > 1 {
+        parts.push(MULTI_DELIVERABLE_NOTE.to_string());
     }
     if parts.is_empty() {
         return None;
@@ -133,4 +184,94 @@ mod tests {
         let v = json!({ "role": "user" });
         assert_eq!(v["role"], "user");
     }
+
+    /* ---- F02 multi-deliverable injection (mirrors the TS skill-loader) ---- */
+
+    fn envelope_with_constraints(
+        mode: RendererMode,
+        constraints: &[&str],
+    ) -> DecisionEnvelope {
+        let mut env = envelope(mode, "in-process-deliverable-multiple");
+        env.task_constraints = constraints.iter().map(|s| (*s).to_string()).collect();
+        env
+    }
+
+    #[test]
+    fn multi_deliverable_turn_arms_every_requested_contract() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let env = envelope_with_constraints(
+            RendererMode::StandardChat,
+            &["deliverable-request=pdf", "deliverable-request=excel"],
+        );
+        let block = build_decision_skill_block(&env, tmp.path()).expect("multi block");
+        let pdf = crate::contracts_generated::CONTRACT_PDF;
+        let xlsx = crate::contracts_generated::CONTRACT_EXCEL;
+        assert!(block.starts_with(
+            "<decision_skill mode=\"standard_chat\" decided_by=\"in-process-deliverable-multiple\">\n"
+        ));
+        assert!(block.contains(pdf), "the PDF contract was dropped");
+        assert!(block.contains(xlsx), "the Excel contract was dropped");
+        // request ORDER is preserved, then the note keeps them apart
+        assert!(block.find(pdf).unwrap() < block.find(xlsx).unwrap());
+        assert!(block.contains(MULTI_DELIVERABLE_NOTE));
+        assert!(block.find(xlsx).unwrap() < block.find(MULTI_DELIVERABLE_NOTE).unwrap());
+        assert!(block.ends_with("\n</decision_skill>"));
+    }
+
+    #[test]
+    fn single_deliverable_turn_is_unchanged_and_gets_no_note() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut env = envelope(RendererMode::Excel, "in-process-deliverable-match");
+        env.task_constraints = vec!["deliverable-request=excel".into()];
+        let block = build_decision_skill_block(&env, tmp.path()).unwrap();
+        assert!(!block.contains(MULTI_DELIVERABLE_NOTE));
+        let contract = crate::contracts_generated::CONTRACT_EXCEL;
+        assert_eq!(block.matches(contract).count(), 1, "contract injected twice");
+    }
+
+    #[test]
+    fn constraint_injection_is_bounded_and_type_validated() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // garbage, unknown modes and the active mode never inject a contract
+        let env = envelope_with_constraints(
+            RendererMode::StandardChat,
+            &[
+                "search-domain=alpha.com",
+                "deliverable-request=not-a-mode",
+                "deliverable-request=standard_chat",
+            ],
+        );
+        assert!(build_decision_skill_block(&env, tmp.path()).is_none());
+        // three requests still inject at most MAX_EXTRA_DELIVERABLE_CONTRACTS
+        let env = envelope_with_constraints(
+            RendererMode::StandardChat,
+            &[
+                "deliverable-request=pdf",
+                "deliverable-request=excel",
+                "deliverable-request=ppt",
+            ],
+        );
+        let block = build_decision_skill_block(&env, tmp.path()).unwrap();
+        let third = crate::contracts_generated::CONTRACT_PPT;
+        let included = [
+            crate::contracts_generated::CONTRACT_PDF,
+            crate::contracts_generated::CONTRACT_EXCEL,
+            third,
+        ]
+        .iter()
+        .filter(|c| block.contains(**c))
+        .count();
+        assert_eq!(included, MAX_EXTRA_DELIVERABLE_CONTRACTS, "injection bound");
+    }
+
+    #[test]
+    fn note_text_is_byte_identical_to_the_ts_constant() {
+        // The block is a byte-exact golden replay class, so the note must not
+        // drift between engines. This constant is the only source of the text.
+        assert_eq!(
+            MULTI_DELIVERABLE_NOTE,
+            "MULTI-DELIVERABLE TURN: the request asks for more than one deliverable. Emit one fenced block per contract above, in the order requested. Do not merge them and do not drop one."
+        );
+    }
+
 }

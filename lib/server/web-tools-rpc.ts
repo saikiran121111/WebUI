@@ -28,6 +28,8 @@ import {
   type WebToolDepth,
   type CitationSeed,
 } from "@/lib/web-search/tools";
+// F13/P7 (brief part 8): evidence-clue derivation for the Rust transport.
+import { hintsForAttachments, parseAttachmentIds } from "./attachindex/media-hints";
 import {
   WEB_TOOL_GUIDANCE,
   WEB_TOOL_FINAL_DIRECTIVE,
@@ -146,6 +148,14 @@ export async function handleWebToolsRpc(
     // response carries the prior-evidence rehydration for this turn — the
     // journal law stays a TS law, the Rust transport just consumes it.
     const conversation = validConversation(body.conversation);
+    // F13/P7 (brief part 8): media evidence has to reach the REAL search
+    // arguments. The Rust transport forwards the attachment ids THIS turn
+    // references; the clues are DERIVED HERE from the stored indexes, so the
+    // browser can never inject a "hint" of its own and the extraction law
+    // lives in exactly one place (attachindex/media-hints.ts). Malformed ids
+    // fail closed to "no clue", never to a trusted guess.
+    const attachmentIds = parseAttachmentIds(body.attachmentIds);
+    const mediaHints = hintsForAttachments(attachmentIds, question);
     // Citation-numbering law (design-review fix): prior journaled aliases
     // are numbered FIRST, starting clear of the caller's seed, and the
     // session's OWN mint then continues after the highest prior alias —
@@ -177,6 +187,7 @@ export async function handleWebToolsRpc(
       scope,
       liveRequired,
       conversation,
+      mediaHints,
     );
     // MHR-E: prior-turn [S#] aliases seed the source registry so a
     // re-fetched document keeps ONE alias across waves (mirrors the chat

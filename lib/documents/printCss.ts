@@ -6,6 +6,9 @@
  * zones that inflated page count), but individual rows never break, and
  * charts/flowcharts/figures are kept whole on one page.
  */
+/** Page geometry. Overridable by the document: see buildPrintableHtml. */
+export const PAGE_GEOMETRY_CSS = "@page { size: A4; margin: 14mm; }";
+
 export const PRINT_CSS = `
 @page { size: A4; margin: 14mm; }
 .card, .chart-container, figure, tr, blockquote, pre, .resume-section-item { break-inside: avoid; page-break-inside: avoid; }
@@ -44,7 +47,15 @@ export function buildPrintableHtml(source: string): string {
   const body = isFullDoc
     ? source
     : `<!doctype html>\n<html>\n<head>\n<meta charset="utf-8" />\n</head>\n<body>\n${source}\n</body>\n</html>`;
-  const style = `<style id="webui-print-css">${BASE_CSS}${PRINT_CSS}</style>`;
+  // F11: A4 is the DEFAULT, not a mandate. When the artifact declares its
+  // own @page geometry (a user-specified size/orientation/margin), the engine
+  // keeps its break rules but must not out-specify the author (this style
+  // block is injected last in <head>, so it would otherwise win).
+  const authorPage = /@page[^{}]*\{[^}]*\b(?:size|margin)\s*:/i.test(source);
+  const layoutCss = authorPage
+    ? PRINT_CSS.split("\n").filter((line) => !/^@page\s*\{/.test(line)).join("\n")
+    : PRINT_CSS;
+  const style = `<style id="webui-print-css">${BASE_CSS}${layoutCss}</style>`;
   if (/<\/head>/i.test(body)) return body.replace(/<\/head>/i, style + "\n</head>");
   return body.replace(/<body([^>]*)>/i, style + "\n<body$1>");
 }

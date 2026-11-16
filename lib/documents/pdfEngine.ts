@@ -5,12 +5,11 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { getBrowser } from "./browser";
+import { withRenderBrowser } from "./browser";
 import { buildPrintableHtml } from "./printCss";
 import { chartPageGuardOptions, isolateRenderPage } from "./renderGuard";
 import { safeName } from "./schemas";
+import { docTempPath } from "./tempFiles";
 
 export interface PdfResult {
   buffer: Buffer;
@@ -44,29 +43,34 @@ async function settle(page: any): Promise<void> {
  * also removes the `waitUntil:"networkidle"` stall a hanging socket used to cause.
  */
 export async function renderPdf(html: string, filenameHint = "document"): Promise<PdfResult> {
-  const browser = await getBrowser();
-  const page = await browser.newPage({ offline: true });
-  const guard = await isolateRenderPage(page);
-  try {
-    await page.setContent(buildPrintableHtml(html), { waitUntil: "networkidle", timeout: 45_000 });
-    await settle(page);
-    const buffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      preferCSSPageSize: true,
-      margin: { top: "14mm", bottom: "14mm", left: "14mm", right: "14mm" },
-    });
-    const pageCount = await pdfPageCount(buffer);
-    return {
-      buffer,
-      filename: safeName(filenameHint) + ".pdf",
-      contentType: "application/pdf",
-      pageCount,
-      blockedRequests: guard.blocked(),
-    };
-  } finally {
-    await page.close().catch(() => {});
-  }
+  return withRenderBrowser(async (browser) => {
+    // F21: page creation and the egress guard are INSIDE the try. They used to
+    // sit outside it, so a guard that threw (route setup rejected, context
+    // died) returned without ever closing the page — a leak per failed export.
+    let page: import("playwright").Page | undefined;
+    try {
+      page = await browser.newPage({ offline: true });
+      const guard = await isolateRenderPage(page);
+      await page.setContent(buildPrintableHtml(html), { waitUntil: "networkidle", timeout: 45_000 });
+      await settle(page);
+      const buffer = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: { top: "14mm", bottom: "14mm", left: "14mm", right: "14mm" },
+      });
+      const pageCount = await pdfPageCount(buffer);
+      return {
+        buffer,
+        filename: safeName(filenameHint) + ".pdf",
+        contentType: "application/pdf",
+        pageCount,
+        blockedRequests: guard.blocked(),
+      };
+    } finally {
+      await page?.close().catch(() => {});
+    }
+  });
 }
 
 /**
@@ -78,29 +82,38 @@ export async function renderChartPng(
   html: string,
   opts: { width: number; height: number; scale?: number },
 ): Promise<{ buffer: Buffer; width: number; height: number }> {
-  const browser = await getBrowser();
+  // The temp file is named before the lease so it is always removable, even if
+  // acquiring the browser fails. DOC_TEMP_DIR isolates these files from
+  // parallel runs; the shared helper is also what keeps `next build` from
+  // turning this path into a glob over the OS temp directory (see
+  // lib/documents/tempFiles.ts).
   const id = crypto.randomUUID();
-  // DOC_TEMP_DIR lets tests isolate their temp files from parallel runs.
-  const tmpHtml = path.join(process.env.DOC_TEMP_DIR || os.tmpdir(), `temp_chart_${id}.html`);
-  const page = await browser.newPage({
-    viewport: { width: opts.width + 64, height: opts.height + 64 },
-    deviceScaleFactor: opts.scale ?? 2,
-  });
-  // The chart document is first-party inline SVG (lib/documents/chartHtml.ts,
-  // no <script>), but it is still rendered with a guard: only its OWN temp file
-  // may load, so a chart HTML that ever becomes model-influenced cannot fetch
-  // loopback or WAN resources either.
-  await isolateRenderPage(page, chartPageGuardOptions(tmpHtml));
+  const tmpHtml = docTempPath(id, ".html");
   try {
-    await fs.writeFile(tmpHtml, html, "utf8");
-    await page.goto("file:///" + tmpHtml.replace(/\\/g, "/"), { waitUntil: "networkidle", timeout: 30_000 });
-    await settle(page);
-    const el = (await page.$("#chart-root")) ?? (await page.$("body"));
-    const box = el ? await el.boundingBox() : null;
-    const buffer = await page.screenshot({ clip: box ?? undefined });
-    return { buffer, width: box?.width ?? opts.width, height: box?.height ?? opts.height };
+    return await withRenderBrowser(async (browser) => {
+      let page: import("playwright").Page | undefined;
+      try {
+        page = await browser.newPage({
+          viewport: { width: opts.width + 64, height: opts.height + 64 },
+          deviceScaleFactor: opts.scale ?? 2,
+        });
+        // The chart document is first-party inline SVG (lib/documents/chartHtml.ts,
+        // no <script>), but it is still rendered with a guard: only its OWN temp file
+        // may load, so a chart HTML that ever becomes model-influenced cannot fetch
+        // loopback or WAN resources either.
+        await isolateRenderPage(page, chartPageGuardOptions(tmpHtml));
+        await fs.writeFile(tmpHtml, html, "utf8");
+        await page.goto("file:///" + tmpHtml.replace(/\\/g, "/"), { waitUntil: "networkidle", timeout: 30_000 });
+        await settle(page);
+        const el = (await page.$("#chart-root")) ?? (await page.$("body"));
+        const box = el ? await el.boundingBox() : null;
+        const buffer = await page.screenshot({ clip: box ?? undefined });
+        return { buffer, width: box?.width ?? opts.width, height: box?.height ?? opts.height };
+      } finally {
+        await page?.close().catch(() => {});
+      }
+    });
   } finally {
-    await page.close().catch(() => {});
     await fs.rm(tmpHtml, { force: true });
   }
 }
@@ -108,8 +121,22 @@ export async function renderChartPng(
 /** Page count via unpdf (works without a canvas). */
 export async function pdfPageCount(buffer: Buffer): Promise<number> {
   const { getDocumentProxy } = await import("unpdf");
+  // F21: every export called this and NEVER released the proxy. unpdf hands a
+  // PDFDocumentProxy holding the parsed document, so page counting leaked one
+  // parsed copy of every generated PDF for the life of the process.
   const doc = await getDocumentProxy(new Uint8Array(buffer));
-  return Number(doc.numPages ?? 0);
+  type Destroyable = { destroy?: () => unknown };
+  try {
+    return Number(doc.numPages ?? 0);
+  } finally {
+    try {
+      // Older unpdf builds have no destroy(); the cast is a capability probe,
+      // not a claim that the pinned type has the method.
+      await (doc as unknown as Destroyable).destroy?.();
+    } catch {
+      /* already released / older unpdf build without destroy */
+    }
+  }
 }
 
 // safeName lives in schemas.ts (client-safe) so the preview blocks compute the

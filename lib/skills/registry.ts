@@ -121,7 +121,7 @@ export async function ensureScenario(
   if (existing) {
     if (existing.enabled && !existing.blockedReason) {
       const markdown = await readSkillMarkdown(root, skillName);
-      const blocked = markdown ? detectBlockedReason(markdown) : null;
+      const blocked = markdown ? detectBlockedReason(markdown, existing) : null;
       if (blocked) {
         existing.enabled = false;
         existing.blockedReason = blocked;
@@ -132,7 +132,7 @@ export async function ensureScenario(
   }
   const scenario = defaultScenario(skillName, sourceRepo);
   const markdown = await readSkillMarkdown(root, skillName);
-  const blocked = markdown ? detectBlockedReason(markdown) : null;
+  const blocked = markdown ? detectBlockedReason(markdown, scenario) : null;
   if (blocked) {
     scenario.enabled = false;
     scenario.blockedReason = blocked;
@@ -152,7 +152,14 @@ async function writeScenario(root: string, scenario: SkillScenario): Promise<voi
     triggerKeywords: scenario.triggerKeywords,
     blockedReason: scenario.blockedReason,
   };
-  await fs.writeFile(scenarioFile(root, scenario.skillName), JSON.stringify(clean, null, 2) + "\n", "utf8");
+  // F20: application-owned capability declarations round-trip through the
+  // scenario file. They are only written when present, so existing scenario
+  // files keep their exact 7-key shape.
+  const cleanObj: Record<string, unknown> = JSON.parse(JSON.stringify(clean));
+  if (Array.isArray(scenario.requiredCapabilities)) {
+    cleanObj.requiredCapabilities = scenario.requiredCapabilities.map(String);
+  }
+  await fs.writeFile(scenarioFile(root, scenario.skillName), JSON.stringify(cleanObj, null, 2) + "\n", "utf8");
 }
 
 export type ScenarioPatch = Partial<

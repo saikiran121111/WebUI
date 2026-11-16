@@ -18,6 +18,13 @@
 //!   (`acquire_owned` is cancel-safe).
 //! - Release is exactly-once by Drop of [`AdmissionPermit`] — success,
 //!   error, cancel, or panic unwind.
+//! - Release of an ABANDONED generation is not instantaneous: dropping the
+//!   request's read side is the only "stop generating" signal an HTTP-local
+//!   model server receives, and no provider here acknowledges the stop back
+//!   to us. The permit therefore stays OUT of the pool for a bounded
+//!   teardown hold ([`DEFAULT_TEARDOWN_HOLD`]) so the next generation cannot
+//!   be admitted onto an endpoint that may still be busy
+//!   (brief 2026-11-15 R02, shared-endpoint ownership).
 //! - NON-REENTANT: a caller must NEVER hold an admission permit while
 //!   awaiting another admission acquire (a parent turn holds only its
 //!   [`crate::slot::UserTurnGuard`] lease while its helper requests run).
@@ -26,6 +33,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -33,6 +41,16 @@ use tokio_util::sync::CancellationToken;
 /// Default bound on simultaneously QUEUED requesters (not counting the
 /// one permit holder). Beyond this, the endpoint is honestly "busy".
 pub const DEFAULT_MAX_WAITERS: usize = 4;
+
+/// How long an ABANDONED generation keeps the endpoint reserved before the
+/// permit returns to the pool (see the module rule above). It is a BOUND on
+/// an unobservable teardown, not a claim that the GPU stopped: no provider
+/// contract in this deployment reports "generation stopped", so the safe
+/// ordering is close our socket, hold, then admit the next one.
+/// Measured effect: without it a client disconnect mid-body let the queued
+/// request reach the mock endpoint while the abandoned generation was still
+/// open there, i.e. the shared-endpoint generation high-water hit 2.
+pub const DEFAULT_TEARDOWN_HOLD: Duration = Duration::from_millis(350);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdmissionError {
@@ -59,7 +77,40 @@ impl Drop for WaiterGuard<'_> {
 /// request/error/cancel path). Drop releases exactly once.
 #[derive(Debug)]
 pub struct AdmissionPermit {
-    _permit: OwnedSemaphorePermit,
+    // Option so Drop can MOVE the semaphore permit into the bounded
+    // teardown task instead of returning it to the pool immediately.
+    permit: Option<OwnedSemaphorePermit>,
+    /// The requesting operation's cancellation token. "Cancelled" is how a
+    /// Drop distinguishes an abandoned generation from a completed one.
+    cancel: Option<CancellationToken>,
+    teardown: Duration,
+    quiescing: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for AdmissionPermit {
+    fn drop(&mut self) {
+        let Some(permit) = self.permit.take() else {
+            return; // already handed to the teardown task
+        };
+        let abandoned = self.cancel.as_ref().is_some_and(|t| t.is_cancelled());
+        let teardown = self.teardown;
+        let quiescing = self.quiescing.clone();
+        let in_runtime = tokio::runtime::Handle::try_current().ok();
+        if abandoned && !self.teardown.is_zero() {
+            if let Some(handle) = in_runtime {
+                quiescing.store(true, Ordering::SeqCst);
+                handle.spawn(async move {
+                    tokio::time::sleep(teardown).await;
+                    drop(permit);
+                    quiescing.store(false, Ordering::SeqCst);
+                });
+                return;
+            }
+            // No runtime to schedule the hold on (process teardown): the
+            // endpoint is going away with us, so release normally.
+        }
+        drop(permit);
+    }
 }
 
 #[derive(Debug)]
@@ -67,6 +118,8 @@ pub struct UpstreamAdmission {
     sem: Arc<Semaphore>,
     waiters: AtomicUsize,
     max_waiters: usize,
+    teardown: Duration,
+    quiescing: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for UpstreamAdmission {
@@ -85,13 +138,28 @@ impl UpstreamAdmission {
             sem: Arc::new(Semaphore::new(1)),
             waiters: AtomicUsize::new(0),
             max_waiters,
+            teardown: DEFAULT_TEARDOWN_HOLD,
+            quiescing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    /// Override the bounded teardown hold (tests). Not a tuning knob for
+    /// production: it exists so the mechanism can be probed deterministically.
+    pub fn with_teardown(mut self, teardown: Duration) -> Self {
+        self.teardown = teardown;
+        self
     }
 
     /// True while an upstream generation holds the permit (monitoring /
     /// tests; never used for the admission decision itself).
     pub fn generation_in_flight(&self) -> bool {
         self.sem.available_permits() == 0
+    }
+
+    /// True while the endpoint is reserved by a teardown hold: the
+    /// generation is gone but the next one is deliberately not admitted yet.
+    pub fn teardown_pending(&self) -> bool {
+        self.quiescing.load(Ordering::SeqCst)
     }
 
     /// Current queued count (approximate; tests + telemetry).
@@ -128,7 +196,12 @@ impl UpstreamAdmission {
         };
         match acquired {
             None => Err(AdmissionError::Cancelled),
-            Some(Ok(permit)) => Ok(AdmissionPermit { _permit: permit }),
+            Some(Ok(permit)) => Ok(AdmissionPermit {
+                permit: Some(permit),
+                cancel: Some(cancel.clone()),
+                teardown: self.teardown,
+                quiescing: self.quiescing.clone(),
+            }),
             // The semaphore is never close()d in this process.
             Some(Err(_)) => Err(AdmissionError::Cancelled),
         }
@@ -138,7 +211,7 @@ impl UpstreamAdmission {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     #[tokio::test]
     async fn permit_is_capacity_one_and_serializes() {
@@ -194,7 +267,7 @@ mod tests {
         for _ in 0..2 {
             let a2 = Arc::clone(&a);
             waiters.push(tokio::spawn(async move {
-                a2.acquire(&CancellationToken::new()).await.map(|p| p)
+                a2.acquire(&CancellationToken::new()).await
             }));
         }
         // Let both queued waiters register before probing the overflow.
@@ -277,5 +350,69 @@ mod tests {
             panic!("boom while holding");
         }));
         assert!(!a.generation_in_flight(), "unwind released exactly once");
+    }
+
+    #[tokio::test]
+    async fn completed_generation_releases_immediately() {
+        // The teardown hold is for ABANDONED generations only. A response
+        // that drained to EOF cannot still be generating, so a long hold
+        // would just add latency between an answer and the next request.
+        let a = Arc::new(
+            UpstreamAdmission::with_queue(4).with_teardown(Duration::from_millis(500)),
+        );
+        let token = CancellationToken::new();
+        let permit = a.acquire(&token).await.unwrap();
+        assert!(a.generation_in_flight());
+        drop(permit); // token still live: this was a COMPLETED generation
+        assert!(
+            !a.generation_in_flight(),
+            "a completed generation does not reserve the endpoint"
+        );
+        assert!(!a.teardown_pending());
+    }
+
+    #[tokio::test]
+    async fn abandoned_generation_holds_the_endpoint_for_the_teardown_window() {
+        // R02 (Rust side): a client that walks away mid-body must not let the
+        // NEXT generation onto an endpoint that may still be generating for
+        // the abandoned one. Closing our read side is the only stop signal,
+        // and it is unacknowledged, hence the bounded hold.
+        let hold = Duration::from_millis(150);
+        let a = Arc::new(UpstreamAdmission::with_queue(4).with_teardown(hold));
+        let token = CancellationToken::new();
+        let permit = a.acquire(&token).await.unwrap();
+        token.cancel(); // client disconnect / deadline fired mid-generation
+        let t0 = Instant::now();
+        drop(permit);
+        assert!(
+            a.generation_in_flight(),
+            "the endpoint stays reserved while the abandoned read is torn down"
+        );
+        assert!(
+            a.teardown_pending(),
+            "the reservation is labelled as a teardown hold, not a live generation"
+        );
+
+        let a2 = Arc::clone(&a);
+        let waiter = tokio::spawn(async move { a2.acquire(&CancellationToken::new()).await });
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(
+            !waiter.is_finished(),
+            "no admission may happen in the middle of a teardown hold"
+        );
+
+        let got = tokio::time::timeout(Duration::from_secs(2), waiter)
+            .await
+            .expect("the permit returns to the pool when the hold ends")
+            .expect("waiter task did not panic")
+            .expect("the waiter was eventually admitted");
+        let total = t0.elapsed();
+        assert!(
+            total >= hold * 4 / 5,
+            "held {total:?} for a {hold:?} window - a near-zero hold is not a bound"
+        );
+        assert!(!a.teardown_pending(), "the hold flag cleared with the real release");
+        drop(got);
+        assert!(!a.generation_in_flight());
     }
 }

@@ -123,11 +123,15 @@ export function auditResearchAnswer(
   retrieved: boolean,
 ): string {
   const ids = new Set(citations);
-  const repaired = auditProse(text, ids);
+  const segs = scanMarkdown(text);
+  const repaired = auditProse(segs, ids);
   // R3: the ledger decides, not the prose. Only when the server knows the
-  // turn retrieved NOTHING does research-claiming wording get flagged.
+  // turn retrieved NOTHING does research-claiming wording get flagged -- and
+  // only wording in PROSE. A code sample whose string literal says
+  // "according to my searches" is sample text, so it must not buy the whole
+  // answer a blanket no-retrieval disclaimer (F15).
   const noSources = ids.size === 0 && !retrieved;
-  if (noSources && RE_RESEARCH_WORDING.test(repaired) && !repaired.startsWith(SERVER_CHECK_LINE)) {
+  if (noSources && RE_RESEARCH_WORDING.test(proseView(segs)) && !repaired.startsWith(SERVER_CHECK_LINE)) {
     return SERVER_CHECK_LINE + "\n" + repaired;
   }
   return repaired;
@@ -135,38 +139,186 @@ export function auditResearchAnswer(
 
 /* ── segmentation: fenced blocks and inline code are byte-protected ───── */
 
-function auditProse(text: string, ids: Set<string>): string {
-  const parts: string[] = [];
-  const segments = (s: string, depth: number): void => {
-    if (s === "") return;
-    if (depth === 0) {
-      const at = s.indexOf("```");
-      if (at >= 0) {
-        segments(s.slice(0, at), 1);
-        const close = s.indexOf("```", at + 3);
-        const end = close < 0 ? s.length : close + 3;
-        parts.push(s.slice(at, end)); // fence: verbatim
-        segments(s.slice(end), 0);
-        return;
-      }
+function auditProse(segs: MarkdownSegment[], ids: Set<string>): string {
+  return segs
+    .map((seg) => (seg.verbatim ? seg.text : auditSentences(seg.text, ids)))
+    .join("");
+}
+
+/* F15 (2026-11-15): MARKDOWN-AWARE segmentation.
+ * The release check used to find fences by hunting for "```" ANYWHERE and
+ * inline code by pairing the first two backticks on a line. That disagreed
+ * with the renderer, so literal user content got edited: a ~~~-fenced block
+ * lost its [S9]-shaped bytes, a `` [S1] `` span or a markdown table cell was
+ * read as a citation contract, and a code string containing "according to my
+ * searches" bought the whole answer a no-retrieval disclaimer.
+ * The fix is structural, never a phrase or token list: a segment is VERBATIM
+ * when the markdown structure says it is code or tabular data.
+ *   fenced code    - a line beginning (after at most 3 spaces) with a run of
+ *                    3+ backticks or 3+ tildes; closed only by a line holding
+ *                    just a run of the SAME character at least as long, so a
+ *                    ```` fence may contain ``` and an unterminated fence
+ *                    protects the rest of the answer.
+ *   inline code    - a backtick run of length N closed by another run of
+ *                    exactly N on the same line (double-backtick spans included).
+ *   indented code  - 4+ leading spaces (or a tab) starting at a block
+ *                    boundary (blank line / previous code line), so markdown
+ *                    LIST CONTINUATION (prose) is never mistaken for code.
+ *   table rows     - a line whose trimmed form starts with "|", or that holds
+ *                    2+ pipe characters, is DATA; a citation-shaped token in a
+ *                    data cell is data, not a reference.
+ * Reconstruction law: concatenating the segments reproduces the input
+ * byte-for-byte, and the prose view replaces every verbatim segment with a
+ * newline so a claim can never be assembled ACROSS a code block.
+ * Documented limits (honest, not hidden): the table rule is structural, so a
+ * single-pipe row without leading "|" is audited as prose; R3 wording remains
+ * English-phrase based. The Rust mirror scan_markdown stays byte-equivalent.
+ */
+
+export interface MarkdownSegment {
+  text: string;
+  verbatim: boolean;
+}
+
+interface FenceRun {
+  char: string;
+  len: number;
+  indent: number;
+}
+
+function fenceRun(line: string): FenceRun | null {
+  let i = 0;
+  while (i < line.length && i < 4 && (line[i] === " " || line[i] === "\t")) i++;
+  if (i >= line.length) return null;
+  const ch = line[i];
+  if (ch !== "`" && ch !== "~") return null;
+  let len = 0;
+  while (i + len < line.length && line[i + len] === ch) len++;
+  if (len < 3) return null;
+  return { char: ch, len, indent: i };
+}
+
+function fenceCloses(line: string, open: { char: string; len: number }): boolean {
+  const run = fenceRun(line);
+  if (!run || run.char !== open.char || run.len < open.len) return false;
+  let end = run.indent + run.len;
+  while (end < line.length && (line[end] === " " || line[end] === "\t")) end++;
+  return end === line.length;
+}
+
+function indentedCode(line: string): boolean {
+  return line.startsWith("    ") || line.startsWith("\t");
+}
+
+function tableRow(line: string): boolean {
+  const t = line.trim();
+  if (t.startsWith("|")) return true;
+  let pipes = 0;
+  for (let i = 0; i < t.length; i++) if (t[i] === "|") pipes++;
+  return pipes >= 2;
+}
+
+/** Split one physical line into prose and inline-code segments. */
+function splitInlineCode(line: string): MarkdownSegment[] {
+  const out: MarkdownSegment[] = [];
+  let i = 0;
+  let proseStart = 0;
+  while (i < line.length) {
+    if (line[i] !== "`") {
+      i++;
+      continue;
     }
-    if (depth <= 1) {
-      const at = s.indexOf("`");
-      if (at >= 0) {
-        const close = s.indexOf("`", at + 1);
-        const nl = s.indexOf("\n", at + 1);
-        if (close >= 0 && (nl < 0 || close < nl)) {
-          segments(s.slice(0, at), 2);
-          parts.push(s.slice(at, close + 1)); // inline code: verbatim
-          segments(s.slice(close + 1), 1);
-          return;
+    let n = 0;
+    while (i + n < line.length && line[i + n] === "`") n++;
+    let j = i + n;
+    let close = -1;
+    while (j < line.length) {
+      if (line[j] === "`") {
+        let m = 0;
+        while (j + m < line.length && line[j + m] === "`") m++;
+        if (m === n) {
+          close = j;
+          break;
         }
+        j += m;
+      } else {
+        j++;
       }
     }
-    parts.push(auditSentences(s, ids));
-  };
-  segments(text, 0);
-  return parts.join("");
+    if (close < 0) {
+      i += n; // unclosed run: literal backticks, still prose
+      continue;
+    }
+    if (proseStart < i) out.push({ text: line.slice(proseStart, i), verbatim: false });
+    out.push({ text: line.slice(i, close + n), verbatim: true });
+    i = close + n;
+    proseStart = i;
+  }
+  if (proseStart < line.length) out.push({ text: line.slice(proseStart), verbatim: false });
+  return out;
+}
+
+/** The single segmentation truth for BOTH the release audit and diagnosis. */
+export function scanMarkdown(text: string): MarkdownSegment[] {
+  const out: MarkdownSegment[] = [];
+  let fence: { char: string; len: number } | null = null;
+  let prevBlank = true; // start of the answer behaves like a block boundary
+  let prevCode = false;
+  const lines: { content: string; nl: string }[] = [];
+  let cur = "";
+  for (const ch of text) {
+    if (ch === "\n") {
+      lines.push({ content: cur, nl: "\n" });
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.length) lines.push({ content: cur, nl: "" });
+
+  for (const { content, nl } of lines) {
+    const whole = content + nl;
+    if (fence) {
+      out.push({ text: whole, verbatim: true });
+      if (fenceCloses(content, fence)) fence = null;
+      prevBlank = false;
+      continue;
+    }
+    const open = fenceRun(content);
+    if (open) {
+      fence = { char: open.char, len: open.len };
+      out.push({ text: whole, verbatim: true });
+      prevBlank = false;
+      continue;
+    }
+    if (content.trim() === "") {
+      out.push({ text: whole, verbatim: false });
+      prevBlank = true;
+      continue;
+    }
+    if (indentedCode(content) && (prevBlank || prevCode)) {
+      out.push({ text: whole, verbatim: true });
+      prevCode = true;
+      prevBlank = false;
+      continue;
+    }
+    prevCode = false;
+    if (tableRow(content)) {
+      out.push({ text: whole, verbatim: true });
+      prevBlank = false;
+      continue;
+    }
+    for (const seg of splitInlineCode(content)) out.push(seg);
+    if (nl) out.push({ text: nl, verbatim: false });
+    prevBlank = false;
+  }
+  return out;
+}
+
+/** What the model actually CLAIMED, with every verbatim block reduced to a
+ * line boundary so claims are never assembled across code or data. */
+export function proseView(segs: MarkdownSegment[]): string {
+  return segs.map((seg) => (seg.verbatim ? "\n" : seg.text)).join("");
 }
 
 /** Split prose into lines, then sentences; audit each sentence. Newlines
@@ -244,33 +396,11 @@ export function diagnoseResearchAnswer(
   // Same segmentation law as the audit: fenced blocks and inline code
   // contribute NOTHING — no markers, no sentences from code bytes.
   const prose: string[] = [];
-  const segments = (s: string, depth: number): void => {
-    if (s === "") return;
-    if (depth === 0) {
-      const at = s.indexOf("```");
-      if (at >= 0) {
-        segments(s.slice(0, at), 1);
-        const close = s.indexOf("```", at + 3);
-        const end = close < 0 ? s.length : close + 3;
-        segments(s.slice(end), 0); // fence: invisible
-        return;
-      }
-    }
-    if (depth <= 1) {
-      const at = s.indexOf("`");
-      if (at >= 0) {
-        const close = s.indexOf("`", at + 1);
-        const nl = s.indexOf("\n", at + 1);
-        if (close >= 0 && (nl < 0 || close < nl)) {
-          segments(s.slice(0, at), 2);
-          segments(s.slice(close + 1), 1); // inline code: invisible
-          return;
-        }
-      }
-    }
-    for (const line of sentencesOf(s)) prose.push(line);
-  };
-  segments(text, 0);
+  // Same segmentation law as the audit: code and tabular data contribute
+  // NOTHING -- no markers, no sentences from those bytes (F15).
+  for (const seg of scanMarkdown(text)) {
+    if (!seg.verbatim) prose.push(...sentencesOf(seg.text));
+  }
 
   for (const sentence of prose) {
     const markerIds = [...sentence.matchAll(RE_MARKER)].map((m) => "S" + m[1]);
@@ -298,7 +428,7 @@ export function diagnoseResearchAnswer(
     unresolved: [...unresolved].sort((a, b) => numSuffix(a) - numSuffix(b)),
     available: [...ids].sort((a, b) => numSuffix(a) - numSuffix(b)),
     unsupported,
-    claimsResearch: ids.size === 0 && !retrieved && RE_RESEARCH_WORDING.test(text),
+    claimsResearch: ids.size === 0 && !retrieved && RE_RESEARCH_WORDING.test(proseView(scanMarkdown(text))),
   };
 }
 

@@ -1,37 +1,76 @@
-# Overnight Run State — 2026-11-15 (resumable)
+# STATE - Ruke overnight run, FINAL checkpoint (session 61, 2026-11-16)
 
-Verbatim brief: `docs/overnight/SPEC.md`. On resume: read STATE → TASKS → DECISIONS → FINDINGS first.
+Verdict: **PARTIAL (~99 percent of the declared scope)**. Never COMPLETE - the open items are
+asset/licence-gated model qualities plus two live measurements deliberately not taken.
 
-## Current (USER-REQUESTED CHECKPOINT STOP 2026-11-15 ~11:50 — resume here first)
-- Branch: `local` · Starting HEAD: `ec256bd726f5dda15e3af9fc3fa3d3d7fa47e3a6` · uncommitted P1 work preserved (never push/reset/discard).
-- Phase: **P1 committed `face1f7`. P2 (F16–F19, F01) in progress: F17 CODE+TESTS COMPLETE and gate-green, checkpoint-committed; F16/F18/F19/F01 still pending.**
-- Playwright lock: NOT present. Live Playwright gate = BLOCKED (Claude Code shares the one-capacity Strata endpoint; D-003/P1.5).
+## Identity (measured this session)
+- branch **local**, HEAD **002b9692b10a3d927933a8514a2245bcf8969001** unchanged; original audit
+  baseline ec256bd726f5dda15e3af9fc3fa3d3d7fa47e3a6, prior implementation commit
+  face1f76dca7d34f153f7880e0240c5e8325073c
+- nothing staged / committed / pushed / reset / stashed / cleaned, ever
+- porcelain **192** = 133 modified + 1 D (the renamed fixture pair) + 58 untracked entries
+  (441 files expanded); git diff --shortstat -> **134 files, +11764 / -2889**; staged **0**
+- guard: node_modules/next/dist/compiled/@vercel/nft/index.js sha256 prefix **21FDA49AD240564F** pristine
 
-## F17 COMPLETE (2026-11-15) — what was done (do NOT re-do, only verify at final gates)
-- `lib/stream/thinkTags.ts`: fence-aware `createThinkSplitter` (CommonMark fence subset: ``` / ~~~, ≤3-space indent, info-string-no-backtick rule; fence-candidate lines PARK whole until newline/EOS → chunking invariance; fences also shield tags inside reasoning blocks; nothing ever deleted, flush releases held tail literal).
-- `lib/stream/parser.ts`: reasoning fields STRUCTURALLY exclusive per delta — `reasoning_details` text preferred when non-empty, else `reasoning_content`; never string-matching dedupe.
-- Rust port `chat/scrubber.rs` `ThinkFieldSplitter` behaviorally identical; FIXED a real bug found in the port: `scan_to_buffer_end` restarted scanning at byte 0 instead of the caller's cursor (re-emitted already-emitted lines when entering mid-line with i>0). Now takes `i`.
-- Tests: `__tests__/think-splitter.test.ts` +13 fence cases (mirror of 13 new Rust unit tests; Rust lib scrubber total 24/24); `sse-stage-events.test.ts` +4 reasoning-exclusivity tests; `rust-golden/sse-vectors.test.ts` fixture-02 TEXTS +3 fence texts (`texts[0]` FIRST kept — Rust drift assertion depends on it), harness re-recorded `rust-backend/fixtures/sse/02-think-split-matrix.json` (delete-then-regenerate law for intentional shape changes); `tests/scrubber_vectors.rs` leak assertion now scoped to fence-free texts.
-- Gates ACTUALLY RUN: targeted vitest 62/62 · full vitest 1883 pass/0 fail/19 skip · tsc 0 err · Rust `--lib scrubber` 24/24 · `--test scrubber_vectors` 3/3 (target-ci). Details in TEST-RESULTS.md.
-- NOT run at stop: full `ruke-server` cargo test suite → first resume action: `cd rust-backend && cargo test -p ruke-server --target-dir /d/Projects/WebUI/target-ci` (plus browser_loop relay tests touch the same splitter).
+## Phase / task
+- P0-P10 **passed**. P11 (Playwright, the FINAL test stage) **passed**: Stage A 11/11 exit 0;
+  Stage B 7 live-model specs 31/31 exit 0; Codex fully idle during Stage B; the lock was acquired
+  and released by scripts/run-browser-e2e-exclusive.ps1; store isolation honoured (isolated
+  .data\e2e-store, real conversation store still 775 files).
+- Last implementation increment: gap G1 closed at the baseline/scene level - Rust ml_job.rs job
+  client, TS lib/server/ml-job.ts, the video branch buildBaseline/publishBaseline, the durable
+  timeline record, and scene observations that can never become search text. See DECISIONS
+  D-028, D-029, D-030.
 
-## P1 shipped (uncommitted, gates green)
-- Rust: `ruke_core::admission::UpstreamAdmission` (capacity-1 FIFO, max 4 waiters, cancel-safe, WaiterGuard) wired at all six ruke-server loci; `/api/ruke/internal/completion` bridge route (non-stream-only, timeout_ms, honest 503/504/502).
-- TS: `lib/server/upstream-bridge.ts` = ONE door; 6 completion + 2 stream sites rewired; LocalUpstreamAdmission mirrors Rust in TS-only mode. Golden header order content-type→authorization→accept byte-locked.
-- Gates: typecheck 0 · vitest full 1866/0 fail exit 0 · cargo (core+attach+server) exit 0 all binaries · contracts:check 0 · next build exit 0 (`docs/overnight/logs/next-build-1.log`).
-- Lock protocol (`scripts/playwright-lock.psm1` + `-heartbeat.ps1` + launcher + `test-playwright-lock.ps1` 16/16 green): fixed-width 512-byte record; no-FileShare.Delete handle; owner-token release; proof-only stale break. `.ai-coordination/playwright.lock` NOT present right now.
+## Gates this session (all executed; exit-code copies live in docs/overnight/logs/scratch-*-exit.txt)
+- npx tsc --noEmit --incremental false -> **0**; npm run contracts:check -> **0**
+- npx vitest run (full) -> **2319 passed / 19 skipped**, 184 files passed / 2 skipped -> **0**
+- targeted media + admission set -> 11 files / **117 tests** -> **0**
+- npm run build -> **0**; python unittest discover -> **Ran 170 tests, OK** -> **0**
+- cargo NOT re-run this session: no Rust file changed after the 707-passed workspace run
+  (logs/rust-full-s58.log, logs/scratch-s57-rust-full-exit.txt = exit=0)
+- Playwright Stage A **0**, Stage B **0**. Two earlier attempts that failed on launcher argument
+  syntax are recorded as exit 1, not as application failures (D-027 plus the session-61 notes).
 
-## Gotchas (do not relearn the hard way)
-- cargo MUST run from `rust-backend/` with `--target-dir /d/Projects/WebUI/target-ci` (dev supervisor PIDs 6136/8816 lock target/debug; NEVER kill it — no respawn; it may be running the user's dev stack).
-- Never `cargo fmt --all`. Background pattern: `nohup bash -c '… > docs/overnight/logs/X.log 2>&1; echo "EXIT=$?" >> …' &` — ensure logs/ exists first.
-- vitest mocks settings via `@/lib/server/settings`; bridge imports rustProxy (RUKE_RUST_BACKEND unset in tests → local path — correct).
-- PowerShell laws: all four scripts/*.ps1|psm1 need UTF-8 BOM (BOM-less = ANSI mojibake kills string literals); PS 5.1 has NO FileAlreadyExistsException — CreateNew clash = IOException HResult -2147024816; functions returning $true/$false must use Write-Host/Write-Warning (never Write-Output) for info lines; Write-only FileStream throws on .Read(); PID-reuse proof = proc start clearly AFTER lock start.
+## Lock and processes right now
+- .ai-coordination\playwright.lock: **absent**. No process owned by this run is alive.
+- Ports 3000 / 3101 / 3210: **no listener**. Port 8080: Strata only, foreign pids **15484 + 24300**
+  (D:\AI\Strata, model loaded - no resource swap was ever performed, so there is nothing to restore).
+- Foreign and deliberately untouched: the Codex runtime node processes, and **node 28540** = the
+  user's VS Code Playwright test-server on 127.0.0.1:56853 (parent process Code.exe). Nothing was
+  ever killed by image name.
 
-## Next concrete commands (on resume)
-1. Close F17: `cd rust-backend && cargo test -p ruke-server --target-dir /d/Projects/WebUI/target-ci` (full suite incl. browser_loop) → append result to TEST-RESULTS.md → mark TASKS P2 F17 item green.
-2. P2 fixes (F16, F18, F19, F01) per FINDINGS priority; gates after each batch (targeted vitest → full vitest + typecheck; cargo batch at phase end).
-4. P3 (F02–F07), P4 (F08–F12,F14,F15,F20,F21), P5–P9 python-backend (`uv`), P10 diff inspection + FINAL-REPORT.md, P11 `shutdown.exe /s /t 0` FINAL, zero questions.
-5. Append next-build-1.log result to TEST-RESULTS.md when it exits.
+## Pending validation (kept NOT passed, honestly)
+- Qwen3-Embedding / Qwen3-Reranker / Qwen3-ASR / multilingual Whisper / Docling / PaddleOCR:
+  **not_installed / evaluation_required** (assets are not on this disk). pyannote community-1:
+  **licence_acceptance_required**.
+- ASR, OCR, document and video quality on real human media, and the frozen
+  temporal_video_localisation family: **not_run**. onnxruntime-node on this host has no CUDA
+  (dml/webgpu/cpu) - reported, never silently upgraded.
+- **F01** live same-prompt A/B and **F19** scroll-jitter rate were never measured, so no number is
+  claimed for either.
+- Video ASR/OCR/vision enrichment and the embeddings/rerank jobs are reachable but not_configured
+  without assets, so brief section 8 stays **PARTIAL** even though the baseline + scene seam is live.
 
-## Report paths
-- docs/overnight/{STATE,TASKS,FINDINGS,DECISIONS,TEST-RESULTS,FINAL-REPORT}.md; logs in docs/overnight/logs/.
+## Next concrete command (the only thing left, and it is the mandated final host action)
+    powershell -NoProfile -Command "shutdown.exe /s /t 0"
+with the issuing timestamp and exit code written to docs/overnight/logs/shutdown-s61.log by the
+same command line; a non-zero result is written there as shutdown_failed with the reason. No
+scheduled timer, no forced kill of unrelated applications, no infinite retry.
+
+## How to resume if this machine comes back before the work is done
+1. Read this file, then TASKS.md (session-61 block), DECISIONS.md (through **D-030**),
+   FINDINGS.md (session-61 G1 ledger update), TEST-RESULTS.md (SESSION 61 gate block), and
+   FINAL-REPORT.md sections 1, 3, 9 (G1), 10, 11, 14.
+2. Re-verify: HEAD 002b969, porcelain 192, staged 0, nft hash prefix 21FDA49AD240564F, lock absent,
+   ports 3000/3101/3210 free, Strata still on 8080.
+3. Newest evidence: logs/{s61-vitest-full.log, s61-build.log, s61-typecheck-full.log,
+   s61-contracts.log, s61-python.log, s61-targeted.log, s60-timeline2.log, rust-full-s58.log,
+   p11-stage-a-s61.log, p11-stage-b-s61.log}.
+4. Tests need an isolated store: set WEBUI_DATA_DIR to a scratch directory. The Playwright launcher
+   owns its own isolation and refuses the real user store. Rust: run from rust-backend/ with
+   --target-dir D:\Projects\WebUI\target-ci; never cargo fmt --all.
+5. Playwright is the FINAL stage and must run under the lock with Codex completely idle (the rule
+   recorded in CODEX.md).
+
+No secrets are stored in this file or anywhere in the overnight docs.

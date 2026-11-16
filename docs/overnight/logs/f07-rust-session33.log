@@ -1,0 +1,70 @@
+
+================================================================================
+SESSION 33 (2026-11-16) -- F07 PORTED TO THE RUST TURN LAYER (ruke-attach)
+================================================================================
+Files changed this session (all inside rust-backend/crates/ruke-attach/src):
+  store.rs    v2 shown ledger (conversation+query scoped) + cross-process
+              directory mutex (acquire_shown_lock / release_shown_lock /
+              with_shown_lock) mirroring lib/server/attachindex/store.ts.
+  retrieve.rs RetrieveOpts.windows: Vec<(f64,f64)> + the comparative-window
+              branch (before the single-hull time_range branch).
+  turn.rs     raw-first retrieval (rq = trimmed raw question), index-derived
+              RouteAxis, ledger law (repeat_ask / scan_mode /
+              is_continuation_ask), bounded anchored fallback, and the new
+              `conversation: Option<&str>` parameter.
+  lib.rs      re-exports for fingerprint_query / is_continuation_ask /
+              route_query_in / RouteAxis / RoutedQuery / TimeWindow and
+              read_shown_entry / ShownEntry / shown_key.
+  chat/pipeline.rs passes the browser_session identity as the conversation.
+  tests/store_compat.rs, turn.rs call sites updated (None = bare v1 key).
+
+NEW RUST TESTS (5 turn + 2 store + 1 retrieve, all named *_f07)
+  turn::query_scoped_ledger_serves_a_repeat_its_own_answer_f07
+      13000-char passages so the per-ref budget serves EXACTLY ONE, which makes
+      "which passage the model actually sees" the observable:
+        turn 1        -> f07zero, ledger conv_a = [0]
+        same Q again  -> f07zero (the F07 defect: it used to lose its own answer)
+        "show me other passages ..." -> f07one, ledger = [0,1]
+        other conversation conv_b    -> f07zero, own ledger = [0],
+                                        conv_a ledger untouched at [0,1]
+      (The TS oracle reaches the same result with ATTACH_TURN_BUDGET_CHARS=260;
+       the Rust binary cannot set that env var per test because turn_budget() is
+       process-cached, so the fixture width carries the budget instead.)
+  turn::unrelated_followup_is_not_glued_onto_the_previous_topic_f07
+      whale history + "and the cpu fan noise?" -> serves the CPU passage ONLY
+      (no "whale" in the injected block), block lands directly before the user
+      turn (msgs[2] system / msgs[3] user).
+  turn::an_unanswerable_followup_still_falls_back_to_its_antecedent_f07
+      "and in winter?" matched nothing raw -> the anchored fallback serves the
+      whale-migration passage (the fix must not silence real follow-ups).
+  turn::a_document_without_a_timeline_never_routes_to_a_time_window_f07
+      "1:20 aspect ratio" document question still serves the passage and
+      invents no [HH:MM:SS] header.
+  turn::a_timeline_bearing_attachment_resolves_an_explicit_cue_f07
+      durationSec + timed chunks: "at 5:30" -> window [150,510] carries the
+      [00:01:40 - 00:03:10] header and excludes segment 0 (0-90).
+  store::shown_ledger_v2_scopes_by_conversation_and_query_f07 (session 33a)
+  store::shown_mutex_serializes_writers_and_never_loses_a_key_f07 (12 threads
+      x 5 writes, every key present, lock dir never outlives a write)
+  retrieve::comparative_windows_select_the_cues_not_the_hull_f07 (windows
+      [(0,210),(360,720)] -> chunks [0,1,3,4,5]; positive control with the SAME
+      from_sec/to_sec and no windows -> [0,1,2,3,4,5])
+
+GATES (rust-backend/, --target-dir D:\Projects\WebUI\target-ci)
+  cargo test -p ruke-attach --lib                        86 passed / 0 failed   exit 0
+  cargo test -p ruke-server --lib                       220 passed / 0 failed   exit 0
+  cargo test -p ruke-server --test store_compat
+                                 --test attachment_replay
+                                                        6 + 6 passed / 0 failed exit 0
+      (byte-exact TS block parity and all 6 pipeline replays still hold after
+       raw-first, so both languages agree with the already-raw-first TS oracle)
+  npx tsc --noEmit --incremental false                                          exit 0
+  npx vitest run <9-file attach gate>          9 files / 89 passed / 0 failed   exit 0
+      attach-index, attach-retrieval-integration, attach-boundary-heldout,
+      attach-router-phrase, attach-turn-budget, attach-intent-f07,
+      rust-golden/attachments, rust-golden/store-fixture, hardening-payload
+
+NO FIXTURE WAS EDITED to accept a defect. No golden TS block was regenerated.
+STATUS: F07 = implemented + offline verified (TypeScript AND Rust).
+        Live/real-Strata verification = not_run (shared capacity-1 endpoint;
+        scheduled for the final locked Playwright stage, P11).

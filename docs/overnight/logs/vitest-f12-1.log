@@ -1,0 +1,90 @@
+﻿node.exe : npm notice run webui-chat@0.2.0 npx
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Ruku\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run webui-chat@0.2.0 npx:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run __tests__/server __tests__/documents __tests__/render
+[33mThe CJS build of Vite's Node API is deprecated. See 
+https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/render/html-srcdoc.test.ts (12 tests) 5ms
+ ✓ __tests__/render/treeParse.test.ts (15 tests) 7ms
+ ✓ __tests__/server/attach-router-phrase.test.ts (6 tests) 8ms
+ ✓ __tests__/documents/pptxMotion.test.ts (9 tests) 3ms
+ ✓ __tests__/server/extract-notebook.test.ts (11 tests) 4ms
+ ✓ __tests__/server/extract-encoding.test.ts (8 tests) 3ms
+ ✓ __tests__/render/schemas.test.ts (18 tests) 5ms
+ ✓ __tests__/server/upstream-admission.test.ts (20 tests) 15ms
+ ✓ __tests__/server/extract-office-structure.test.ts (4 tests) 5ms
+ ✓ __tests__/server/attach-retrieve-honest.test.ts (11 tests) 4ms
+ ✓ __tests__/server/extract-office-cells.test.ts (7 tests) 4ms
+ ✓ __tests__/render/fenceRepair.test.ts (13 tests) 7ms
+ ✓ __tests__/server/attachment-frame-labels.test.ts (3 tests) 4ms
+ ✓ __tests__/server/attach-notes-version.test.ts (4 tests) 25ms
+[17:04:28.957] [33mWARN[39m (extract/audio): [36mLLM reload hook failed — chat may need to warm the model back up[39m 
+    err: "reload hook down"
+ ✓ __tests__/server/audio-asr-chunking.test.ts (4 tests) 263ms
+ ✓ __tests__/server/audio-stage-guard.test.ts (4 tests) 275ms
+ ✓ __tests__/server/attach-boundary-heldout.test.ts (7 tests) 25ms
+ ✓ __tests__/server/attach-turn-budget.test.ts (2 tests) 46ms
+ ✓ __tests__/server/attach-coverage-honesty.test.ts (6 tests) 58ms
+ ✓ __tests__/documents/pptxIds.test.ts (3 tests) 106ms
+ ✓ __tests__/documents/powerbiEngine.test.ts (12 tests) 154ms
+ ✓ __tests__/render/languages.test.ts (9 tests) 4ms
+ ✓ __tests__/server/token-image-cost.test.ts (5 tests) 3ms
+ ✓ __tests__/server/extract-rtf-strings.test.ts (6 tests) 4ms
+ ✓ __tests__/server/extract-image-ffmpeg.test.ts (2 tests) 425ms
+   ✓ ffmpeg image decode — I07 > an extreme portrait image is capped to <=1280 BOTH sides, aspect intact 326ms
+ ✓ __tests__/server/extract-archive-coverage.test.ts (6 tests) 320ms
+ ✓ __tests__/server/attach-chunk-punct.test.ts (3 tests) 4ms
+(node:17916) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ __tests__/server/extract-identity.test.ts (6 tests) 148ms
+ ✓ __tests__/render/registry.test.ts (3 tests) 2ms
+ ✓ __tests__/render/mathDetect.test.ts (4 tests) 3ms
+ ✓ __tests__/documents/lazyLoad.test.ts (8 tests) 10ms
+ ✓ __tests__/server/audio-capability-note.test.ts (2 tests) 204ms
+ ✓ __tests__/server/extract-pdf-coverage.test.ts (4 tests) 89ms
+ ✓ __tests__/documents/recalc.test.ts (27 tests) 146ms
+ ✓ __tests__/render/mathPlugins.test.ts (2 tests) 2ms
+ ✓ __tests__/server/extract-keyframe-coverage.test.ts (1 test) 1083ms
+   ✓ keyframe coverage spans the whole timeline (I17) > long video with early cuts still yields keyframes near its end under a 6-frame cap 1082ms
+ ✓ __tests__/render/highlight.test.ts (7 tests) 581ms
+[17:04:30.056] [33mWARN[39m (extract/audio): [36mGPU whisper unavailable — falling back to CPU[39m 
+    err: "Unsupported device: \"cuda\". Should be one of: dml, webgpu, cpu."
+ ✓ __tests__/server/video-asr-failure-coverage.test.ts (1 test) 2549ms
+   ✓ video with unreadable speech keeps its visual evidence (I16) > silent audio track → coverage note + indexed keyframes + frames dir kept 2549ms
+ ✓ __tests__/documents/docxEngine.test.ts (1 test) 2281ms
+   ✓ docx engine > embeds 2 chart screenshots, keeps heading hierarchy and deletes every temp file 2280ms
+ ✓ __tests__/documents/pdfEngine.test.ts (2 tests) 2470ms
+   ✓ pdf engine > renders a multi-page A4 PDF with the mandatory print CSS applied 1754ms
+   ✓ pdf engine > chart screenshot returns a real PNG at 2x scale and cleans up its temp html 715ms
+ ✓ __tests__/documents/pptxEngine.test.ts (10 tests) 4409ms
+   ✓ pptx engine (PHASE 5A: native motion via @office-kit/pptx) > emits native Morph transitions + animations + structural pairs, and the package re-validates 2281ms
+   ✓ pptx engine (PHASE 5A: native motion via @office-kit/pptx) > motion.reveal:"none" drops every entrance animation while the transition survives 974ms
+   ✓ pptx engine (PHASE 5A: native motion via @office-kit/pptx) > the exported file carries EXACTLY the plan the preview plays (durations + click gates) 1084ms
+ ✓ __tests__/documents/pdf-egress-canary.test.ts (4 tests) 3696ms
+   ✓ PDF export egress boundary (finding 7) > a model artifact cannot reach the network, loopback or a local file — and cannot leak the document 1501ms
+   ✓ PDF export egress boundary (finding 7) > an artifact that reaches for nothing exports with a clean guard count 722ms
+   ✓ PDF export egress boundary (finding 7) > a hanging endpoint cannot stall the export to the 45 s render timeout 705ms
+   ✓ PDF export egress boundary (finding 7) > the guarded chart path still loads its own temp file and screenshots it 758ms
+ ✓ __tests__/render/allLanguages.test.ts (142 tests) 4319ms
+   ✓ every registry language highlights > cpp produces line spans without throwing 621ms
+   ✓ every registry language highlights > typst produces line spans without throwing 711ms
+ ✓ __tests__/documents/xlsxEngine.test.ts (8 tests) 7756ms
+   ✓ UI_Stress_Test.xlsx (PART 2 extreme workbook) > builds the 6-sheet workbook: 500 rows, 0 nulls, 0 recalc errors, validations, CF, 3 chart images 2817ms
+   ✓ UI_Stress_Test.xlsx (PART 2 extreme workbook) > deterministic generator: two builds produce identical Transactions data 4863ms
+ ✓ __tests__/server/extract-zip.test.ts (17 tests) 251433ms
+   ✓ readZip — fflate reader contract > ignores declared member sizes and inflates the real stream (fflate does not check CRCs) 850ms
+   ✓ readZip — fflate reader contract > drops members over MAX_MEMBER_INFLATED_BYTES instead of failing the container 2415ms
+   ✓ Zip64 and the 7za fallback > fails a password-protected zip honestly (7za also refuses without the password) 60033ms
+
+ Test Files  45 passed (45)
+      Tests  459 passed (459)
+   Start at  17:04:27
+   Duration  252.41s (transform 3.64s, setup 0ms, collect 13.48s, tests 282.97s, environment 7ms, prepare 5.50s)
+

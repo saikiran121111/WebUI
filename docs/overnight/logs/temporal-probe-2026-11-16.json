@@ -1,0 +1,97 @@
+{
+  "clip": {
+    "bytes": 9299,
+    "clip": "D:\\Projects\\WebUI\\scratch-s53\\probe\\ruke-probe-cuts.mp4",
+    "declared_cut_times": [
+      3.0,
+      6.0,
+      9.0
+    ],
+    "duration": 12.0,
+    "ffmpeg": "ffmpeg.exe",
+    "ok": true,
+    "segments": [
+      {
+        "seconds": 3.0,
+        "source": "smptebars"
+      },
+      {
+        "seconds": 3.0,
+        "source": "rgbtestsrc"
+      },
+      {
+        "seconds": 3.0,
+        "source": "smptehdbars"
+      },
+      {
+        "seconds": 3.0,
+        "source": "yuvtestsrc"
+      }
+    ]
+  },
+  "elapsed_ms": 187,
+  "honesty": {
+    "claims_completeness": false,
+    "coverage_is_partial": true,
+    "covered_seconds": 8.0,
+    "note": "examined 8.0s of 12.0s; unexamined intervals may contain further occurrences",
+    "total_seconds": 12.0
+  },
+  "localisation": {
+    "hit_rate": 1.0,
+    "mean_abs_error_s": 0.0,
+    "n_truth": 3
+  },
+  "ok": true,
+  "scan": {
+    "cuts": [
+      3.0,
+      6.0,
+      9.0
+    ],
+    "detail": "",
+    "detected_within_tolerance": 3,
+    "detection_mean_abs_error_s": 0.0,
+    "elapsed_ms": 30,
+    "error": "",
+    "ok": true,
+    "scanned_seconds": 12.0,
+    "spurious_cut_count": 0,
+    "threshold": 0.3,
+    "truncated": false
+  },
+  "scope_note": "synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.",
+  "tolerance_s": 0.6,
+  "window_coverage": {
+    "covered": 3,
+    "hit_rate": 1.0,
+    "n_truth": 3,
+    "uncovered_declared_events": []
+  },
+  "windows": [
+    {
+      "end": 3.0,
+      "kind": "head",
+      "reason": "head coverage + novelty + novelty + novelty + scene_cut + novelty",
+      "start": 0.0
+    },
+    {
+      "end": 5.0,
+      "kind": "novelty",
+      "reason": "interval coverage",
+      "start": 4.0
+    },
+    {
+      "end": 8.0,
+      "kind": "scene_cut",
+      "reason": "detected cut + middle + novelty + novelty + novelty",
+      "start": 6.0
+    },
+    {
+      "end": 11.0,
+      "kind": "scene_cut",
+      "reason": "detected cut + tail + novelty + novelty + novelty",
+      "start": 9.0
+    }
+  ]
+}

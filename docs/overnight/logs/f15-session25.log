@@ -1,0 +1,13 @@
+SESSION 25 - F15 answer-release markdown awareness: TS + Rust BOTH verified
+cargo test -p ruke-server --lib --target-dir D:\Projects\WebUI\target-ci  (run 1, F15 patch from session 24)
+  -> error[E0599] no method named `concat` for Map<...> at answer_release.rs:182 ; CARGO_EXIT=101
+  fix: .collect::<String>()
+cargo test -p ruke-server --lib --target-dir D:\Projects\WebUI\target-ci
+  -> test result: ok. 216 passed; 0 failed ; CARGO_EXIT=0
+matrix.json: +7 release cases (25 total), +3 diagnose cases (16 total), NEW "segments" section (8 cases)
+  all expectations hand-computed markdown structure (fence/inline/indented/table), NOT recorded output
+npx vitest run __tests__/chat/answer-release.test.ts  -> 69 passed (69) ; VITEST_EXIT=0
+cargo test -p ruke-server --lib --target-dir D:\Projects\WebUI\target-ci (after wiring segments)
+  -> test result: ok. 217 passed; 0 failed ; CARGO_EXIT=0 (chat::answer_release tests include
+     segmentation_reconstructs_input_and_pins_verbatim_bytes = the cross-language segmentation lock)
+npx tsc --noEmit --incremental false -> TSC_EXIT=0

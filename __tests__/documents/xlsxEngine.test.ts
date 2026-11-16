@@ -40,7 +40,7 @@ const spec = {
 };
 
 describe("xlsx engine", () => {
-  it("builds a multi-sheet workbook with zero null cells, live formulas, freeze panes and validations", async () => {
+  it("builds a multi-sheet workbook with live formulas, freeze panes, validations and no invented values (F11)", async () => {
     const out = await buildXlsx(spec);
     expect(out.recalcErrors).toBe(0);
     expect(out.filename).toBe("Q4_Financial_Model.xlsx");
@@ -55,7 +55,8 @@ describe("xlsx engine", () => {
     // freeze_panes A2
     expect(ws.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
 
-    // zero null/blank cells across the used range (nulls sanitized to 0 / "N/A")
+    // F11: no cell in the used range holds blank TEXT (text/date columns keep their
+    // "N/A" placeholder). A missing NUMERIC value is absent, which is not a blank text cell.
     let nulls = 0;
     ws.eachRow({ includeEmpty: false }, (row) => {
       row.eachCell({ includeEmpty: false }, (cell) => {
@@ -64,7 +65,11 @@ describe("xlsx engine", () => {
       });
     });
     expect(nulls).toBe(0);
-    expect(ws.getCell("C4").value).toBe(0); // numeric null → 0
+    // F11 (intentional model change - see docs/overnight/DECISIONS.md): the null revenue
+    // stays ABSENT instead of becoming a measured 0, and the engine reports the decision.
+    expect(ws.getCell("C4").value ?? null).toBeNull();
+    expect(out.valueIssues.filter((i) => i.cell === "C4").map((i) => i.reason)).toEqual(["missing_value"]);
+    expect(out.valueIssues.find((i) => i.cell === "C4")?.action).toMatch(/declare nullPolicy/)
 
     // 100% live formulas: margin + total row are formula cells
     expect(String((ws.getCell("E2").value as { formula: string }).formula)).toMatch(/^IF\(/);
@@ -459,4 +464,83 @@ describe("UI_Stress_Test.xlsx (PART 2 extreme workbook)", () => {
       expect(norm(va), ref).toEqual(norm(vb));
     }
   }, 120000);
+});
+
+describe("xlsx engine: F11 value fidelity", () => {
+  const money = {
+    filename: "F11_Value_Fidelity",
+    sheets: [{
+      name: "Ledger",
+      columns: [
+        { key: "item", label: "Item", format: "text" },
+        { key: "price", label: "Price", format: "currency", currency: "\u20B9" },
+        { key: "rate", label: "Rate", format: "percent", percentScale: "points" },
+        { key: "qty", label: "Qty", format: "integer", nullPolicy: "zero" },
+      ],
+      rows: [
+        { item: "A", price: "\u20B91,200", rate: "12%", qty: null },
+        { item: "B", price: "\u20AC9.99", rate: 7, qty: 3 },
+        { item: "C", price: "unknown", rate: 0.5, qty: 4 },
+      ],
+    }],
+  };
+
+  it("preserves currency, declared percent scale and blanks end to end", async () => {
+    const out = await buildXlsx(JSON.parse(JSON.stringify(money)));
+    expect(out.recalcErrors).toBe(0);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(out.buffer as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const ws = wb.getWorksheet("Ledger")!;
+    expect(ws.getCell("B2").value).toBe(1200);
+    expect(String(ws.getCell("B2").numFmt)).toContain("\u20B9");
+    expect(ws.getCell("B3").value).toBe(9.99);
+    expect(String(ws.getCell("B3").numFmt)).toContain("\u20AC");
+    expect(ws.getCell("C2").value).toBeCloseTo(0.12, 10);
+    expect(ws.getCell("C3").value).toBeCloseTo(0.07, 10);
+    expect(ws.getCell("C2").numFmt).toBe("0.0%");
+    expect(ws.getCell("D2").value).toBe(0);
+    expect(ws.getCell("B4").value).toBe("unknown");
+    expect(ws.getCell("B4").numFmt).toBe("@");
+    const byCell = new Map(out.valueIssues.map((i) => [i.cell, i]));
+    expect(byCell.get("D2")?.reason).toBe("imputed_zero");
+    expect(byCell.get("B3")?.reason).toBe("currency_mismatch");
+    expect(byCell.get("B4")?.reason).toBe("not_a_number");
+    expect(byCell.has("B2")).toBe(false);
+  });
+
+  it("never renders a percent scale it was not told to use", async () => {
+    const spec = {
+      filename: "F11_Percent_Ambiguity",
+      sheets: [{ name: "S", columns: [{ key: "v", label: "V", format: "percent" }], rows: [{ v: 12 }, { v: 0.12 }] }],
+    };
+    const out = await buildXlsx(spec);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(out.buffer as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const ws = wb.getWorksheet("S")!;
+    expect(ws.getCell("A2").value).toBe(12);
+    expect(ws.getCell("A3").value).toBe(0.12);
+    expect(ws.getCell("A2").numFmt).toBe("#,##0.00");
+    expect(out.valueIssues.every((i) => i.reason === "percent_scale_undeclared")).toBe(true);
+  });
+
+  it("a conditional-format rule on a word does not compare it to 0", async () => {
+    const spec = {
+      filename: "F11_CF_Text",
+      sheets: [{
+        name: "S",
+        columns: [{ key: "status", label: "Status", format: "text" }],
+        rows: [{ status: "OVERSPEND" }, { status: "OK" }],
+        conditionalFormatting: [{ columnKey: "status", rule: "equal", value: "OVERSPEND", fill: "#FEE2E2" }],
+      }],
+    };
+    const out = await buildXlsx(spec);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(out.buffer as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const ws = wb.getWorksheet("S")!;
+    // ExcelJS exposes conditionalFormattings at runtime but not in its .d.ts.
+    const cf = (ws as unknown as { conditionalFormattings?: unknown[] }).conditionalFormattings;
+    expect(cf, "the sheet must still carry conditional formatting").toBeTruthy();
+    const flat = JSON.stringify(cf);
+    expect(flat).toContain("OVERSPEND");
+  });
 });

@@ -9,7 +9,7 @@
  */
 import crypto from "node:crypto";
 import { zipSync, strToU8 } from "fflate";
-import { normalizePowerbi, type PowerbiSpec, type BiVisual } from "./schemas";
+import { normalizePowerbi, type PowerbiSpec, type BiVisual, type BiValueIssue } from "./schemas";
 import { safeName } from "./pdfEngine";
 import { validatePbipPackage, PowerbiValidationError } from "./powerbiValidate";
 
@@ -22,7 +22,10 @@ function csvEscape(v: string | number): string {
 
 function toCsv(spec: PowerbiSpec): string {
   const head = spec.dataset.columns.map((c) => csvEscape(c.name)).join(",");
-  const body = spec.dataset.rows.map((r) => r.map((v) => csvEscape(v ?? "N/A")).join(","));
+  // F11: a blank numeric value is an EMPTY CSV field (Power BI reads it as blank /
+  // unknown). The old "N/A" placeholder put text into a double column, and the old
+  // dataset sanitizer put 0 there; both fabricated a measurement.
+  const body = spec.dataset.rows.map((r) => r.map((v) => (v === null || v === undefined ? "" : csvEscape(v))).join(","));
   return [head, ...body].join("\r\n");
 }
 
@@ -227,13 +230,21 @@ function darkThemeJson(): string {
   }, null, 2);
 }
 
-export interface PowerbiBuildResult { buffer: Buffer; filename: string; contentType: string }
+export interface PowerbiBuildResult {
+  buffer: Buffer;
+  filename: string;
+  contentType: string;
+  /** F11: dataset values that were not measurable as given (blank/kept-as-text),
+   *  reported instead of silently coerced to 0. */
+  datasetIssues: BiValueIssue[];
+}
 
 export async function buildPowerbi(rawSpec: unknown): Promise<PowerbiBuildResult> {
   // Always normalize: sanitizes nulls (numeric → 0, text → "N/A") and synthesizes
   // default measures/visuals. Normalizing an already-normalized spec is idempotent.
   const spec: PowerbiSpec | null = normalizePowerbi(rawSpec);
   if (!spec) throw new Error("Invalid powerbi spec");
+  const datasetIssues = spec.datasetIssues ?? [];
 
   const name = safeName(spec.filename);
   const sm = `${name}.SemanticModel`;
@@ -321,6 +332,7 @@ export async function buildPowerbi(rawSpec: unknown): Promise<PowerbiBuildResult
     buffer: Buffer.from(withPbit),
     filename: name + ".pbip.zip",
     contentType: "application/zip",
+    datasetIssues,
   };
 }
 

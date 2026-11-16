@@ -26,6 +26,14 @@
     "expectation inverted by design, with the surviving continuity legs",
     "('its', 'same', 'and what about…', 'add bread too') kept as positive",
     "controls.",
+    "F04 self-task law (2026-11-15): a turn whose leading slot holds a CONTENT",
+    "token (a word outside every closed-class vocabulary in this law) AND that",
+    "names further lexical matter carries its OWN task. An anaphora cue inside",
+    "such a turn ('Write a poem about it') is language-level reference only -",
+    "it does NOT inherit the previous ACTION or destination, because a pronoun",
+    "is not a permission. Elliptical fragments and turns built from this",
+    "domain's own vocabulary ('add bread too', 'the chargers again', 'on the",
+    "checkout page') keep carrying the session.",
     "Enums: intent = none|research|site_info|operate|compare_sites;",
     "state = unresolved|resolved|ambiguous;",
     "provenance = none|explicit_url|explicit_domain|resolved_search|resolved_cache|ambiguous."
@@ -652,6 +660,47 @@
       },
       "prompt": "and find the price",
       "expect": { "intent": "none", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
+    },
+    {
+      "_why": "F04 (2026-11-15): the milk-order destination and the operate action must not survive a turn that states its own action (write) and its own matter (poem); the cue 'it' is language-level reference.",
+      "name": "new-action-with-oblique-pronoun-resets",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "Write a poem about it",
+      "expect": { "intent": "none", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
+    },
+    {
+      "_why": "F04 second leg, different wording: the demonstrative 'this' is likewise not a permission (content verb 'translate' + own matter 'French').",
+      "name": "new-action-demonstrative-resets",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "Translate this into French",
+      "expect": { "intent": "none", "targets": [], "excludedPhrases": [], "authorizedHosts": [] }
+    },
+    {
+      "_why": "positive control for the self-task law: an elliptical fragment built only of closed-class vocabulary continues an ongoing site session, which is what browser operate turns rely on.",
+      "name": "ui-fragment-in-ongoing-session-carries",
+      "prev": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      },
+      "prompt": "on the checkout page",
+      "expect": {
+        "intent": "operate",
+        "targets": [{ "phrase": "Zepto", "state": "unresolved", "host": "", "url": "", "candidates": [], "provenance": "none" }],
+        "excludedPhrases": [],
+        "authorizedHosts": []
+      }
     }
   ]
 }

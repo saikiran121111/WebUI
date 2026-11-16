@@ -28,8 +28,9 @@
 //!   Vec and `write_shown` swallows every IO error.
 //! - Atomic writes: `writeFileSync(f+".tmp") + renameSync` preserved —
 //!   `std::fs::rename` replaces an existing target on Windows the same way
-//!   Node's does. No locking is added (it would change Node-visible
-//!   behavior, forbidden by the brief).
+//!   Node's does. Ledger WRITES additionally take the same cross-process
+//!   directory mutex the TS side has (F07 session 31); ledger READS stay
+//!   lock-free because the rename is atomic (see the I20/F07 section).
 //!
 //! LRU (3, insertion-order) is preserved. DOCUMENTED DEVIATION: the TS
 //! cache is keyed by `attId` under a single module-global ROOT; the Rust
@@ -42,7 +43,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -231,21 +232,154 @@ pub fn write_notes(
     atomic_write(&dir.join("notes.json"), &body).map_err(|e| e.to_string())
 }
 
-// ─── I20: the shown ledger ───────────────────────────────────────────────
+// I20 / F07: the shown ledger
+// ------------------------------------------------------------------------
 // Deliberately ONE aggregate file per root (`<root>/.data/attach-index/
-// .shown.json`, a map attId → number[]) instead of a per-attachment file
-// inside the index dir: (a) the golden store fixture pins the EXACT
-// per-attachment file set (`chunks.jsonl`/`full.txt`/`meta.json` only), so
-// a new per-dir file would drift it, and (b) the TS side runs parallel
-// vitest workers sharing one root where per-dir rewrites would race.
-// Mirror of the I20 comment in `store.ts`.
+// .shown.json`) instead of a per-attachment file inside the index dir: (a) the
+// golden store fixture pins the EXACT per-attachment file set (`chunks.jsonl`/
+// `full.txt`/`meta.json` only), so a new per-dir file would drift it, and (b)
+// the TS side runs parallel vitest workers sharing one root where per-dir
+// rewrites would race. Mirror of the I20 comment in `store.ts`.
+//
+// F07 v2 (2026-11-15): the ledger was keyed by attachment ALONE, so one chat's
+// shown list demoted evidence in a DIFFERENT chat, and an unanswered REPEAT of
+// a question lost its own answer (its top passages had been shown once, so they
+// were demoted from then on). Keys are conversation-scoped
+// ("attId|conversationId", bare attId when no conversation is known) and
+// values are { "q": fingerprint_query of the query that produced them,
+// "ids": [...] } -- identity, not meaning. v1 values (bare number arrays) stay
+// readable. Mirror of the v2 block in `store.ts`.
+//
+// F07 (session 31): every turn rewrites this ONE aggregate, so a plain
+// read-modify-write silently loses keys another writer added in the same
+// window (a rebuild's delete resurrected, another attachment's list dropped).
+// Writers take a cross-process mutex and re-read the file INSIDE it, so each
+// mutation rebases on the latest map. The lock is a DIRECTORY: creating an
+// existing directory fails atomically on every platform, so it works across
+// processes with no O_EXCL subtleties. The holder writes an owner token inside
+// it and only the owner releases. A lock older than SHOWN_LOCK_STALE_MS is
+// provably abandoned -- every critical section here is a couple of synchronous
+// fs calls -- so it is broken instead of wedging a turn. A panic that skips the
+// release is therefore reclaimed by the same stale rule, bounded by the wait
+// deadline; no lock is ever deleted without that age proof.
+
+const SHOWN_LOCK_WAIT_MS: u64 = 500;
+/// Far longer than any real critical section, so an old lock = a dead holder.
+const SHOWN_LOCK_STALE_MS: u64 = 2000;
 
 fn shown_file(root: &Path) -> PathBuf {
     root.join(".data").join("attach-index").join(".shown.json")
 }
 
+/// The mutex directory sits NEXT TO the aggregate file, never inside an
+/// attachment dir (the store fixture pins those exact contents).
+fn shown_lock_dir(root: &Path) -> PathBuf {
+    let mut p = shown_file(root).into_os_string();
+    p.push(".lock");
+    PathBuf::from(p)
+}
+
+fn shown_lock_owner_file(root: &Path) -> PathBuf {
+    shown_lock_dir(root).join("owner")
+}
+
+fn epoch_ms() -> u64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis() as u64,
+        Err(_) => 0,
+    }
+}
+
+fn lock_age_ms(dir: &Path) -> Option<u64> {
+    let m = std::fs::metadata(dir).ok()?;
+    let mtime = m.modified().ok()?;
+    let ms = mtime.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
+    Some(epoch_ms().saturating_sub(ms))
+}
+
+struct ShownLock {
+    token: String,
+}
+
+fn acquire_shown_lock(root: &Path) -> Option<ShownLock> {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let nanos = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.subsec_nanos(),
+        Err(_) => 0,
+    };
+    let token = format!("{:x}-{:x}-{:x}", std::process::id(), seq, nanos);
+    let dir = shown_lock_dir(root);
+    // create_dir does NOT create parents, so the aggregate's own directory is
+    // created first (TS: fs.mkdirSync(ROOT, { recursive: true })).
+    let parent = dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| root.to_path_buf());
+    let deadline = Instant::now() + Duration::from_millis(SHOWN_LOCK_WAIT_MS);
+    loop {
+        if let Err(err) = std::fs::create_dir_all(&parent).and_then(|()| std::fs::create_dir(&dir)) {
+            if err.kind() != std::io::ErrorKind::AlreadyExists {
+                return None;
+            }
+            match lock_age_ms(&dir) {
+                None => continue, // vanished between attempts: retry the create
+                Some(age) if age > SHOWN_LOCK_STALE_MS => {
+                    if std::fs::remove_dir_all(&dir).is_err() {
+                        return None;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+            continue;
+        }
+        // Owner proof is best effort; release still checks it.
+        let _ = std::fs::write(shown_lock_owner_file(root), token.as_bytes());
+        return Some(ShownLock { token });
+    }
+}
+
+fn release_shown_lock(root: &Path, lock: &ShownLock) {
+    let dir = shown_lock_dir(root);
+    let owner = std::fs::read_to_string(shown_lock_owner_file(root)).unwrap_or_default();
+    let owner = owner.trim();
+    if !owner.is_empty() && owner != lock.token {
+        return; // someone else broke and re-took it
+    }
+    // Best effort: the stale-break rule cleans up after a crash.
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Serialized read-modify-write; `mutate` returns false to skip the write.
+/// The map is re-read INSIDE the lock, which is what makes each mutation a
+/// rebase rather than a blind overwrite. Contended or wedged: rebasing without
+/// the mutex is still strictly better than dropping the update, and the ledger
+/// is only an optimization -- this never fails a turn.
+fn with_shown_lock<F>(root: &Path, mutate: F)
+where
+    F: FnOnce(&mut serde_json::Map<String, Value>) -> bool,
+{
+    let commit = |map: serde_json::Map<String, Value>| {
+        let mut map = map;
+        if mutate(&mut map) {
+            if let Ok(body) = serde_json::to_string(&Value::Object(map)) {
+                let _ = atomic_write(&shown_file(root), &body);
+            }
+        }
+    };
+    match acquire_shown_lock(root) {
+        Some(lock) => {
+            commit(read_shown_map(root));
+            release_shown_lock(root, &lock);
+        }
+        None => commit(read_shown_map(root)),
+    }
+}
+
 /// `readShownMap`: missing/corrupt/non-object (an array counts as
-/// non-object here) ⇒ empty map, ⇔ TS `try { JSON.parse } catch {}` plus
+/// non-object here) => empty map, <=> TS `try { JSON.parse } catch {}` plus
 /// `raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}`.
 fn read_shown_map(root: &Path) -> serde_json::Map<String, Value> {
     let parsed = std::fs::read_to_string(shown_file(root))
@@ -257,48 +391,124 @@ fn read_shown_map(root: &Path) -> serde_json::Map<String, Value> {
     }
 }
 
-/// `readShown`: bad id ⇒ `[]`; missing/corrupt ⇒ `[]`; entries filtered to
-/// integers (`Number.isInteger` ⇔ serde `as_i64`, which accepts integral
-/// floats and rejects fractions/strings, exactly like JS).
-pub fn read_shown(root: &Path, att_id: &str) -> Vec<i64> {
-    if !valid_att_id(att_id) {
-        return Vec::new();
-    }
-    match read_shown_map(root).get(att_id).and_then(Value::as_array) {
-        Some(arr) => arr.iter().filter_map(Value::as_i64).collect(),
-        None => Vec::new(),
+/// F07: the ledger is scoped to conversation + attachment. With no
+/// conversation the bare attachment key is used, which keeps single-shot
+/// callers and v1 data working (mirror of TS `shownKey`).
+pub fn shown_key(att_id: &str, conversation: Option<&str>) -> String {
+    let c = conversation.unwrap_or("").trim();
+    if c.is_empty() {
+        att_id.to_string()
+    } else {
+        format!("{att_id}|{c}")
     }
 }
 
-/// `writeShown`: bad id is a silent no-op (TS `ATT_RE` guard), then a
-/// read-modify-write of the aggregate map, atomic-rename. The ledger is an
-/// OPTIMIZATION — losing it must never break a turn, so every IO error is
-/// swallowed (TS whole-body `try/catch {}`).
-pub fn write_shown(root: &Path, att_id: &str, ids: &[i64]) {
+/// F07: what a shown entry belongs to (conversation + the query that served
+/// it). `q` is `fingerprint_query()` of that query; "" for v1 entries.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ShownEntry {
+    pub q: String,
+    pub ids: Vec<i64>,
+}
+
+/// `shownEntry`: v1 array => { q: "", ids }; v2 object => its fields with the
+/// documented defaults; null/scalar => None (TS `v && typeof v === "object"`
+/// rejects null even though `typeof null === "object"`).
+fn shown_entry(v: &Value) -> Option<ShownEntry> {
+    match v {
+        Value::Array(arr) => Some(ShownEntry {
+            q: String::new(),
+            ids: arr.iter().filter_map(Value::as_i64).collect(),
+        }),
+        Value::Object(o) => {
+            let ids = o
+                .get("ids")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_i64).collect())
+                .unwrap_or_default();
+            let q = o.get("q").and_then(Value::as_str).unwrap_or("").to_string();
+            Some(ShownEntry { q, ids })
+        }
+        _ => None,
+    }
+}
+
+/// F07: the entry for this attachment + conversation. A conversation-qualified
+/// read also falls back to the legacy bare key, so an upgrade does not lose the
+/// ledger it already had (mirror of TS `readShownEntry`).
+pub fn read_shown_entry(
+    root: &Path,
+    att_id: &str,
+    conversation: Option<&str>,
+) -> Option<ShownEntry> {
+    if !valid_att_id(att_id) {
+        return None;
+    }
+    let map = read_shown_map(root);
+    let key = shown_key(att_id, conversation);
+    let direct = map.get(&key).and_then(shown_entry);
+    if direct.is_some() {
+        return direct;
+    }
+    if key == att_id {
+        None
+    } else {
+        map.get(att_id).and_then(shown_entry)
+    }
+}
+
+/// v1-compatible read: ids already shown for this attachment + conversation.
+/// Bad id, missing file or corrupt aggregate => empty vec (every TS failure
+/// mode collapses to empty/silent).
+pub fn read_shown(root: &Path, att_id: &str, conversation: Option<&str>) -> Vec<i64> {
+    read_shown_entry(root, att_id, conversation)
+        .map(|e| e.ids)
+        .unwrap_or_default()
+}
+
+/// Read-modify-write under the ledger mutex: one attachment's turn never
+/// clobbers another's, and a rebuild's delete is not resurrected. Bad id is a
+/// silent no-op (TS `ATT_RE` guard); every IO error is swallowed -- the ledger
+/// is an OPTIMIZATION, losing it must never break a turn.
+pub fn write_shown(
+    root: &Path,
+    att_id: &str,
+    ids: &[i64],
+    conversation: Option<&str>,
+    query_fp: Option<&str>,
+) {
     if !valid_att_id(att_id) {
         return;
     }
-    let mut map = read_shown_map(root);
-    map.insert(
-        att_id.to_string(),
-        Value::Array(ids.iter().map(|n| json!(*n)).collect()),
-    );
-    if let Ok(body) = serde_json::to_string(&Value::Object(map)) {
-        let _ = atomic_write(&shown_file(root), &body);
-    }
+    let key = shown_key(att_id, conversation);
+    let value = json!({ "q": query_fp.unwrap_or(""), "ids": ids });
+    with_shown_lock(root, |map| {
+        map.insert(key, value);
+        true
+    });
 }
 
-/// `shownDelete` (private in TS): early-exit when the key is absent so a
-/// GC path never rewrites a clean file; never throws.
+/// `shownDelete` (private in TS): no rewrite when nothing matches, so a GC path
+/// never rewrites a clean file; never throws. F07: a rebuilt index invalidates
+/// EVERY conversation-scoped key for it.
 fn shown_delete(root: &Path, att_id: &str) {
-    let mut map = read_shown_map(root);
-    if !map.contains_key(att_id) {
-        return;
-    }
-    map.remove(att_id);
-    if let Ok(body) = serde_json::to_string(&Value::Object(map)) {
-        let _ = atomic_write(&shown_file(root), &body);
-    }
+    let prefix = format!("{att_id}|");
+    with_shown_lock(root, |map| {
+        let hit = map.contains_key(att_id) || map.keys().any(|k| k.starts_with(&prefix));
+        if !hit {
+            return false;
+        }
+        map.remove(att_id);
+        let stale: Vec<String> = map
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for k in stale {
+            map.remove(&k);
+        }
+        true
+    });
 }
 
 /// Monotonic-ish source for tests needing a fake clock without touching
@@ -473,16 +683,16 @@ mod tests {
         // exists; mirror that precondition here.
         let idx_root = root.join(".data").join("attach-index");
         std::fs::create_dir_all(&idx_root).unwrap();
-        assert_eq!(read_shown(&root, "att_shw01"), Vec::<i64>::new()); // no file yet
+        assert_eq!(read_shown(&root, "att_shw01", None), Vec::<i64>::new()); // no file yet
 
-        write_shown(&root, "att_shw01", &[0, 1]);
-        write_shown(&root, "att_shw02", &[5]);
-        assert_eq!(read_shown(&root, "att_shw01"), vec![0, 1]); // RMW keeps the sibling key
-        assert_eq!(read_shown(&root, "att_shw02"), vec![5]);
+        write_shown(&root, "att_shw01", &[0, 1], None, None);
+        write_shown(&root, "att_shw02", &[5], None, None);
+        assert_eq!(read_shown(&root, "att_shw01", None), vec![0, 1]); // RMW keeps the sibling key
+        assert_eq!(read_shown(&root, "att_shw02", None), vec![5]);
 
         // Bad id: write no-ops, read is empty (⇔ ATT_RE guard both sides).
-        write_shown(&root, "bad", &[1]);
-        assert_eq!(read_shown(&root, "bad"), Vec::<i64>::new());
+        write_shown(&root, "bad", &[1], None, None);
+        assert_eq!(read_shown(&root, "bad", None), Vec::<i64>::new());
         let shown = idx_root.join(".shown.json");
         assert!(!std::fs::read_to_string(&shown).unwrap().contains("bad"));
 
@@ -490,15 +700,15 @@ mod tests {
         // catch ⇒ `{}`); the NEXT good write restarts from `{}` — entries
         // that could not be read are discarded, exactly like TS.
         std::fs::write(&shown, "not json").unwrap();
-        assert_eq!(read_shown(&root, "att_shw01"), Vec::<i64>::new());
-        write_shown(&root, "att_shw03", &[7]);
-        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
-        assert_eq!(read_shown(&root, "att_shw02"), Vec::<i64>::new());
+        assert_eq!(read_shown(&root, "att_shw01", None), Vec::<i64>::new());
+        write_shown(&root, "att_shw03", &[7], None, None);
+        assert_eq!(read_shown(&root, "att_shw03", None), vec![7]);
+        assert_eq!(read_shown(&root, "att_shw02", None), Vec::<i64>::new());
 
         // Non-integer entries are filtered (JS Number.isInteger ⇔ as_i64).
         std::fs::write(&shown, "{\"att_shw01\":[1,2.5,\"x\",3],\"att_shw03\":[7]}").unwrap();
-        assert_eq!(read_shown(&root, "att_shw01"), vec![1, 3]);
-        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
+        assert_eq!(read_shown(&root, "att_shw01", None), vec![1, 3]);
+        assert_eq!(read_shown(&root, "att_shw03", None), vec![7]);
 
         // remove_index drops the index's ledger key (I20: a rebuilt index
         // has NEW chunk ids — a stale ledger would demote wrong chunks
@@ -508,10 +718,87 @@ mod tests {
         seed_store(&root, "att_shw01", meta, "");
         remove_index(&root, "att_shw01");
         assert!(!idx_root.join("att_shw01").exists());
-        assert_eq!(read_shown(&root, "att_shw01"), Vec::<i64>::new());
-        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
+        assert_eq!(read_shown(&root, "att_shw01", None), Vec::<i64>::new());
+        assert_eq!(read_shown(&root, "att_shw03", None), vec![7]);
         remove_index(&root, "att_gone99"); // absent key AND no dir: silent
-        assert_eq!(read_shown(&root, "att_shw03"), vec![7]);
+        assert_eq!(read_shown(&root, "att_shw03", None), vec![7]);
+    }
+
+    #[test]
+    fn shown_ledger_v2_scopes_by_conversation_and_query_f07() {
+        let root = uniq_root("shownv2");
+        std::fs::create_dir_all(root.join(".data").join("attach-index")).unwrap();
+        let shown = root.join(".data").join("attach-index").join(".shown.json");
+
+        write_shown(&root, "att_v2aaa", &[3, 4], Some("conv-a"), Some("fp-one"));
+        write_shown(&root, "att_v2aaa", &[9], Some("conv-b"), Some("fp-two"));
+        // Conversation scoping: one chat's shown list never demotes another's.
+        assert_eq!(read_shown(&root, "att_v2aaa", Some("conv-a")), vec![3, 4]);
+        assert_eq!(read_shown(&root, "att_v2aaa", Some("conv-b")), vec![9]);
+        // The entry also carries WHICH query produced it (identity, not meaning).
+        assert_eq!(
+            read_shown_entry(&root, "att_v2aaa", Some("conv-b")),
+            Some(ShownEntry {
+                q: "fp-two".into(),
+                ids: vec![9]
+            })
+        );
+        let raw = std::fs::read_to_string(&shown).unwrap();
+        assert!(raw.contains("att_v2aaa|conv-a"), "{raw}");
+        assert!(!raw.contains("att_v2aaa\"" ), "{raw}");
+
+        // An unknown conversation falls back to the LEGACY bare key (an upgrade
+        // must not lose the ledger it already had), never to another chat's.
+        std::fs::write(&shown, r#"{"att_v2bbb":[1,2,3]}"#).unwrap();
+        assert_eq!(read_shown(&root, "att_v2bbb", Some("conv-z")), vec![1, 2, 3]);
+        assert_eq!(
+            read_shown_entry(&root, "att_v2bbb", Some("conv-z")).unwrap().q,
+            ""
+        );
+        // ...but a v2 conversation key is never read by the bare-key caller.
+        write_shown(&root, "att_v2ccc", &[7], Some("conv-a"), Some("fp-x"));
+        assert_eq!(read_shown(&root, "att_v2ccc", None), Vec::<i64>::new());
+
+        // A rebuild drops EVERY conversation key for that attachment and leaves
+        // other attachments alone.
+        let meta = "{\"attId\":\"att_v2aaa\",\"name\":\"n\",\"category\":\"text\",\"createdAt\":0,\"chunkCount\":0,\"spine\":\"\",\"spineBlocks\":[],\"frames\":[]}";
+        seed_store(&root, "att_v2aaa", meta, "");
+        remove_index(&root, "att_v2aaa");
+        assert_eq!(read_shown(&root, "att_v2aaa", Some("conv-a")), Vec::<i64>::new());
+        assert_eq!(read_shown(&root, "att_v2aaa", Some("conv-b")), Vec::<i64>::new());
+        assert_eq!(read_shown(&root, "att_v2ccc", Some("conv-a")), vec![7]);
+    }
+
+    #[test]
+    fn shown_mutex_serializes_writers_and_never_loses_a_key_f07() {
+        // The root aggregate is one file every writer rewrites. Without the
+        // directory mutex (and the re-read INSIDE it) each thread's blind
+        // read-modify-write resurrects or drops other attachments' keys.
+        let root = uniq_root("shownlock");
+        std::fs::create_dir_all(root.join(".data").join("attach-index")).unwrap();
+        let atts: Vec<String> = (0..12).map(|i| format!("att_lk{i:03}")).collect();
+        let mut handles = Vec::new();
+        for att in atts.clone() {
+            let root2 = root.to_path_buf();
+            handles.push(std::thread::spawn(move || {
+                for round in 0..5 {
+                    write_shown(&root2, &att, &[round], Some("conv-l"), Some("fp"));
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let missing: Vec<&String> = atts
+            .iter()
+            .filter(|a| read_shown(&root, a, Some("conv-l")) != vec![4])
+            .collect();
+        assert!(missing.is_empty(), "lost ledger keys: {missing:?}");
+
+        // The mutex is a SIBLING of the aggregate, never inside an attachment
+        // dir (the store fixture pins those exact contents).
+        let lock = root.join(".data").join("attach-index").join(".shown.json.lock");
+        assert!(!lock.exists(), "the lock must not outlive a write");
     }
 
     #[test]

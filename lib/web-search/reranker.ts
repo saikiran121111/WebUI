@@ -20,6 +20,7 @@ import type {
   EvidencePassage,
 } from "./types";
 import { freshnessFit } from "./freshness";
+import { identityShapes } from "./normalization";
 
 /* ── chunking ──────────────────────────────────────────────────────────── */
 
@@ -180,11 +181,14 @@ export function tokenize(text: string): string[] {
   // byte-identical to before.
   // shortcut: no CJK word segmentation — single Han chars drop below the
   // length>1 filter; upgrade if CJK retrieval demand is proven.
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
-    .split(" ")
-    .filter((t) => t.length > 1 && !STOPWORDS.has(t));
+  // F05 (2026-11-15): one shared identity splitter, including the "+"/"#"
+  // modifier run, so the identifier a document USES is the identifier the
+  // score compares. "C++" and "C#" used to shatter into "c" (and then be
+  // dropped by the length filter), which made the symbol-bearing names
+  // invisible to BM25 while C-language text still matched on other words.
+  return identityShapes(text, "none").filter(
+    (t) => t.length > 1 && !STOPWORDS.has(t),
+  );
 }
 
 /* ── Junk passage filter ─────────────────────────────────────────────── */

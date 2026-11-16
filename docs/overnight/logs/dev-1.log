@@ -1,0 +1,25 @@
+P8 integrated startup check (session 20) - scripts/dev-supervisor.mjs
+================================================================
+Command (scratch data dir, non-default ports, prebuilt server binary so cargo was skipped):
+  $env:WEBUI_DATA_DIR="D:\Projects\WebUI\tmp-devcheck-data"; $env:PORT="3951"
+  $env:RUKE_BACKEND_PORT="3952"; $env:RUKE_ML_REQUIRED="1"
+  $env:RUKE_SERVER_BIN="D:\Projects\WebUI\target-ci\debug\ruke-server.exe"
+  Start-Process node -ArgumentList "scripts\dev-supervisor.mjs" ...
+Observed startup order and output (exit of the probe script 0; supervisor tree torn down after):
+  [dev-supervisor] python: project venv reused (offline start, python 3.12.15)   <- cached setup stamp, no uv sync, no downloads
+  [dev-supervisor] RUKE_SERVER_BIN override -> ... - cargo build SKIPPED
+  [dev-supervisor] Python supervisor ready on 127.0.0.1:64030 (pid 7196, state ready, heavy imports at startup: 0, idle TTL 120s).
+  [dev-supervisor] starting ruke-server ... (pid 30024) on 127.0.0.1:3952...
+  [dev-supervisor] Rust backend ready.
+  [dev-supervisor] starting next dev (pid 23312) on 127.0.0.1:3951...
+  [dev-supervisor] Next.js ready (listening).  / Ready in 3.6s
+Health probes (all reached):
+  GET http://127.0.0.1:3952/api/ruke/health  -> {"ok":true,"version":"0.1.0","user_turn_active":false}
+  GET http://127.0.0.1:64030/health          -> state/capabilities/limits/workers present
+  GET http://127.0.0.1:3951                  -> 200
+Discovery record: tmp-devcheck-data\python\supervisor.json {port,pid,secret_file,fingerprint,capabilities,token_env}
+Teardown proof: `taskkill /PID <the node supervisor this run started> /T /F` terminated exactly this
+run's tree (Next, ruke-server, python supervisor). After teardown: no ruke_ml python process, no
+ruke-server.exe, port 64030 has no listener. Strata pids 24300/15484 untouched (not ours).
+Defect observed and fixed (see dev-2.log / FINDINGS): the supervisor dumped a full
+ConnectionResetError traceback to stderr when a probe hung up mid-request.

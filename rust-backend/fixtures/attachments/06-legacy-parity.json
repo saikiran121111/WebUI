@@ -1,7 +1,7 @@
 {
   "_meta": {
     "scenario": "same retrieval on the legacy stream:false path",
-    "semantics": "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes (including the standard_chat off-by-one: block after the user turn; P1 2026-11-01: order is user, runtime_clock, knowledge); only the stage FRAMES are absent on the legacy path (stage() is a no-op), so retrieval_done never appears. §5k (2026-11-13): RE-RECORDED header bytes (coverage-honest wording).",
+    "semantics": "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes — F08 (2026-11-15) fixed the standard_chat off-by-one on both paths, so every block lands BEFORE the user turn: [knowledge_index, response_policy, runtime_clock, user]. Only the stage FRAMES are absent on the legacy path (stage() is a no-op), so retrieval_done never appears. §5k (2026-11-13): RE-RECORDED header bytes (coverage-honest wording).",
     "comparison": "byte-exact",
     "harness": "__tests__/rust-golden/attachments.test.ts",
     "env": {
@@ -23,11 +23,23 @@
         "authorization": "Bearer golden-key",
         "content-type": "application/json"
       },
-      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"According to the indexed lecture notes, what happens in the Calvin cycle?\"}]},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"},{\"role\":\"system\",\"content\":\"<knowledge_index name=\\\"intro-biology.pdf\\\">\\nPassages relevant to this question, retrieved from \\\"intro-biology.pdf\\\" (its complete text is preserved locally — the passages below are the parts the retrieval matched):\\nPhotosynthesis converts light into chemical energy in the chloroplast.\\n\\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\\n\\nStomata regulate gas exchange on the underside of leaves.\\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\\n</knowledge_index>\"}]}",
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"system\",\"content\":\"<knowledge_index name=\\\"intro-biology.pdf\\\">\\nPassages relevant to this question, retrieved from \\\"intro-biology.pdf\\\" (its complete text is preserved locally — the passages below are the parts the retrieval matched):\\nPhotosynthesis converts light into chemical energy in the chloroplast.\\n\\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\\n\\nStomata regulate gas exchange on the underside of leaves.\\n[coverage: 3 of 3 indexed passages of \\\"intro-biology.pdf\\\" were shown this turn; no matched passage was withheld from this turn; ranking mode: semantic + lexical -- anything outside this selection was NOT read this turn]\\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\\n</knowledge_index>\"},{\"role\":\"system\",\"content\":\"RESPONSE POLICY FOR THIS ASSISTANT:\\n- Answer the request that was actually made, at the depth it asks for: a short question gets a short, direct answer; an explicit request for detail, comparison or steps gets the detail.\\n- Ordinary small talk and status questions stay brief and natural. Do not convert them into a report, a plan, or a list.\\n- Do not advertise capabilities, tools, integrations or services unless the human asks what you can do or what is available.\\n- Never describe work that is not actually happening: no claimed searches, files, background jobs, indexing or progress that did not run.\\n- If something is not possible here, say so plainly in one line instead of replacing it with a broader offer.\"},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"According to the indexed lecture notes, what happens in the Calvin cycle?\"}]}]}",
       "bodyJson": {
         "model": "strata-mock",
         "stream": false,
         "messages": [
+          {
+            "role": "system",
+            "content": "<knowledge_index name=\"intro-biology.pdf\">\nPassages relevant to this question, retrieved from \"intro-biology.pdf\" (its complete text is preserved locally — the passages below are the parts the retrieval matched):\nPhotosynthesis converts light into chemical energy in the chloroplast.\n\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\n\nStomata regulate gas exchange on the underside of leaves.\n[coverage: 3 of 3 indexed passages of \"intro-biology.pdf\" were shown this turn; no matched passage was withheld from this turn; ranking mode: semantic + lexical -- anything outside this selection was NOT read this turn]\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\n</knowledge_index>"
+          },
+          {
+            "role": "system",
+            "content": "RESPONSE POLICY FOR THIS ASSISTANT:\n- Answer the request that was actually made, at the depth it asks for: a short question gets a short, direct answer; an explicit request for detail, comparison or steps gets the detail.\n- Ordinary small talk and status questions stay brief and natural. Do not convert them into a report, a plan, or a list.\n- Do not advertise capabilities, tools, integrations or services unless the human asks what you can do or what is available.\n- Never describe work that is not actually happening: no claimed searches, files, background jobs, indexing or progress that did not run.\n- If something is not possible here, say so plainly in one line instead of replacing it with a broader offer."
+          },
+          {
+            "role": "system",
+            "content": "<runtime_clock>MASKED</runtime_clock>"
+          },
           {
             "role": "user",
             "content": [
@@ -36,14 +48,6 @@
                 "text": "According to the indexed lecture notes, what happens in the Calvin cycle?"
               }
             ]
-          },
-          {
-            "role": "system",
-            "content": "<runtime_clock>MASKED</runtime_clock>"
-          },
-          {
-            "role": "system",
-            "content": "<knowledge_index name=\"intro-biology.pdf\">\nPassages relevant to this question, retrieved from \"intro-biology.pdf\" (its complete text is preserved locally — the passages below are the parts the retrieval matched):\nPhotosynthesis converts light into chemical energy in the chloroplast.\n\nThe Calvin cycle fixes carbon dioxide using ATP and NADPH.\n\nStomata regulate gas exchange on the underside of leaves.\nRules for this content: answer from the material below whenever it covers the question. Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. If the question concerns a time range or section NOT present below, state that you cannot see that part of the content clearly enough to answer it — do not guess, and do not explain how the content was processed. You have read this document directly; never mention retrieval or indexing.\n</knowledge_index>"
           }
         ]
       },

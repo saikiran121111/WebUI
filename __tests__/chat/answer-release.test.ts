@@ -16,6 +16,7 @@ import path from "node:path";
 
 import {
   auditResearchAnswer,
+  scanMarkdown,
   SERVER_CHECK_LINE,
   diagnoseResearchAnswer,
 } from "@/lib/chat/answer-release";
@@ -34,7 +35,7 @@ interface MatrixCase {
 describe("answer release audit — vendored matrix (WS06, TS side)", () => {
   it("the matrix is present and non-trivial", () => {
     expect(Array.isArray(matrix.cases)).toBe(true);
-    expect(matrix.cases.length).toBeGreaterThanOrEqual(17);
+    expect(matrix.cases.length).toBeGreaterThanOrEqual(24);
     // The server-check line is byte-locked by the fixture, not by either
     // implementation drifting from the other.
     expect(SERVER_CHECK_LINE).toBe(matrix.serverCheckLine);
@@ -207,4 +208,39 @@ describe("MHR-F integrity/semantics separation — vendored matrix (TS side)", (
       for (const id of ids) expect(out).toContain(`[${id}]`);
     }
   });
+});
+/* ── F15 (2026-11-15) markdown segmentation lock ═══════════════════════════
+ * The matrix "segments" section is shared byte-for-byte with the Rust mirror
+ * (scan_markdown in crates/ruke-server/src/chat/answer_release.rs). Two laws:
+ *   1. RECONSTRUCTION: concatenating every segment reproduces the input.
+ *   2. VERBATIM BYTES: the verbatim-classified segments, in order, concatenate
+ *      to exactly the hand-computed expected string (fenced code, inline code,
+ *      indented code and table rows only). The release audit and the diagnosis
+ *      both consume this one segmentation, so a drift in either language or a
+ *      divergence between audit and diagnosis goes red on identical bytes.
+ */
+interface SegmentCase {
+  name: string;
+  text: string;
+  verbatim: string;
+}
+
+describe("markdown segmentation lock - vendored matrix (TS side, F15)", () => {
+  const segCases = (matrix.segments?.cases ?? []) as SegmentCase[];
+
+  it("the segmentation matrix is present and non-trivial", () => {
+    expect(Array.isArray(matrix.segments?.cases)).toBe(true);
+    expect(segCases.length).toBeGreaterThanOrEqual(8);
+  });
+
+  for (const c of segCases) {
+    it(c.name, () => {
+      const segs = scanMarkdown(c.text);
+      expect(segs.map((seg) => seg.text).join(""), "reconstruction law on: " + c.name).toBe(c.text);
+      expect(
+        segs.filter((seg) => seg.verbatim).map((seg) => seg.text).join(""),
+        "verbatim bytes on: " + c.name,
+      ).toBe(c.verbatim);
+    });
+  }
 });

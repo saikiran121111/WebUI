@@ -344,6 +344,7 @@ fn write_scenario(root: &Path, scenario: &Map<String, Value>) -> Result<(), Stri
         "whenToUse",
         "triggerKeywords",
         "blockedReason",
+        "requiredCapabilities",
     ] {
         if let Some(v) = scenario.get(key) {
             clean.insert(key.to_string(), v.clone());
@@ -366,10 +367,11 @@ pub fn ensure_scenario(root: &Path, skill_name: &str, source_repo: &str) -> Resu
         let needs_check = jsstr::js_truthy(existing.get("enabled").unwrap_or(&Value::Null))
             && !jsstr::js_truthy(existing.get("blockedReason").unwrap_or(&Value::Null));
         if needs_check {
-            if let Some(blocked) = read_skill_markdown(root, skill_name)
+            let meta = Value::Object(existing.clone());
+            let blocked = read_skill_markdown(root, skill_name)
                 .as_deref()
-                .and_then(modality::detect_blocked_reason)
-            {
+                .and_then(|md| modality::detect_blocked_reason(md, Some(&meta)));
+            if let Some(blocked) = blocked {
                 existing.insert("enabled".to_string(), Value::Bool(false));
                 existing.insert(
                     "blockedReason".to_string(),
@@ -381,10 +383,11 @@ pub fn ensure_scenario(root: &Path, skill_name: &str, source_repo: &str) -> Resu
         return Ok(Value::Object(existing));
     }
     let mut scenario = default_scenario(skill_name, source_repo);
-    if let Some(blocked) = read_skill_markdown(root, skill_name)
+    let meta = Value::Object(scenario.clone());
+    let blocked = read_skill_markdown(root, skill_name)
         .as_deref()
-        .and_then(modality::detect_blocked_reason)
-    {
+        .and_then(|md| modality::detect_blocked_reason(md, Some(&meta)));
+    if let Some(blocked) = blocked {
         scenario.insert("enabled".to_string(), Value::Bool(false));
         scenario.insert(
             "blockedReason".to_string(),
@@ -925,7 +928,7 @@ mod tests {
         ensure_scenario(root, "live", "").unwrap();
         write(
             &skill_dir(root, "live").join("SKILL.md"),
-            "now stable diffusion",
+            "now stable diffusion renders the poster",
         );
         let s = ensure_scenario(root, "live", "").unwrap();
         assert_eq!(s["enabled"], serde_json::json!(false));

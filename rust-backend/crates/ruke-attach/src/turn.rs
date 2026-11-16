@@ -32,7 +32,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::notes::{generate_notes, notes_version, Cancelled, NotesLlm};
 use crate::retrieve::{env_number, notes_budget, per_ref_budget, retrieve_evidence, RetrieveOpts};
-use crate::router::{count_bounded, pronoun_re, route_query, QueryMode};
+use crate::router::{
+    count_bounded, fingerprint_query, is_continuation_ask, pronoun_re, QueryMode, RouteAxis,
+    route_query_in,
+};
 use crate::store;
 use crate::types::LoadedIndex;
 use crate::QueryEmbedder;
@@ -295,10 +298,12 @@ const FRAME_LEAD_IN: &str = concat!(
 );
 
 /// `buildAttachmentTurn` — returns the number of injected system blocks.
-/// `user_idx` is the CURRENT index of the last user message (callers pass
-/// the skill-shifted index; the chat route's `lastUserIdx + 1` off-by-one
-/// is RECORDED, not fixed — frames mutate `messages[userIdx]` and are
-/// dropped when it points past the user turn).
+/// `user_idx` is the CURRENT index of the last user message. F08 (2026-11-15):
+/// the chat route/pipeline now resolve that index once per turn and re-resolve
+/// it after every injected block, so it always names the real user turn (the
+/// old `lastUserIdx + 1` derivation silently dropped keyframes on the no-skill
+/// path). An out-of-range index still degrades in place: frames simply have
+/// nowhere to land.
 ///
 /// The ONLY `Err` is [`Cancelled`] ⇔ the TS AbortError out of the notes
 /// fetch; every other failure degrades in place exactly like the TS.
@@ -316,6 +321,9 @@ pub async fn build_attachment_turn(
     http: &reqwest::Client,
     llm: &NotesLlm,
     token: &CancellationToken,
+    // F07: the conversation this turn belongs to; the shown ledger is scoped to
+    // it (None = the bare attachment key, as before F07).
+    conversation: Option<&str>,
 ) -> Result<usize, Cancelled> {
     let refs = collect_attachment_refs(messages);
     if refs.is_empty() {
@@ -330,12 +338,18 @@ pub async fn build_attachment_turn(
     // itself carries a routing phrase, it IS the retrieval query —
     // "all mentions of X in the last 5 minutes" must not be glued onto an
     // antecedent, which would blur the phrase past the anchor text.
+    // F07 (2026-11-15) RAW-FIRST (turn.ts:210-225). The raw question is the
+    // retrieval query, so an explicit phrase ("every mention", "summarize",
+    // "at 1:45") still decides the route and the window, and an UNRELATED short
+    // follow-up ("what about the CPU fan?") no longer inherits the previous
+    // question's topic. anchor_query stays a BOUNDED FALLBACK, consulted only
+    // when the raw question retrieved nothing at all for an attachment.
     let trimmed_q = js_trim(question);
-    let direct = route_query(trimmed_q);
-    let rq = if !trimmed_q.is_empty() && direct.mode != QueryMode::PointQa {
-        trimmed_q.to_string()
+    let anchored = anchor_query(question, messages, user_idx);
+    let rq = if trimmed_q.is_empty() {
+        anchored.clone()
     } else {
-        anchor_query(question, messages, user_idx)
+        trimmed_q.to_string()
     };
 
     for r in &refs {
@@ -350,7 +364,18 @@ pub async fn build_attachment_turn(
             }
         };
 
-        let mut routed = route_query(&rq);
+        // F07: the time axis comes from the INDEX, never from the attachment's
+        // name or a category guess. No duration and no timed chunk means this
+        // content has no timeline, so a "1:20" ratio inside a document must not
+        // invent a video window (mirror of turn.ts:241-249).
+        let axis = if index.meta.duration_sec.unwrap_or(0.0) > 0.0
+            || index.chunks.iter().any(|c| c.start_sec.is_some())
+        {
+            RouteAxis::Time
+        } else {
+            RouteAxis::Text
+        };
+        let mut routed = route_query_in(&rq, axis);
 
         // I22: "the last N minutes" carries NO window of its own — the
         // index's own duration resolves it. Without a usable duration the
@@ -419,10 +444,23 @@ pub async fn build_attachment_turn(
         // instead of waiting a large ONNX embedding out.
         let query_vec = embedder.embed_one(&rq, token).unwrap_or_default();
 
-        // I20 shown ledger: passages this attachment already served in
-        // EARLIER turns sink below fresh candidates, so a repeat ask
-        // rotates instead of re-serving the same top set.
-        let shown = store::read_shown(root, &r.att_id);
+        // I20 + F07: the "already shown" ledger is scoped to THIS conversation
+        // and records WHICH query produced it. An exact repeat of a question
+        // this conversation already answered from this attachment gets its own
+        // top passages BACK (reproduced: a repeated exact question lost its
+        // answer because the passages it had been shown were demoted below
+        // unrelated text). Exhaustive scans and explicit continuation asks
+        // rotate instead, so "keep going" still surfaces fresh material.
+        let query_fp = fingerprint_query(&rq);
+        let entry = store::read_shown_entry(root, &r.att_id, conversation);
+        let shown_for: Vec<i64> = entry.clone().map(|e| e.ids).unwrap_or_default();
+        let repeat_ask = entry.map(|e| !e.q.is_empty() && e.q == query_fp).unwrap_or(false);
+        let scan_mode = routed.mode == QueryMode::Exhaustive;
+        let shown = if repeat_ask && !scan_mode && !is_continuation_ask(&rq) {
+            Vec::new()
+        } else {
+            shown_for.clone()
+        };
 
         // I05: the shared turn budget first (honest block when spent),
         // then the per-reference ceiling on top of what's left.
@@ -464,15 +502,67 @@ pub async fn build_attachment_turn(
                 from_sec: routed.from_sec,
                 to_sec: routed.to_sec,
                 range: None,
+                windows: routed.windows.clone(),
                 demote: shown.clone(),
                 budget: Some(budget),
             }
         };
 
-        let ev = retrieve_evidence(&index, &rq, &query_vec, &opts);
+        let mut ev = retrieve_evidence(&index, &rq, &query_vec, &opts);
+
+        // F07: anchored fallback, LAZILY and at most once more. Only when the
+        // raw question found nothing at all does the previous question's topic
+        // get prepended; the routing decision stays the raw question's own.
+        if ev.text.is_empty() && !anchored.is_empty() && anchored != rq {
+            let fallback_vec = embedder.embed_one(&anchored, token).unwrap_or_default();
+            ev = retrieve_evidence(&index, &anchored, &fallback_vec, &opts);
+        }
         if ev.text.is_empty() {
             continue;
         }
+
+        // F14: machine-readable COVERAGE inside the block the model reads
+        // (byte-identical to turn.ts). Numbers come from THIS turn's
+        // retrieval; the ranking mode is reported honestly, so a lexical-only
+        // pass is never dressed up as semantic retrieval.
+        let frames = nearest_frames(root, &index, &ev.frame_ats);
+        let total_chunks = if index.meta.chunk_count != 0 {
+            index.meta.chunk_count
+        } else {
+            index.chunks.len() as i64
+        };
+        let total_frames = index.meta.frames.len() as i64;
+        let covered = {
+            let mut c = format!(
+                "\n[coverage: {} of {} indexed passages of \"{}\" were shown this turn",
+                ev.chunk_idxs.len(),
+                total_chunks,
+                r.name
+            );
+            if ev.dropped > 0 {
+                c.push_str(&format!("; {} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)", ev.dropped));
+            } else if ev.truncated {
+                c.push_str("; more passages matched than this turn's budget could show");
+            } else {
+                c.push_str("; no matched passage was withheld from this turn");
+            }
+            c.push_str(&format!(
+                "; ranking mode: {}",
+                if ev.vector_mode == crate::vectors::MODE_HYBRID {
+                    "semantic + lexical"
+                } else {
+                    "lexical only"
+                }
+            ));
+            if let Some(reason) = &ev.vector_reason {
+                c.push_str(&format!(" ({})", reason));
+            }
+            if total_frames > 0 {
+                c.push_str(&format!("; {} of {} saved keyframes shown", frames.len(), total_frames));
+            }
+            c.push_str(" -- anything outside this selection was NOT read this turn]");
+            c
+        };
 
         let mut block = format!(
             "<knowledge_index name=\"{name}\">\nPassages relevant to this question, retrieved from \"{name}\" (its complete text is preserved locally — the passages below are the parts the retrieval matched):\n{text}",
@@ -492,6 +582,7 @@ pub async fn build_attachment_turn(
                 "\n[more relevant passages exist; this turn's budget showed the best ones]",
             );
         }
+        block.push_str(&covered);
         block.push('\n');
         block.push_str(&rules(r));
         block.push_str("\n</knowledge_index>");
@@ -501,15 +592,15 @@ pub async fn build_attachment_turn(
             // `[...new Set([...shown, ...ev.chunkIdxs])]` — shown first,
             // the Set keeps insertion order.
             let mut seen: HashSet<i64> = HashSet::new();
-            let merged: Vec<i64> = shown
+            let merged: Vec<i64> = shown_for
                 .into_iter()
                 .chain(ev.chunk_idxs.iter().copied())
                 .filter(|id| seen.insert(*id))
                 .collect();
-            store::write_shown(root, &r.att_id, &merged);
+            store::write_shown(root, &r.att_id, &merged, conversation, Some(&query_fp));
         }
         blocks.push(block);
-        images.extend(nearest_frames(root, &index, &ev.frame_ats));
+        images.extend(frames);
     }
 
     if blocks.is_empty() && images.is_empty() {
@@ -744,6 +835,7 @@ mod tests {
             &http,
             &dummy_llm(),
             token,
+            None,
         )
         .await
     }
@@ -963,7 +1055,7 @@ mod tests {
         assert!(sys.contains("widget 0 "), "{sys}");
         assert!(!sys.contains("widget 19 "), "{sys}");
         assert!(sys.contains("[11 more relevant passages exist in this document that this turn's budget did not show — ask to continue and a different set is served]"), "{sys}");
-        assert_eq!(store::read_shown(root, "att_ledg01").len(), 19);
+        assert_eq!(store::read_shown(root, "att_ledg01", None).len(), 19);
 
         // Run 2: the 19 shown passages demote; the 11 fresh fit
         // (1200 + 10×1202 = 13220) ⇒ a DIFFERENT set, exactly as the
@@ -984,7 +1076,369 @@ mod tests {
         assert!(sys2.contains("widget 19 "), "{sys2}");
         assert!(!sys2.contains("widget 0 "), "{sys2}");
         assert!(sys2.contains("[19 more relevant passages exist in this document that this turn's budget did not show — ask to continue and a different set is served]"), "{sys2}");
-        assert_eq!(store::read_shown(root, "att_ledg01").len(), 30);
+        assert_eq!(store::read_shown(root, "att_ledg01", None).len(), 30);
+    }
+
+    // ---- F07 turn layer: query-scoped ledger, raw-first, index axis ----
+
+    fn system_text(msgs: &[Value]) -> String {
+        msgs.iter()
+            .filter(|m| m["role"].as_str() == Some("system"))
+            .filter_map(|m| m["content"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Which marker phrases actually reached the model-visible block. The
+    /// passages below are deliberately huge, so dumping the block on failure
+    /// would bury the diff; the marker set IS the observable behaviour.
+    fn served_words(sys: &str, words: &[&'static str]) -> Vec<&'static str> {
+        words.iter().copied().filter(|w| sys.contains(w)).collect()
+    }
+
+    /// `padTo` in the TS oracle: a fixed-width passage.
+    fn pad_to(s: &str, n: usize) -> String {
+        let l = s.chars().count();
+        if l >= n {
+            s.chars().take(n).collect()
+        } else {
+            format!("{}{}", s, "q".repeat(n - l))
+        }
+    }
+
+    /// Mirror of the TS `seedText` fixtures: every passage is WIDTH characters,
+    /// so the per-reference budget serves exactly ONE of them and "which
+    /// passage was served" is directly observable in the injected block. A
+    /// ledger that demotes the WRONG chunk therefore changes the answer the
+    /// model sees, not merely a debug counter.
+    fn seed_padded(root: &Path, att: &str, category: &str, texts: &[&str], width: usize) {
+        let mut lines = String::new();
+        for (i, t) in texts.iter().enumerate() {
+            lines.push_str(&format!(
+                "{{ \"i\": {i}, \"text\": \"{}\", \"vec\": [] }}\n",
+                pad_to(t, width)
+            ));
+        }
+        seed_index(root, att, category, "", lines.trim_end(), &[]);
+    }
+
+    fn user_text_and_ref(att: &str, text: &str) -> Value {
+        json!({ "role": "user", "content": [
+            { "type": "text", "text": text },
+            { "type": "attachment_ref", "att_id": att, "name": att, "category": "document" },
+        ] })
+    }
+
+    async fn build_conv(
+        msgs: &mut Vec<Value>,
+        user_idx: usize,
+        q: &str,
+        root: &Path,
+        embedder: &dyn QueryEmbedder,
+        token: &CancellationToken,
+        conversation: Option<&str>,
+    ) -> Result<usize, Cancelled> {
+        let http = reqwest::Client::new();
+        build_attachment_turn(
+            msgs,
+            user_idx,
+            q,
+            root,
+            embedder,
+            &http,
+            &dummy_llm(),
+            token,
+            conversation,
+        )
+        .await
+    }
+
+    /// F07 (reproduced): "repeated exact questions lose their answer because
+    /// previously shown evidence is demoted below unrelated fresh text". The
+    /// ledger records WHICH query produced it and which conversation owns it,
+    /// so an exact repeat gets its own passages BACK while an explicit
+    /// continuation ask still rotates to fresh material.
+    #[tokio::test]
+    async fn query_scoped_ledger_serves_a_repeat_its_own_answer_f07() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        seed_padded(
+            root,
+            "att_f07rpt01",
+            "document",
+            &[
+                "widget f07zero rating scale explanation ",
+                "widget f07one rating scale explanation ",
+                "widget f07two rating scale explanation ",
+            ],
+            13000,
+        );
+        let token = CancellationToken::new();
+        let rep_q =
+            "According to the indexed document, which passage explains the widget rating scale?";
+
+        // Turn 1: one passage fits the per-reference budget, and the ledger
+        // belongs to conv_a (never the bare attachment key).
+        let mut m1 = vec![user_text_and_ref("att_f07rpt01", rep_q)];
+        let n = build_conv(
+            &mut m1,
+            0,
+            rep_q,
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_a"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(served_words(&system_text(&m1), &["f07zero", "f07one", "f07two"]), ["f07zero"]);
+        assert_eq!(
+            store::read_shown(root, "att_f07rpt01", Some("conv_a")),
+            vec![0i64]
+        );
+
+        // Turn 2: the SAME question in the SAME conversation gets its own
+        // passage back. Before F07 the ledger demoted it and the model got a
+        // different, weaker chunk instead of the answer it had already been
+        // given.
+        let mut m2 = vec![user_text_and_ref("att_f07rpt01", rep_q)];
+        let n = build_conv(
+            &mut m2,
+            0,
+            rep_q,
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_a"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(served_words(&system_text(&m2), &["f07zero", "f07one", "f07two"]), ["f07zero"]);
+        assert_eq!(
+            store::read_shown(root, "att_f07rpt01", Some("conv_a")),
+            vec![0i64]
+        );
+
+        // Turn 3: an EXPLICIT continuation ask does rotate -- "other passages"
+        // is the request for material this conversation has not seen.
+        let cq = "show me other passages of the indexed document about widget ratings";
+        assert!(is_continuation_ask(cq));
+        let mut m3 = vec![user_text_and_ref("att_f07rpt01", cq)];
+        let n = build_conv(
+            &mut m3,
+            0,
+            cq,
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_a"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(served_words(&system_text(&m3), &["f07zero", "f07one", "f07two"]), ["f07one"]);
+        assert_eq!(
+            store::read_shown(root, "att_f07rpt01", Some("conv_a")),
+            vec![0i64, 1]
+        );
+
+        // Turn 4: ANOTHER conversation is never demoted by conv_a's list. Its
+        // own ledger starts empty.
+        let mut m4 = vec![user_text_and_ref("att_f07rpt01", rep_q)];
+        let n = build_conv(
+            &mut m4,
+            0,
+            rep_q,
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_b"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(served_words(&system_text(&m4), &["f07zero", "f07one", "f07two"]), ["f07zero"]);
+        assert_eq!(store::read_shown(root, "att_f07rpt01", Some("conv_b")), vec![0i64]);
+        assert_eq!(
+            store::read_shown(root, "att_f07rpt01", Some("conv_a")),
+            vec![0i64, 1]
+        );
+    }
+
+    /// F07 (reproduced): "an unrelated short CPU question gets a previous whale
+    /// question prepended". Retrieval is RAW-FIRST; the antecedent survives only
+    /// as a bounded fallback when the raw question matched nothing.
+    #[tokio::test]
+    async fn unrelated_followup_is_not_glued_onto_the_previous_topic_f07() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        seed_padded(
+            root,
+            "att_f07top01",
+            "document",
+            &[
+                "whale migration routes cross the southern ocean every season ",
+                "the cpu fan noise rises when the laptop is under heavy load ",
+                "whale calves travel with their pods along the same route ",
+            ],
+            13000,
+        );
+        let token = CancellationToken::new();
+        let mut msgs = vec![
+            json!({ "role": "user", "content": [
+                { "type": "text", "text": "why do whales migrate along the southern ocean every year" }
+            ] }),
+            json!({ "role": "assistant", "content": "because of feeding grounds and water temperature." }),
+            user_text_and_ref("att_f07top01", "and the cpu fan noise?"),
+        ];
+        let n = build_conv(
+            &mut msgs,
+            2,
+            "and the cpu fan noise?",
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_t"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        // The block lands immediately BEFORE the user turn it belongs to.
+        assert_eq!(msgs[2]["role"].as_str().unwrap(), "system");
+        assert_eq!(msgs[3]["role"].as_str().unwrap(), "user");
+        assert_eq!(
+            served_words(&system_text(&msgs), &["cpu fan", "whale"]),
+            ["cpu fan"]
+        );
+    }
+
+    /// The other half of the same law: when the raw question genuinely matches
+    /// NOTHING, the conversation's own topic is still consulted -- the fix must
+    /// not turn a real follow-up into an empty answer.
+    #[tokio::test]
+    async fn an_unanswerable_followup_still_falls_back_to_its_antecedent_f07() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        seed_padded(
+            root,
+            "att_f07top02",
+            "document",
+            &[
+                "whale migration routes cross the southern ocean every season ",
+                "the cpu fan noise rises when the laptop is under heavy load ",
+                "whale calves travel with their pods along the same route ",
+            ],
+            13000,
+        );
+        let token = CancellationToken::new();
+        let mut msgs = vec![
+            json!({ "role": "user", "content": [
+                { "type": "text", "text": "why do whales migrate along the southern ocean every year" }
+            ] }),
+            json!({ "role": "assistant", "content": "because of feeding grounds." }),
+            user_text_and_ref("att_f07top02", "and in winter?"),
+        ];
+        let n = build_conv(
+            &mut msgs,
+            2,
+            "and in winter?",
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_u"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(
+            served_words(&system_text(&msgs), &["whale migration", "cpu fan"]),
+            ["whale migration"]
+        );
+    }
+
+    /// F07: the time axis belongs to the CONTENT. A document that merely talks
+    /// about a "1:20 aspect ratio" has no timeline, so no window may be
+    /// invented for it and the passage must still be served.
+    #[tokio::test]
+    async fn a_document_without_a_timeline_never_routes_to_a_time_window_f07() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        seed_padded(
+            root,
+            "att_f07doc01",
+            "document",
+            &["the chart caption states a 1:20 aspect ratio for the figure "],
+            13000,
+        );
+        let token = CancellationToken::new();
+        let q = "what does the 1:20 aspect ratio mean in the chart caption";
+        let mut msgs = vec![user_text_and_ref("att_f07doc01", q)];
+        let n = build_conv(
+            &mut msgs,
+            0,
+            q,
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_v"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        let sys = system_text(&msgs);
+        assert_eq!(served_words(&sys, &["aspect ratio"]), ["aspect ratio"]);
+        // No [HH:MM:SS - HH:MM:SS] header was invented for untimed content.
+        assert!(!sys.contains("[00:0"), "fabricated time header in {q}");
+    }
+
+    /// ...while content that DOES carry a timeline still resolves an explicit
+    /// cue, and the window excludes what lies outside it.
+    #[tokio::test]
+    async fn a_timeline_bearing_attachment_resolves_an_explicit_cue_f07() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mut lines = String::new();
+        for i in 0..6i64 {
+            lines.push_str(&format!(
+                "{{ \"i\": {i}, \"startSec\": {}, \"endSec\": {}, \"text\": \"{}\", \"vec\": [] }}\n",
+                i * 100,
+                i * 100 + 90,
+                pad_to(&format!("clip segment {i} about widget thing {i} "), 190)
+            ));
+        }
+        seed_index(
+            root,
+            "att_f07vid01",
+            "video",
+            ",\n  \"durationSec\": 600.0",
+            lines.trim_end(),
+            &[],
+        );
+        let token = CancellationToken::new();
+        let q = "what happens in the clip at 5:30";
+        let mut msgs = vec![json!({ "role": "user", "content": [
+            { "type": "text", "text": q },
+            { "type": "attachment_ref", "att_id": "att_f07vid01", "name": "att_f07vid01", "category": "video" },
+        ] })];
+        let n = build_conv(
+            &mut msgs,
+            0,
+            q,
+            root,
+            &UnavailableEmbedder,
+            &token,
+            Some("conv_w"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        let sys = system_text(&msgs);
+        // 5:30 = 330s, +-180s => [150, 510]; segment 0 (0-90) lies outside it.
+        assert!(sys.contains("[00:01:40 - 00:03:10]"), "missing window header");
+        assert!(!sys.contains("clip segment 0 "), "cue window swept in an out-of-range segment");
+        assert!(sys.contains("clip segment 1 "), "cue window served nothing adjacent");
     }
 
     // ---- I05: the turn-wide budget, honestly reported ------------------

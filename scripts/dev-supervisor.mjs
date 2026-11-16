@@ -127,6 +127,130 @@ for (const [label, port, hosts] of [
   }
 }
 
+// ---------------------------------------------------------------- python stack
+// One command starts the whole topology: Python supervisor -> Rust -> Next.
+// The Python side is the capability backend (python-backend/ruke_ml): a
+// stdlib-only supervisor that imports NO heavy framework and downloads NO model
+// at startup (its own startup contract test enforces that, and /health reports
+// heavy_imports_at_startup). Heavy work happens in short-lived children the
+// supervisor owns, so the dev tree never hoards ML memory while idle.
+const pyProject = path.join(root, "python-backend");
+const pyProjectExists = fs.existsSync(path.join(pyProject, "pyproject.toml"));
+const venvPython = isWin
+  ? path.join(pyProject, ".venv", "Scripts", "python.exe")
+  : path.join(pyProject, ".venv", "bin", "python");
+
+function expandHome(p) {
+  if (!p) return p;
+  if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) {
+    const home = process.env.USERPROFILE || process.env.HOME || "";
+    if (home) return path.join(home, p.slice(2));
+  }
+  return p;
+}
+
+// Same resolution order as python-backend/ruke_ml/config.py and
+// lib/persistence/dataRoot.ts: WEBUI_DATA_DIR wins, HOME is never assumed, and
+// the repository .data directory is the fallback.
+const dataDir = process.env.WEBUI_DATA_DIR
+  ? path.resolve(expandHome(process.env.WEBUI_DATA_DIR))
+  : path.join(root, ".data");
+const pyRuntimeDir = process.env.RUKE_PY_RUNTIME_DIR
+  ? path.resolve(expandHome(process.env.RUKE_PY_RUNTIME_DIR))
+  : path.join(dataDir, "python");
+const mlDiscoveryPath = path.join(pyRuntimeDir, "supervisor.json");
+const mlRequired = /^(1|true|yes)$/i.test(process.env.RUKE_ML_REQUIRED || "");
+
+function hasCommand(cmd) {
+  const probe = spawnSync(isWin ? "where" : "which", [cmd], { stdio: "ignore" });
+  return probe.status === 0;
+}
+
+function uvVersion() {
+  if (!hasCommand("uv")) return "";
+  const out = spawnSync("uv", ["--version"], { encoding: "utf8" });
+  return out.status === 0 ? String(out.stdout || "").trim() : "";
+}
+
+function setupFingerprint() {
+  // Setup is cached against exactly the inputs that can invalidate it: the
+  // committed lock, the pinned interpreter, and the platform. A changed lock or
+  // a changed interpreter forces a re-sync; nothing else does.
+  const h = crypto.createHash("sha256");
+  for (const f of ["uv.lock", ".python-version", "pyproject.toml"]) {
+    const p = path.join(pyProject, f);
+    h.update(fs.existsSync(p) ? fs.readFileSync(p) : Buffer.from(`<absent:${f}>`));
+  }
+  h.update(`|${process.platform}|${process.arch}|${uvVersion() || "no-uv"}`);
+  return h.digest("hex").slice(0, 16);
+}
+
+function pythonEnvReady(interpreterPath) {
+  // A venv that exists but cannot run is a CORRUPT install, not a ready one:
+  // verify by executing it, then confirm the package actually imports.
+  const probe = spawnSync(interpreterPath, ["-c", "import ruke_ml.supervisor, sys; print(sys.version.split()[0])"], {
+    encoding: "utf8",
+    cwd: pyProject,
+    env: { ...process.env, PYTHONPATH: pyProject },
+  });
+  if (probe.status !== 0) return null;
+  return String(probe.stdout || "").trim().split(/\s+/)[0] || "unknown";
+}
+
+let pyInterpreter = (process.env.RUKE_PYTHON || "").trim();
+let mlSetupNote = "";
+if (!pyProjectExists) {
+  mlSetupNote = "python-backend/pyproject.toml is absent - capability backend unavailable";
+} else {
+  const fp = setupFingerprint();
+  const stampPath = path.join(pyRuntimeDir, `setup-node-${fp}.json`);
+  if (!pyInterpreter) {
+    const probed = pythonEnvReady(venvPython);
+    if (probed && fs.existsSync(stampPath)) {
+      pyInterpreter = venvPython;
+      mlSetupNote = `project venv reused (offline start, python ${probed})`;
+    }
+  }
+  if (!pyInterpreter) {
+    const uv = uvVersion();
+    if (uv) {
+      console.log(`[dev-supervisor] syncing local Python environment (uv, fingerprint ${fp})...`);
+      fs.mkdirSync(pyRuntimeDir, { recursive: true });
+      const sync = spawnSync("uv", ["sync", "--project", pyProject], { cwd: pyProject, stdio: "inherit" });
+      const probed = pythonEnvReady(venvPython);
+      if (sync.status === 0 && probed) {
+        fs.writeFileSync(
+          stampPath,
+          JSON.stringify({ fingerprint: fp, uv, python: probed, platform: `${process.platform}-${process.arch}`, syncedAt: new Date().toISOString() }, null, 2),
+        );
+        pyInterpreter = venvPython;
+        mlSetupNote = `uv sync OK - python ${probed}; heavy model families stay uninstalled until the quality gate selects them`;
+      } else {
+        mlSetupNote = `uv sync failed (uv exit ${sync.status}) and no usable .venv - capability backend will be reported as not_configured`;
+      }
+    } else if (pythonEnvReady(venvPython)) {
+      pyInterpreter = venvPython;
+      mlSetupNote = "uv not installed but a working project venv exists - reusing it (offline start)";
+    } else if (hasCommand("python")) {
+      const probed = pythonEnvReady("python");
+      if (probed) {
+        pyInterpreter = "python";
+        mlSetupNote = `uv not found: using system python ${probed} for the stdlib supervisor only (heavy families need uv sync)`;
+      } else {
+        mlSetupNote = "no interpreter can import ruke_ml - capability backend will be reported as not_configured";
+      }
+    } else {
+      mlSetupNote = "neither uv nor python is on PATH - capability backend will be reported as not_configured";
+    }
+  }
+}
+if (pyInterpreter && !pythonEnvReady(pyInterpreter)) {
+  console.log(`[dev-supervisor] RUKE_PYTHON=${pyInterpreter} cannot import ruke_ml - ignoring the override.`);
+  pyInterpreter = "";
+  mlSetupNote = "RUKE_PYTHON override could not import ruke_ml";
+}
+if (mlSetupNote) console.log(`[dev-supervisor] python: ${mlSetupNote}`);
+
 // ---------------------------------------------------------------- teardown
 // Every child this supervisor ever spawns (cargo during the build,
 // ruke-server, next dev) lives in this set; teardown kills exactly these
@@ -215,12 +339,154 @@ if (!fs.existsSync(rustBin)) {
 // ---------------------------------------------------------------- bridge secret
 const bridgeSecret = crypto.randomBytes(24).toString("hex");
 
+// ---------------------------------------------------------------- start: python supervisor
+// Started BEFORE ruke-server on purpose: Rust discovers the supervisor through the
+// discovery record (port + per-run secret file) at startup, so the capability surface
+// is armed before the first chat turn can ask for it.
+let ml = null;   // { url, token, port, pid, proc }
+
+function readDiscovery() {
+  try {
+    const d = JSON.parse(fs.readFileSync(mlDiscoveryPath, "utf8"));
+    if (!Number.isInteger(d.port) || d.port <= 0 || !d.secret_file) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+function mlHealth(port) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: "127.0.0.1", port: Number(port), path: "/health", timeout: 1000 },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => { body += c; });
+        res.on("end", () => {
+          if (res.statusCode !== 200) return resolve(null);
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+if (pyInterpreter) {
+  fs.mkdirSync(pyRuntimeDir, { recursive: true });
+  const stale = readDiscovery();
+  if (stale) {
+    const alive = (() => {
+      try {
+        process.kill(stale.pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    if (alive && (await mlHealth(stale.port))) {
+      if (mlRequired) {
+        die(`an ML supervisor is already serving pid ${stale.pid} on 127.0.0.1:${stale.port}; refusing to start a second one.`);
+      }
+      console.log(`[dev-supervisor] python: an ML supervisor is already running (pid ${stale.pid}, port ${stale.port}) - reusing it, not spawning another.`);
+      let token = "";
+      try {
+        token = fs.readFileSync(stale.secret_file, "utf8").trim();
+      } catch { /* the owner may have rotated it; capability calls will then report unauthenticated */ }
+      ml = { url: `http://127.0.0.1:${stale.port}`, token, secretFile: stale.secret_file,
+             port: stale.port, pid: stale.pid, proc: null, owned: false };
+    } else {
+      // Stale record only: our own pid check failed or nothing answers on that port.
+      // Deleting it is safe because the record is a pointer, never the data itself.
+      fs.rmSync(mlDiscoveryPath, { force: true });
+    }
+  }
+  if (!ml) {
+    const mlIdleTtl = (process.env.RUKE_ML_IDLE_TTL_S || "120").trim();
+    const sup = spawn(pyInterpreter, ["-m", "ruke_ml.supervisor", "--port", "0", "--host", "127.0.0.1",
+                                      "--discovery", mlDiscoveryPath, "--idle-ttl", mlIdleTtl], {
+      cwd: pyProject,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        RUKE_REPO_ROOT: root,
+        WEBUI_DATA_DIR: dataDir,
+        RUKE_PY_RUNTIME_DIR: pyRuntimeDir,
+        PYTHONPATH: pyProject,
+      },
+    });
+    children.add(sup);
+    sup.on("error", (err) => {
+      console.error("[dev-supervisor] failed to start the Python supervisor:", err);
+      if (mlRequired) teardown(1);
+    });
+    sup.on("exit", (code, signal) => {
+      if (tearingDown || !ml) return;
+      if (mlRequired) {
+        console.error(`[dev-supervisor] Python supervisor exited (${signal ?? code}); RUKE_ML_REQUIRED is set, stopping.`);
+        teardown(signal ? 128 : (code || 1));
+      } else {
+        console.error(`[dev-supervisor] Python supervisor exited (${signal ?? code}); capability features are unavailable this run, chat continues.`);
+        ml = null;
+      }
+    });
+    const discovered = await waitForValue(() => Promise.resolve(readDiscovery()), 20_000, 150);
+    if (discovered) {
+      const snap = await waitForValue(() => mlHealth(discovered.port), 20_000, 200);
+      if (snap) {
+        let token = "";
+        try {
+          token = fs.readFileSync(discovered.secret_file, "utf8").trim();
+        } catch (e) {
+          console.error(`[dev-supervisor] could not read the ML secret file ${discovered.secret_file}: ${e.message}`);
+        }
+        ml = { url: `http://127.0.0.1:${discovered.port}`, token, secretFile: discovered.secret_file,
+               port: discovered.port, pid: sup.pid, proc: sup, owned: true };
+        const heavy = (snap.heavy_imports_at_startup || []).length;
+        console.log(
+          `[dev-supervisor] Python supervisor ready on 127.0.0.1:${discovered.port} (pid ${sup.pid}, ` +
+            `state ${snap.state}, heavy imports at startup: ${heavy}, idle TTL ${mlIdleTtl}s).`,
+        );
+      }
+    }
+    if (!ml) {
+      const msg = "the Python supervisor did not publish a discovery record and answer /health within 20 s";
+      if (mlRequired) die(msg);
+      console.error(`[dev-supervisor] ${msg} - capability features are reported as not_configured for this run.`);
+    }
+  }
+} else if (mlRequired) {
+  die(`RUKE_ML_REQUIRED is set but the capability backend could not be prepared (${mlSetupNote || "unknown reason"}).`);
+}
+
 // ---------------------------------------------------------------- readiness
 async function waitFor(probe, timeoutMs, intervalMs = 250) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (await probe()) return true;
     if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+// waitFor() only answers "did it become true". Discovery needs the VALUE itself: an
+// earlier revision treated waitFor's boolean as the discovery record and then probed
+// port `undefined`, which reported a perfectly healthy supervisor as never started.
+async function waitForValue(probe, timeoutMs, intervalMs = 200) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await probe();
+    if (value) return value;
+    if (Date.now() >= deadline) return null;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -268,6 +534,18 @@ const rust = spawn(rustBin, [], {
     RUKE_BACKEND_PORT: backendPort,
     RUKE_BROWSER_BRIDGE_BASE_URL: `http://127.0.0.1:${nextPort}`,
     RUKE_BROWSER_BRIDGE_SECRET: bridgeSecret,
+      // Rust owns every Python call: it resolves the supervisor URL, the discovery
+      // record and the per-run secret file. The browser never sees the token, and Next
+      // does not hold a second capability credential.
+      ...(ml
+        ? {
+            RUKE_ML_URL: ml.url,
+            RUKE_ML_TOKEN: ml.token,
+            RUKE_ML_SECRET_FILE: ml.secretFile,
+            RUKE_ML_DISCOVERY: mlDiscoveryPath,
+            RUKE_ML_PID: String(ml.pid),
+          }
+        : {}),
   },
 });
 children.add(rust);

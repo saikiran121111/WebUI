@@ -1,0 +1,261 @@
+﻿node.exe : npm notice run webui-chat@0.2.0 npx
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Ruku\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run webui-chat@0.2.0 npx:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run __tests__/rust-golden
+[33mThe CJS build of Vite's Node API is deprecated. See 
+https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/rust-golden/contract-manifest.test.ts (8 tests) 6ms
+ ✓ __tests__/rust-golden/store-fixture.test.ts (3 tests) 14ms
+ ✓ __tests__/rust-golden/decision-serialization.test.ts (6 tests) 109ms
+ ✓ __tests__/rust-golden/decision-parity.test.ts (2 tests) 33ms
+[16:09:02.466] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:09:02.469] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-28kp2fnc","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:09:02.470] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:09:02.475] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"read_page"}[39m
+[16:09:02.495] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":3,"finish":"none","ms":26}[39m
+[16:09:02.504] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:09:02.505] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"strata-mock","mode":"standard_chat","url":"http://127.0.0.1:9/v1/chat/completions"}[39m
+[16:09:02.506] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"strata-mock","mode":"standard_chat","ms":1,"sseChunks":2}[39m
+[16:09:02.509] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:09:02.509] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-4lsauo5y","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:09:02.510] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:09:02.511] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":2,"finish":"none","ms":2}[39m
+[16:09:02.513] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:09:02.513] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-11ornvub","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:09:02.513] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:09:02.514] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"web_search"}[39m
+[16:09:02.514] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":1,"kept":4}[39m
+[16:09:02.515] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":3,"calls":"web_search"}[39m
+[16:09:02.515] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":2,"kept":3}[39m
+[16:09:02.516] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":4,"calls":"web_search"}[39m
+[16:09:02.516] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":5,"finish":"none","ms":3}[39m
+[16:09:02.518] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:09:02.519] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-d95udk77","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:09:02.519] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":0}[39m
+[16:09:02.521] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:09:02.521] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-jhohbpdm","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:09:02.521] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":0}[39m
+ ❯ __tests__/rust-golden/web.test.ts (7 tests | 5 failed) 104ms
+   × golden: model-directed web tool loop > 01 model-directed research — web_search → read_page → answer (progress path) 51ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+   × golden: model-directed web tool loop > 02 legacy stream:false — plain forward (NO tools, NO evidence, NO citation/gate headers) 5ms
+     → expected 'system' to be 'user' // Object.is equality
+   × golden: model-directed web tool loop > 03 starved engine pool — the loop reports ZERO honestly, the answer still streams 4ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+   × golden: model-directed web tool loop > 05 image attachment — parts passthrough, loop ARMED, model answers without tools 2ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+   × golden: pure clock turn (brief §5 — quiet clock, zero search traffic) > 06 clock question — no retrieval, no evidence, quiet-clock law in the live request 2ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+ ✓ __tests__/rust-golden/errors.test.ts (8 tests) 813ms
+ ✓ __tests__/rust-golden/chat-core.test.ts (8 tests) 818ms
+ ✓ __tests__/rust-golden/skills.test.ts (5 tests) 818ms
+ ✓ __tests__/rust-golden/sse-vectors.test.ts (3 tests) 860ms
+ ❯ __tests__/rust-golden/attachments.test.ts (6 tests | 3 failed) 866ms
+   × golden: attachment retrieval > 04 video time_range on standard_chat — keyframes DROPPED by the off-by-one (bug recorded) 13ms
+     → expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+   × golden: attachment retrieval > 05 excel-pinned video — skill block shifts the turn; keyframe lands (shift-correct path) 11ms
+     → expected false to be true // Object.is equality
+   × golden: attachment retrieval > 06 legacy path runs the SAME retrieval (headers only) 10ms
+     → expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 04 video time_range on standard_chat 
+— keyframes DROPPED by the off-by-one (bug recorded)
+AssertionError: expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+-   "user",
+    "system",
+    "system",
++   "system",
++   "user",
+  ]
+
+ ❯ __tests__/rust-golden/attachments.test.ts:265:37
+    263|     // P1 (2026-11-01): the live-clock block sits between the user tur…
+    264|     // knowledge block; the off-by-one contract is unchanged.
+    265|     expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system…
+       |                                     ^
+    266|     expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe…
+    267|     const userParts = msgs[0].content as { type: string }[];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 05 excel-pinned video — skill block 
+shifts the turn; keyframe lands (shift-correct path)
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ __tests__/rust-golden/attachments.test.ts:299:67
+    297|     expect(upstreamCalls[0].anchors[0].kind).toBe("decision_skill");
+    298|     // P1 (2026-11-01): order is [decision_skill, runtime_clock, knowl…
+    299|     expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe…
+       |                                                                   ^
+    300|     expect(String(msgs[2].content)).toContain("<knowledge_index name=\…
+    301|     expect(String(msgs[2].content)).toContain("[01:45:00 - 01:46:00]\n…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 06 legacy path runs the SAME 
+retrieval (headers only)
+AssertionError: expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+-   "user",
+    "system",
+    "system",
++   "system",
++   "user",
+  ]
+
+ ❯ __tests__/rust-golden/attachments.test.ts:329:37
+    327|     const msgs = messagesOf(upstreamCalls[0].bodyJson);
+    328|     // P1 (2026-11-01): user, runtime_clock, knowledge — parity with t…
+    329|     expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system…
+       |                                     ^
+    330|     expect(run.headers["x-decision-mode"]).toBe("standard_chat");
+    331|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 01 model-directed research — 
+web_search → read_page → answer (progress path)
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:472:44
+    470|     // Round 1 request: guidance → user → clock; tools armed; no evide…
+    471|     const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: strin…
+    472|     expect(p0.messages.map((m) => m.role)).toEqual(["system", "user", …
+       |                                            ^
+    473|     expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    474|     expect(p0.messages[1].content).toBe("what is the latest roadmap ne…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 02 legacy stream:false — plain 
+forward (NO tools, NO evidence, NO citation/gate headers)
+AssertionError: expected 'system' to be 'user' // Object.is equality
+
+Expected: "user"
+Received: "system"
+
+ ❯ __tests__/rust-golden/web.test.ts:530:38
+    528|     expect(upstreamCalls.length).toBe(1);
+    529|     const payload = upstreamCalls[0]!.bodyJson as { messages: { role: …
+    530|     expect(payload.messages[0].role).toBe("user");
+       |                                      ^
+    531|     expect(payload.messages[0].content).toBe("what is the latest roadm…
+    532|     expect(payload.messages.some((m) => m.content === WEB_TOOL_GUIDANC…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 03 starved engine pool — the loop 
+reports ZERO honestly, the answer still streams
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:574:44
+    572|     expect(upstreamCalls.length).toBe(2);
+    573|     const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: strin…
+    574|     expect(p0.messages.map((m) => m.role)).toEqual(["system", "user", …
+       |                                            ^
+    575|     expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    576|     // No sentinel block, no evidence block — the loop injects NOTHING…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 05 image attachment — parts 
+passthrough, loop ARMED, model answers without tools
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:711:49
+    709|     const userTurn = payload.messages.find((m) => m.role === "user");
+    710|     expect(userTurn!.content).toEqual(content); // parts + data URL un…
+    711|     expect(payload.messages.map((m) => m.role)).toEqual(["system", "us…
+       |                                                 ^
+    712|     expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE); // AR…
+    713|     expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: pure clock turn (brief §5 — quiet clock, zero search traffic) > 06 
+clock question — no retrieval, no evidence, quiet-clock law in the live request
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:796:49
+    794|     // user turn, payload.tools is present (capability, never an actio…
+    795|     // still NO evidence block and no retrieval happened.
+    796|     expect(payload.messages.map((m) => m.role)).toEqual(["system", "us…
+       |                                                 ^
+    797|     expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    798|     expect(payload.messages[1].content).toBe("What time is it?");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+ Test Files  2 failed | 8 passed (10)
+      Tests  8 failed | 48 passed (56)
+   Start at  16:09:01
+   Duration  1.21s (transform 904ms, setup 0ms, collect 1.69s, tests 4.44s, environment 1ms, prepare 824ms)
+

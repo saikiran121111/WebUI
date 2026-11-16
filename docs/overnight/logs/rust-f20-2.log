@@ -1,0 +1,143 @@
+﻿cargo :    Compiling ruke-skills v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-skills)
+At line:13 char:102
++ ... st-backend; cargo test -p ruke-skills --target-dir D:\Projects\WebUI\ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling ru...es\ruke-skills):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.01s
+     Running unittests src\lib.rs (D:\Projects\WebUI\target-ci\debug\deps\ruke_skills-730493013b9e34a1.exe)
+
+running 55 tests
+test jsstr::tests::js_trim_start_end_use_ecma_set ... ok
+test jspath::tests::strict_child_edge_table ... ok
+test jspath::tests::resolve_is_purely_lexical ... ok
+test jsstr::tests::js_slice_head_cuts_by_units_and_snaps_surrogates ... ok
+test jsstr::tests::js_slice_tail_cuts_by_units_and_snaps_surrogates ... ok
+test jsstr::tests::js_to_string_table ... ok
+test jsstr::tests::js_len_counts_utf16_units ... ok
+test jsstr::tests::js_truthy_table ... ok
+test core_skill::tests::frontmatter_strip_is_anchored_and_crlf_tolerant ... ok
+test jsstr::tests::last_newline_respects_cap_inclusive_like_js_lastindexof ... ok
+test jsstr::tests::js_trim_matches_ecma_not_rust_trim ... ok
+test lazy::tests::extract_user_text_table ... ok
+test frontmatter::tests::missing_block_is_null_and_defaults_empty ... ok
+test frontmatter::tests::duplicate_key_last_wins_and_continuation_without_key_ignored ... ok
+test frontmatter::tests::key_regex_rejects_leading_digit_and_hyphen_start ... ok
+test frontmatter::tests::parses_keys_lowercased_trimmed_and_folded ... ok
+test registry::tests::parse_install_accepts_plain_prefixed_and_flag_forms ... ok
+test registry::tests::parse_install_rejects_with_exact_ts_messages ... ok
+test registry::tests::normalize_repo_urls_and_dotgit_strip_order_quirk ... ok
+test registry::tests::safe_name_table ... ok
+test registry::tests::broken_links_detected_when_symlinks_are_permitted ... ok
+test registry::tests::skill_exists_requires_safe_name_and_file ... ok
+test core_skill::tests::non_script_skill_keeps_executables ... ok
+test registry::tests::load_skill_bundle_keeps_frontmatter_and_appends_links_in_order ... ok
+test registry::tests::read_scenario_merges_defaults_like_js_spread ... ok
+test registry::tests::skill_description_prefers_frontmatter_then_heading ... ok
+test registry::tests::load_skill_bundle_caps_at_160k_units_like_js_slice ... ok
+test modality::tests::name_plus_instruction_blocks ... FAILED
+test modality::tests::vendorless_capability_phrasing_blocks ... FAILED
+test modality::tests::protocol_evidence_blocks_regardless_of_prose ... FAILED
+test modality::tests::code_driven_visual_skills_stay_allowed ... FAILED
+test modality::tests::declared_capabilities_are_authoritative ... FAILED
+test modality::tests::brand_mention_alone_is_not_a_requirement ... FAILED
+test registry::tests::delete_skill_table ... FAILED
+test registry::tests::ensure_scenario_blocks_enabled_skill_that_turns_media ... FAILED
+test registry::tests::ensure_scenario_writes_pretty_json_never_overwrites ... FAILED
+test registry::tests::read_scenario_coerces_and_fails_like_ts ... ok
+test registry::tests::sync_moves_skills_counts_discovered_and_prunes_empty_temp ... FAILED
+test registry::tests::update_scenario_type_gates_and_string_keywords ... ok
+test lazy::tests::slash_name_keeps_case_and_class_ascii ... ok
+test lazy::tests::strip_prefix_string_content_assigns_remainder_directly ... ok
+test lazy::tests::apply_injects_before_last_user_not_first ... ok
+test lazy::tests::apply_success_mutates_payload_exactly_like_ts ... ok
+test lazy::tests::js_replace_dollar_patterns_follow_ecma_getsubstitution ... ok
+test core_skill::tests::fence_blocks_removed_crlf_js_match_ends_before_cr ... ok
+test core_skill::tests::collapse_and_trim_like_js_final_passes ... ok
+test core_skill::tests::fence_blocks_removed_including_both_fence_lines_lf ... ok
+test core_skill::tests::cli_line_strip_swallows_crlr_lf_restored ... ok
+test core_skill::tests::fence_language_boundary_ascii_like_js_word ... ok
+test core_skill::tests::known_cli_tokens_all_stripped ... ok
+test core_skill::tests::over_cap_astral_boundary_snaps_below_cut_documented_deviation ... ok
+test lazy::tests::apply_guards_return_null_without_mutating ... ok
+test core_skill::tests::linked_breaks_check_before_append_and_skips_outside_http_abs ... ok
+test core_skill::tests::bundle_script_stripping_and_linked_append_fresh_read ... ok
+test core_skill::tests::over_cap_uses_lastnewline_above_half_else_hard_cut ... ok
+
+failures:
+
+---- modality::tests::name_plus_instruction_blocks stdout ----
+
+thread 'modality::tests::name_plus_instruction_blocks' (18956) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- modality::tests::vendorless_capability_phrasing_blocks stdout ----
+
+thread 'modality::tests::vendorless_capability_phrasing_blocks' (28616) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- modality::tests::protocol_evidence_blocks_regardless_of_prose stdout ----
+
+thread 'modality::tests::protocol_evidence_blocks_regardless_of_prose' (27624) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- modality::tests::code_driven_visual_skills_stay_allowed stdout ----
+
+thread 'modality::tests::code_driven_visual_skills_stay_allowed' (25640) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- modality::tests::declared_capabilities_are_authoritative stdout ----
+
+thread 'modality::tests::declared_capabilities_are_authoritative' (29308) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- modality::tests::brand_mention_alone_is_not_a_requirement stdout ----
+
+thread 'modality::tests::brand_mention_alone_is_not_a_requirement' (22152) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- registry::tests::delete_skill_table stdout ----
+
+thread 'registry::tests::delete_skill_table' (17292) panicked at crates\ruke-skills\src\modality.rs:156:50:
+called `Result::unwrap()` on an `Err` value: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    (?im)^[\s-*>#]*requires[\s-]*(?:capabilities|capability|media|external)?\s*:[^\n]{0,80}(?:image|video)[-\s]*generation
+           ^^
+error: invalid range boundary, must be a literal
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- registry::tests::ensure_scenario_blocks_enabled_skill_that_turns_media stdout ----
+
+thread 'registry::tests::ensure_scenario_blocks_enabled_skill_that_turns_media' (18916) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- registry::tests::ensure_scenario_writes_pretty_json_never_overwrites stdout ----
+
+thread 'registry::tests::ensure_scenario_writes_pretty_json_never_overwrites' (26804) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+---- registry::tests::sync_moves_skills_counts_discovered_and_prunes_empty_temp stdout ----
+
+thread 'registry::tests::sync_moves_skills_counts_discovered_and_prunes_empty_temp' (6444) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\std\src\sync\lazy_lock.rs:415:5:
+LazyLock instance has previously been poisoned
+
+
+failures:
+    modality::tests::brand_mention_alone_is_not_a_requirement
+    modality::tests::code_driven_visual_skills_stay_allowed
+    modality::tests::declared_capabilities_are_authoritative
+    modality::tests::name_plus_instruction_blocks
+    modality::tests::protocol_evidence_blocks_regardless_of_prose
+    modality::tests::vendorless_capability_phrasing_blocks
+    registry::tests::delete_skill_table
+    registry::tests::ensure_scenario_blocks_enabled_skill_that_turns_media
+    registry::tests::ensure_scenario_writes_pretty_json_never_overwrites
+    registry::tests::sync_moves_skills_counts_discovered_and_prunes_empty_temp
+
+test result: FAILED. 45 passed; 10 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p ruke-skills --lib`

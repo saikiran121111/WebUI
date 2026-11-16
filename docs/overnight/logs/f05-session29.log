@@ -1,0 +1,53 @@
+F05 session 29 - identifier identity + surface corroboration (2026-11-15)
+=========================================================================
+Mechanism fixes (no example-specific rules):
+1. lib/web-search/normalization.ts now owns ONE identity layer:
+   identityShapes(text, join) / foldIdentityToken / identityForms /
+   wordIdentityForms / splitCoreWords. A "+"/"#" modifier run is part of the
+   identifier (C++ -> c++, C# -> c#, F# -> f#); alternate spellings come only
+   from the neutral separators . _ - and the apostrophe (next.js <-> nextjs,
+   O'Brien <-> obrien retained). Query side and text side share the code.
+2. metasearch.ts: mentionTokenSet -> wordIdentityForms, normalizeToken ->
+   foldIdentityToken, countLexicallyRelevant -> foldIdentityToken.
+   reranker.ts tokenize -> identityShapes(text, "none").
+   Effect: a "C" page can no longer be reported as mentioning "C++" (or the
+   reverse) and the BM25 reranker no longer loses symbol identifiers.
+3. presentation.ts: NEW corroborateSurface(plan, userPrompt, evidenceDomains)
+   applied inside derivePresentation() only. A finance/sports/tracker surface
+   selected by TWO ambiguous words must be corroborated by a vertical evidence
+   domain, unless the prompt matches that rung PRIMARY pattern. Nothing can
+   add a surface; it can only decline an unsupported one (same shape as the
+   pre-existing news rule). planPresentation() and every reason string / field
+   order stay byte-identical, so all pinned positives survive.
+
+NOT REPRODUCED (recorded with evidence, per reproduce-before-changing):
+- case-sensitivity of rust/zig/nim deciding support: no such logic exists
+  (git grep of zig/nim under lib/ returns none); both sides lowercase.
+- reranker substring relevance: scoring is token-set based; the only includes()
+  uses are domain checks.
+- cache-key incompleteness: queryCacheKey already hashes
+  query|freshness|intent|domains|anchor|gl; pageCacheKey carries ab=/bw=
+  fingerprints.
+- locale-as-identity: local-context.ts explicitRegionCc + query-planner
+  linkedinSearchHosts already treat machine locale as a fallback hint only.
+  The explicit-Italy -> in.linkedin.com gap is real but collides with the
+  pinned given-name ambiguity law; left scoped and documented.
+- ALIAS limitation recorded: c++ does not match cpp; shapes are not aliases.
+
+GATES
+  npx tsc --noEmit --incremental false                         exit 0
+  npx vitest run __tests__/web-search                          66 files
+                                                              849 passed / 0 failed / 2 skipped, exit 0
+  npx vitest run __tests__/web-search/token-identity.test.ts    14 passed, exit 0 (new)
+  npx vitest run __tests__/web-search/surface-corroboration
+      + domain-ambiguity + presentation                         33 passed, exit 0
+  npx vitest run __tests__/attach-index.test.ts __tests__/server
+      __tests__/decision __tests__/chat                         38 files / 417 passed, exit 0
+                                                              (226 s wall; readZip 7za cases dominate)
+NEW TEST FILES: __tests__/web-search/token-identity.test.ts (14 cases,
+including C/C++/C# cross-matching in BOTH directions, mention-set spelling
+forms, reranker tokenizer, and positive controls for the earlier SS5b/SS5e
+language laws); __tests__/web-search/surface-corroboration.test.ts (9 cases:
+unambiguous prompt wins, ambiguous prompt kept only with vertical evidence,
+state-dependent rungs only, registrable-domain not substring matching,
+end-to-end brief reproductions, news rule untouched).

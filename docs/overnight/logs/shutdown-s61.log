@@ -1,0 +1,2 @@
+final host action requested at 2026-11-16 10:27:59 : shutdown.exe /s /t 0 (issued by the overnight run after FINAL-REPORT.md + STATE.md were written and flushed; all owned jobs drained, owned lease released, no owned process alive, Strata left loaded on 8080)
+shutdown.exe exit code = 0 ; accepted means a shutdown was REQUESTED, not a physically observed power-off

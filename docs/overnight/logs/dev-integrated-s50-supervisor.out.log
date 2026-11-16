@@ -1,0 +1,29 @@
+[dev-supervisor] python: project venv reused (offline start, python 3.12.15)
+[dev-supervisor] Building Rust backend (cargo build)...
+[dev-supervisor] Rust backend build OK.
+[dev-supervisor] Python supervisor ready on 127.0.0.1:62533 (pid 7280, state ready, heavy imports at startup: 0, idle TTL 120s).
+[dev-supervisor] starting ruke-server rust-backend\target\debug\ruke-server.exe (pid 17840) on 127.0.0.1:3101...
+2026-11-16T00:57:08.602640Z  INFO ruke_server: attachment query-embedder configured (Node ONNX loopback RPC)
+2026-11-16T00:57:08.602773Z  INFO ruke_server: web-research bridge configured (Next-owned TS search via loopback RPC)
+2026-11-16T00:57:08.613627Z  INFO ruke_server: capability backend rendezvous resolved (python supervisor; status on GET /api/ruke/ml-status) endpoint=http://127.0.0.1:62533 source="discovery" supervisor_pid=Some(21956)
+2026-11-16T00:57:08.614527Z  INFO ruke_server: ruke-server listening (health + isolated /api/chat) — Next :3000 remains authoritative addr=127.0.0.1:3101 root=D:\Projects\WebUI\WebUI
+[dev-supervisor] Rust backend ready.
+[dev-supervisor] starting next dev (pid 27700) on 127.0.0.1:3000...
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+[dev-supervisor] Next.js ready (listening).
+[dev-supervisor] Ready
+  UI:      http://localhost:3000
+  Backend: http://127.0.0.1:3101
+  proxy delegation ON · bridge secret armed
+Press Ctrl+C to stop RUKE.
+ ✓ Compiled /instrumentation in 190ms (154 modules)
+ ✓ Ready in 1607ms
+ ○ Compiling / ...
+ ✓ Compiled / in 6.8s (7899 modules)
+ GET / 200 in 7091ms

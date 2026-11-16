@@ -123,7 +123,23 @@ export function validatePbipPackage(buffer: Uint8Array): PbipIssue[] {
   }
   if (salesTmdl !== null && !/^\s*table\s+Sales\b/m.test(salesTmdl)) bad(`${sm}/definition/tables/Sales.tmdl`, "no `table Sales` header");
 
-  // ---- CSV: rectangular, no empty cells; M section Columns= must match ----
+  // ---- CSV: rectangular; blank NUMERIC cells are unknowns, blanks elsewhere are
+  //      corruption; M section Columns= must match ----
+  // F11: the dataset sanitizer writes an EMPTY field for a missing numeric instead
+  // of fabricating 0. Which columns may be blank is read from the table's own TMDL
+  // dataTypes; when those cannot be read the old strict rule stays (fail closed).
+  const NUMERIC_TMDL = new Set(["double", "decimal", "int64", "int32", "integer", "single", "numeric", "currency"]);
+  const colTypes = new Map<string, string>();
+  if (salesTmdl) {
+    for (const m of salesTmdl.matchAll(/^\s*column\s+([^\n{]+)\n\s*\{\s*\n\s*dataType:\s*(\w+)/gm)) {
+      colTypes.set(m[1].trim(), m[2].toLowerCase());
+    }
+  }
+  const blankAllowed = (name: string | undefined): boolean => {
+    if (!colTypes.size) return false;
+    const t2 = name === undefined ? undefined : colTypes.get(name.trim());
+    return !!t2 && NUMERIC_TMDL.has(t2);
+  };
   const csv = textOf(`${sm}/Data/sales.csv`);
   let csvCols = 0;
   if (csv !== null) {
@@ -135,7 +151,14 @@ export function validatePbipPackage(buffer: Uint8Array): PbipIssue[] {
       lines.forEach((line, ri) => {
         const cells = csvCells(line);
         if (cells.length !== csvCols) bad(`${sm}/Data/sales.csv`, `row ${ri + 1} has ${cells.length} cells, header has ${csvCols}`);
-        if (cells.some((c) => c === "")) bad(`${sm}/Data/sales.csv`, `row ${ri + 1} contains an empty cell`);
+        if (ri === 0) return; // the header row itself is checked for column count
+        if (cells.every((c) => c === "")) bad(`${sm}/Data/sales.csv`, `row ${ri + 1} is entirely empty`);
+        cells.forEach((c, ci) => {
+          if (c !== "") return;
+          const headerName = csvCells(lines[0])[ci];
+          if (blankAllowed(headerName)) return; // declared numeric blank = unknown value
+          bad(`${sm}/Data/sales.csv`, `row ${ri + 1} contains an empty cell (column "${headerName ?? ci + 1}" is not a numeric column)`);
+        });
       });
     }
     if (salesTmdl) {

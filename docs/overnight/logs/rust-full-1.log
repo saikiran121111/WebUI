@@ -1,0 +1,391 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.26s
+     Running unittests src\lib.rs (D:/Projects/WebUI/target-ci\debug\deps\ruke_attach-0250b72c22c5a746.exe)
+
+running 66 tests
+test notes::tests::system_prompt_is_byte_exact_against_ts_concat ... ok
+test format::tests::sentence_parts_scan_matches_greedy_single_optional_punct ... ok
+test format::tests::first_sentence_table ... ok
+test embedder::tests::parses_a_good_row ... ok
+test retrieve::tests::rrf_tie_break_is_insertion_order ... ok
+test format::tests::last_sentence_table ... ok
+test notes::tests::notes_version_fingerprint_matches_ts ... ok
+test embedder::tests::degrades_on_every_shape_deviation ... ok
+test notes::tests::spineless_notes_degrade_paths_stay_non_throwing ... ok
+test retrieve::tests::env_number_js_number_edge ... ok
+test retrieve::tests::empty_corpus_is_empty_evidence ... ok
+test retrieve::tests::time_range_inclusive_overlap_uses_endsec_fallback ... ok
+test format::tests::fmt_stamp_table ... ok
+test retrieve::tests::time_range_passes_demote_through_pack_i20 ... ok
+test embedder::tests::new_trims_trailing_slash ... ok
+test notes::tests::pre_cancelled_token_is_the_only_throwing_path ... ok
+test retrieve::tests::sequential_range_is_clipped_and_ordered ... ok
+test retrieve::tests::budget_truncation_flag_and_join_cost ... ok
+test store::tests::att_id_validation_matches_att_re ... ok
+test bm25::tests::bm25_query_term_dedup_counts_once ... ok
+test retrieve::tests::demote_sinks_shown_passages_below_fresh_i20 ... ok
+test bm25::tests::bm25_hand_computed_single_term ... ok
+test retrieve::tests::demote_all_serves_the_held_set_never_empty_i20 ... ok
+test retrieve::tests::ordermap_set_keeps_position_and_hybrid_scores ... ok
+test retrieve::tests::held_never_substitutes_when_fresh_fills_the_budget_i20 ... ok
+test bm25::tests::bm25_empty_corpus_and_zero_avgdl_guard ... ok
+test turn::tests::b64_matches_node_tostring_base64 ... ok
+test retrieve::tests::position_vs_id_indexing_nan_semantics ... ok
+test retrieve::tests::no_cosine_channel_without_a_query_vec_i21 ... ok
+test turn::tests::collect_refs_table ... ok
+test retrieve::tests::zero_dropped_when_the_whole_selection_fits_i20 ... ok
+test retrieve::tests::budget_override_replaces_the_env_default_i05 ... ok
+test turn::tests::rules_variant_boundaries_are_exact ... ok
+test retrieve::tests::non_exhaustive_still_stops_at_top_k_seeds_i20 ... ok
+test retrieve::tests::dropped_counts_candidates_the_budget_refused_i20 ... ok
+test bm25::tests::tokenize_word_table ... ok
+test router::tests::hms_pairs_and_windows ... ok
+test router::tests::pronoun_count_matches_js_match_length ... ok
+test turn::tests::anchor_query_table ... ok
+test turn::tests::anchor_pronoun_heavy_long_query ... ok
+test router::tests::exhaustive_phrase_growth_i22 ... ok
+test router::tests::minute_phrases_and_blocks ... ok
+test router::tests::adversarial_word_boundary_family ... ok
+test router::tests::exhaustive_and_whole_video_phrases ... ok
+test turn::tests::nearest_frames_used_before_read_and_capped ... ok
+test notes::tests::model_produced_notes_cache_with_the_fingerprint_i24 ... ok
+test router::tests::last_n_minutes_i22 ... ok
+test router::tests::unicode_word_class_heldout ... ok
+test turn::tests::nearest_frames_cap_four ... ok
+test store::tests::lru_three_entries_evict_oldest_hit_refreshes ... ok
+test store::tests::bad_id_reads_null_everywhere_but_write_notes_throws ... ok
+test store::tests::notes_roundtrip_empty_string_and_missing ... ok
+test store::tests::notes_version_envelope_and_versioned_reads_i24 ... ok
+test turn::tests::missing_index_emits_the_exact_honest_block ... ok
+test store::tests::remove_index_deletes_dir_and_evicts_cache_entry ... ok
+test store::tests::missing_meta_or_chunks_reads_null ... ok
+test store::tests::read_index_tolerates_blank_lines_and_fails_on_bad_line ... ok
+test turn::tests::cancelled_token_is_the_only_error_path ... ok
+test turn::tests::whole_video_empty_notes_yields_zero ... ok
+test turn::tests::unavailable_embedder_degrades_to_bm25_alone ... ok
+test turn::tests::hybrid_block_and_frame_injection_into_payload ... ok
+test turn::tests::whole_video_uses_cached_notes_and_never_falls_through ... ok
+test store::tests::shown_ledger_roundtrip_filters_and_remove_index_i20 ... ok
+test turn::tests::exhausted_turn_budget_serves_the_honest_block_i05 ... ok
+test turn::tests::dropped_marker_shown_ledger_and_demote_rotation_i20 ... ok
+test notes::tests::degraded_notes_return_but_are_never_cached_i24 ... ok
+
+test result: ok. 66 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.03s
+
+     Running unittests src\lib.rs (D:/Projects/WebUI/target-ci\debug\deps\ruke_core-e332b05904e1a303.exe)
+
+running 26 tests
+test admission::tests::pre_cancelled_caller_never_enters_the_queue ... ok
+test admission::tests::cancel_while_queued_never_leaks_the_permit ... ok
+test admission::tests::panic_unwind_releases_the_permit ... ok
+test slot::tests::guard_releases_exactly_once_on_drop_and_panics_unwind_ok ... ok
+test config::tests::port_parsing_falls_back_to_default ... ok
+test admission::tests::permit_is_capacity_one_and_serializes ... ok
+test slot::tests::end_clamps_at_zero_like_math_max ... ok
+test turn::tests::ids_are_monotonic_and_unique ... ok
+test turn::tests::root_cancel_kills_all_descendants_tree_wide ... ok
+test turn::tests::await_cancellation_pattern_used_by_all_child_work ... ok
+test slot::tests::begin_user_turn_aborts_registered_title_tokens ... ok
+test slot::tests::title_guard_drop_unregisters ... ok
+test turn::tests::cancelling_one_subtree_leaves_siblings_and_root_alive_rule7_nonfatal ... ok
+test settings::tests::missing_file_yields_empty_settings_and_env_then_fallback_wins ... ok
+test settings::tests::create_dir_all_for_nested_settings_path ... ok
+test settings::tests::file_beats_env_priority ... ok
+test config::tests::discovers_repo_root_by_walking_up_from_nested_dir ... ok
+test config::tests::package_json_alone_is_not_enough_and_missing_root_returns_none ... ok
+test settings::tests::clear_removes_file_and_resets_cache ... ok
+test settings::tests::valid_json_non_object_is_ignored_like_ts_would_store_garbage_but_getters_ignore ... ok
+test settings::tests::merge_preserves_unknown_keys_updates_in_place_and_appends_new ... ok
+test settings::tests::corrupted_file_keeps_last_good_parse_and_recovers_when_fixed ... ok
+test admission::tests::dropped_acquire_future_hands_back_the_waiter_slot ... ok
+test admission::tests::queue_is_bounded_fail_fast ... ok
+test slot::tests::wait_for_user_idle_returns_true_when_released_and_false_on_timeout ... ok
+test admission::tests::max_concurrent_holders_is_one_under_contention ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src\lib.rs (D:/Projects/WebUI/target-ci\debug\deps\ruke_server-3f746aa18cb4f52f.exe)
+
+running 183 tests
+test chat::attach::tests::strips_only_attachment_ref_parts_keeps_order ... ok
+test chat::attach::tests::first_text_part_verbatim_first_nonblank ... ok
+test chat::answer_release::tests::matrix_is_present_and_the_server_check_line_is_byte_locked ... ok
+test chat::attach::tests::removal_preserves_remaining_key_order_unlike_map_remove ... ok
+test chat::browser_loop::tests::clamp_parsed_falls_back_and_clamps_every_override ... ok
+test chat::attach::tests::history_skips_system_and_blanks_and_slices_500 ... ok
+test chat::browser_loop::tests::created_tab_id_follows_success_and_stays_silent_on_failure ... ok
+test chat::attach::tests::attachment_ref_predicate ... ok
+test chat::answer_release::tests::the_mhrd_matrix_section_is_present ... ok
+test chat::browser_loop::tests::split_keeps_small_payloads_inline ... ok
+test chat::browser_loop::tests::relay_routes_think_text_to_reasoning_never_deletes ... ok
+test chat::browser_loop::tests::fragments_merge_across_split_frames ... ok
+test chat::attach::tests::string_content_untouched_and_missing_content_safe ... ok
+test chat::answer_release::tests::the_mhrf_matrix_section_is_present ... ok
+test chat::browser_loop::tests::tail_flushes_and_obeys_the_done_rule ... ok
+test chat::browser_loop::tests::final_round_done_passes_through ... ok
+test chat::browser_loop::tests::split_ships_real_images_and_keeps_metadata ... ok
+test chat::browser_loop::tests::the_terminal_frame_names_the_real_outcome ... ok
+test chat::browser_loop::tests::relay_frames_stay_byte_identical_across_mid_codepoint_splits ... ok
+test chat::browser_loop::tests::tool_calls_round_swallows_its_done_frame ... ok
+test chat::browser_loop::tests::working_tab_reads_server_owned_args_only ... ok
+test chat::clock::tests::fixed_instant_emits_the_pinned_block ... ok
+test chat::clock::tests::dst_aware_offset_across_the_year ... ok
+test chat::clock::tests::session_date_rolls_with_the_zone_not_utc ... ok
+test chat::error::tests::err_text_truncates_at_200_chars_like_slice ... ok
+test chat::error::tests::json_error_body_shape ... ok
+test chat::error::tests::no_err_text_omits_the_colon_clause ... ok
+test chat::browser_loop::tests::split_oversize_images_fall_back_to_a_hint ... ok
+test chat::browser_loop::tests::tool_content_truncates_at_boundary ... ok
+test chat::headers::tests::empty_citation_map_skips_its_header_but_not_the_gate ... ok
+test chat::clock::tests::garbage_zone_falls_back_without_failing ... ok
+test chat::error::tests::host_extraction_mirrors_js_url_host ... ok
+test chat::clock::tests::session_date_garbage_zone_falls_back_to_local ... ok
+test chat::error::tests::truncation_counts_utf16_units_not_runes ... ok
+test chat::headers::tests::progress_headers_exact_order_and_defaults ... ok
+test chat::headers::tests::upstream_content_type_and_used_skill_pass_through ... ok
+test chat::log_safety::tests::an_empty_object_still_reports_its_shape ... ok
+test chat::log_safety::tests::key_order_is_stable_regardless_of_wire_order ... ok
+test chat::headers::tests::web_gate_headers_encode_like_the_ts_wire ... ok
+test chat::log_safety::tests::names_the_params_and_never_the_values ... ok
+test chat::log_safety::tests::non_object_json_is_reported_by_size_only ... ok
+test chat::answer_release::tests::mhrf_never_removes_a_minted_citation ... ok
+test chat::answer_release::tests::positive_control_a_fabricated_invalid_citation_cannot_pass ... ok
+test chat::next_search::tests::line_framing_survives_arbitrary_chunk_splits ... ok
+test chat::log_safety::tests::unparseable_input_leaks_nothing_but_its_size ... ok
+test chat::scrubber::tests::every_char_cut_routes_identically ... ok
+test chat::pipeline::tests::kill_switch_reads_both_env_names ... ok
+test chat::scrubber::tests::flush_releases_held_partial_close_as_reasoning ... ok
+test chat::scrubber::tests::flush_inside_a_block_releases_nothing_extra ... ok
+test chat::scrubber::tests::flush_releases_held_partial_open_as_literal_content ... ok
+test chat::scrubber::tests::multibyte_text_survives_char_at_a_time_feeding ... ok
+test chat::scrubber::tests::four_piece_delimiter_split_leaks_nothing ... ok
+test chat::answer_release::tests::mhrd_diagnosis_is_non_destructive_a_clean_answer_stays_silent ... ok
+test chat::scrubber::tests::partial_close_tag_is_held_not_emitted ... ok
+test chat::scrubber::tests::partial_open_tag_is_held_not_emitted ... ok
+test chat::scrubber::tests::real_delimiter_wins_over_held_text ... ok
+test chat::scrubber::tests::single_delta_routes_four_sections ... ok
+test chat::scrubber::tests::unterminated_opener_routes_to_reasoning_never_deletes ... ok
+test chat::sse::tests::ensure_terminal_done_writes_nothing_after_close_or_fail ... ok
+test chat::sse::tests::stage_frames_use_the_ruke_stage_envelope ... ok
+test chat::sse::tests::fail_after_close_writes_nothing ... ok
+test chat::sse::tests::ensure_terminal_done_backfills_a_missing_sentinel_once ... ok
+test chat::sse::tests::writes_after_the_receiver_drops_close_the_latch ... ok
+test chat::web_loop::tests::content_frames_stream_live_byte_identical ... ok
+test chat::web_loop::tests::terminal_without_content_and_done_park_whole_original ... ok
+test chat::sse::tests::ensure_terminal_done_stays_quiet_when_done_was_forwarded ... ok
+test chat::web_loop::tests::turn_retrieved_requires_actually_retrieved_something ... ok
+test chat::web_loop::tests::utf16_len_matches_js_string_length ... ok
+test chat::web_loop::tests::unparseable_data_lines_are_swallowed_on_both_sides ... ok
+test chat::sse::tests::fail_emits_error_frame_then_exactly_one_done ... ok
+test chat::next_search::tests::research_abrupt_disconnect_mid_body_is_unreachable ... ok
+test chat::web_loop::tests::terminal_content_frame_splits_live_and_held_halves ... ok
+test chat::next_search::tests::research_terminal_frame_is_delivered_exactly_once ... ok
+test chat::next_search::tests::research_partial_frames_without_terminal_is_protocol_error ... ok
+test chat::answer_release::tests::no_retrieval_and_no_citation_map_only_research_wording_is_flagged ... ok
+test chat::answer_release::tests::every_matrix_case_repairs_identically_to_ts ... ok
+test chat::answer_release::tests::every_mhrf_release_case_releases_integrity_only ... ok
+test chat::answer_release::tests::the_server_check_line_appears_at_most_once_and_only_at_the_start ... ok
+test persistence::tests::js_ms_number_prints_like_json_stringify ... ok
+test persistence::tests::list_sort_is_desc_and_stable ... ok
+test chat::answer_release::tests::the_audit_is_idempotent_released_text_never_accumulates_qualifiers ... ok
+test persistence::tests::merge_keeps_stored_title_and_copies_meta_keys ... ok
+test attach_notes::tests::aborted_generation_is_the_only_499_path ... ok
+test persistence::tests::merge_non_object_meta_setting_throws_like_strict_mode ... ok
+test persistence::tests::merge_stored_title_falsy_reserializes_unchanged_value ... ok
+test persistence::tests::merge_passthroughs ... ok
+test attach_notes::tests::post_no_index_bad_id_and_unreadable_index ... ok
+test conversations_routes::tests::post_gates_required_fields_and_nonstring_ids ... ok
+test internal_completion::tests::non_object_bodies_are_400 ... ok
+test model_stats::tests::bearer_sent_iff_key_truthy ... ok
+test attach_notes::tests::post_cached_truthy_and_force_regenerate_empty ... ok
+test internal_completion::tests::streaming_payloads_are_rejected_at_the_door ... ok
+test model_stats::tests::live_slot_selection_and_null_fields ... ok
+test persistence::tests::list_empty_dir_after_ensure_and_missing_entries_ok ... ok
+test task_scope::tests::browser_turn_routing_matrix ... ok
+test settings_routes::tests::get_wraps_current_settings ... ok
+test attach_notes::tests::get_notes_table_missing_empty_and_cached ... ok
+test model_stats::tests::props_branch_defaults_and_array_pass ... ok
+test model_stats::tests::live_first_slot_fallback_empty_and_non_array ... ok
+test persistence::tests::delete_removes_the_research_journal_too ... ok
+test task_scope::tests::fold_blank_and_empty_prompts_yield_empty_scope ... ok
+test task_scope::tests::corpus_resolutions ... ok
+test settings_routes::tests::put_rejects_bad_json_accepts_null_bodies ... ok
+test conversations_routes::tests::delete_gcs_referenced_attachment_indexes ... ok
+test persistence::tests::list_reads_raw_names_then_restats_sanitized_path ... ok
+test settings_routes::tests::delete_clears_then_get_returns_defaults ... ok
+test task_scope::tests::registrable_host_psl_parity ... ok
+test task_scope::tests::serialization_names_are_the_fixture_vocab ... ok
+test persistence::tests::save_get_delete_roundtrip_sanitizes_ids ... ok
+test skills_install::tests::short_circuits_before_spawn ... ok
+test tests::browser_command_unknown_kind_short_circuits_before_the_engine ... ok
+test skills_routes::tests::delete_removes_skill_and_scenario ... ok
+test conversations_routes::tests::post_merges_protected_title_exactly_like_persistence_fn ... ok
+test tests::browser_command_bad_envelope_answers_on_the_wire ... ok
+test titles::generate::tests::first_line_pins_js_split_semantics ... ok
+test tests::health_endpoint_ok_and_reports_idle_slot ... ok
+test tests::other_next_routes_are_still_not_served ... ok
+test chat::answer_release::tests::every_mhrf_separation_case_releases_integrity_and_reports_semantics ... ok
+test titles::generate::tests::http_model_pre_cancelled_token_issues_no_request ... ok
+test chat::answer_release::tests::every_mhrd_case_diagnoses_identically_to_ts ... ok
+test skills_routes::tests::patch_gates_keys_then_updates ... ok
+test task_scope::tests::followup_without_previous_keeps_derived ... ok
+test titles::generate::tests::plan_requires_assistant_and_survives_empty_seam ... ok
+test task_scope::tests::fold_carries_scope_across_followups ... ok
+test task_scope::tests::follow_up_cues_are_anaphora_not_connectives ... ok
+test task_scope::tests::browser_operate_implies_a_target ... ok
+test conversations_routes::tests::lifecycle_post_list_get_put_delete ... ok
+test task_scope::tests::enforce_ladder ... ok
+test titles::policy::tests::apply_guards_and_writes ... ok
+test titles::policy::tests::first_user_text_table ... ok
+test task_scope::tests::corpus_merges ... ok
+test titles::policy::tests::looks_auto_title_table ... ok
+test titles::policy::tests::should_generate_table ... ok
+test task_scope::tests::browser_activates_gate ... ok
+test task_scope::tests::explicit_browser_request_table ... ok
+test titles::queue::tests::parse_doc_table ... ok
+test task_scope::tests::fold_unrelated_fresh_ask_replaces_scope ... ok
+test titles::generate::tests::plan_summaries_blank_or_none_gates_out ... ok
+test titles::transcript::tests::assistant_content_stringification_parity ... ok
+test titles::transcript::tests::caps_count_utf16_units ... ok
+test task_scope::tests::acceptance_browser_prompts_route_operate ... ok
+test titles::transcript::tests::chars_format_and_chunking ... ok
+test persistence::tests::tombstone_drops_racing_save_then_expires ... ok
+test titles::transcript::tests::roles_filtered_and_blanks_dropped ... ok
+test titles::transcript::tests::user_turn_attachment_note_and_parts ... ok
+test url_detector::tests::code_filename_guard_rejects_file_tokens ... ok
+test url_detector::tests::detects_bare_domain_in_exact_user_report_sentence ... ok
+test url_detector::tests::detects_wide_spread_of_tlds_and_multipart_suffixes ... ok
+test url_detector::tests::detects_wildcard_suffix_subdomains ... ok
+test url_detector::tests::no_false_positive_on_ordinary_prose ... ok
+test skills_routes::tests::get_preserves_existing_scenario_and_frontmatter_description ... ok
+test url_detector::tests::strip_tail_and_utf16_length_helpers ... ok
+test url_detector::tests::skips_version_numbers_and_short_dotted_noise ... ok
+test url_detector::tests::guard_exempts_scheme_and_www_prefixed_file_urls ... ok
+test url_detector::tests::keeps_scheme_urls_with_path_and_dedupes_repeats ... ok
+test titles::generate::tests::http_model_non_ok_and_bad_content_yield_none ... ok
+test task_scope::tests::corpus_derive_cases ... ok
+test titles::generate::tests::plan_small_doc_single_call ... ok
+test titles::generate::tests::http_model_golden_request_and_raw_content ... ok
+test titles::generate::tests::plan_long_doc_map_reduce ... ok
+test titles::generate::tests::normalize_title_semantic_guards ... ok
+test titles::generate::tests::normalize_title_guard_ladder ... ok
+test conversations_routes::tests::title_route_skip_reasons ... ok
+test titles::queue::tests::no_assistant_reply_never_calls_the_model ... ok
+test titles::generate::tests::normalize_title_sixty_char_cut ... ok
+test titles::queue::tests::user_turn_mid_call_yields_without_retry ... ok
+test titles::queue::tests::write_throw_500s_and_leaks_the_entry_like_ts ... ok
+test titles::queue::tests::retries_then_generation_failed ... ok
+test chat::next_search::tests::research_oversized_unterminated_frame_hits_the_stream_cap ... ok
+test titles::queue::tests::chain_serializes_across_conversations ... ok
+test settings_routes::tests::put_gates_each_key_like_ts ... ok
+test conversations_routes::tests::title_route_success_writes_title_and_tolerates_bad_body ... ok
+test titles::queue::tests::stale_or_manual_when_doc_flips_midjob ... ok
+test titles::queue::tests::request_queued_writes_title ... ok
+test titles::queue::tests::coalescing_reruns_on_fresh_history ... ok
+test chat::next_search::tests::header_wait_is_cancellable_mid_send ... ok
+test internal_completion::tests::queue_full_is_an_honest_503 ... ok
+test titles::queue::tests::request_skip_branches ... ok
+test skills_routes::tests::get_lists_installed_with_default_scenario_shape ... ok
+test chat::next_search::tests::header_wait_is_bounded_when_token_never_fires ... ok
+test tests::decision_route_parity_bodies ... ok
+test model_stats::tests::upstream_failures_all_degrade_to_ok_false ... ok
+test tests::chat_route_exists_and_streams_the_unreachable_contract ... ok
+
+test result: ok. 183 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.15s
+
+     Running unittests src\main.rs (D:/Projects/WebUI/target-ci\debug\deps\ruke_server-bf75eef91142326e.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\admission_exclusion.rs (D:/Projects/WebUI/target-ci\debug\deps\admission_exclusion-8024e87d41bbbeef.exe)
+
+running 1 test
+test concurrent_chat_and_completion_upstream_overlap_is_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests\attachment_replay.rs (D:/Projects/WebUI/target-ci\debug\deps\attachment_replay-e98a7221a03a8427.exe)
+
+running 6 tests
+test attachment_05_video_frames_with_skill_shift ... ok
+test attachment_04_video_time_range_keyframes_dropped ... ok
+test attachment_02_missing_index_honest_block ... ok
+test attachment_03_empty_index_zero_evidence ... ok
+test attachment_01_retrieval_success ... ok
+test attachment_06_legacy_parity ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests\browser_ui_routes.rs (D:/Projects/WebUI/target-ci\debug\deps\browser_ui_routes-97b4d55ed5b3deb5.exe)
+
+running 1 test
+test panel_ticket_and_socket_admission ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\golden_replay.rs (D:/Projects/WebUI/target-ci\debug\deps\golden_replay-a7818c91f4a799f5.exe)
+
+running 19 tests
+test chat_04c_minimal_empty_messages ... ok
+test chat_05_compaction_passthrough ... ok
+test chat_04a_minimal_empty_object ... ok
+test chat_03_malformed_forwarded_verbatim ... ok
+test chat_04b_minimal_empty_user_turn ... ok
+test chat_06b_decision_mode_progress ... ok
+test chat_06a_decision_mode_legacy ... ok
+test chat_08_web_search_disabled ... ok
+test chat_01_stream_normal ... ok
+test errors_03_upstream_500_legacy ... ok
+test chat_02_legacy_nonstream ... ok
+test errors_01_upstream_400_legacy ... ok
+test errors_06_no_body_progress ... ok
+test errors_04_upstream_500_progress ... ok
+test errors_05_no_body_legacy ... ok
+test errors_02_upstream_400_progress ... ok
+test chat_07_client_abort_propagates_upstream_and_releases_slot ... ok
+test errors_08_unreachable_progress ... ok
+test errors_07_unreachable_legacy ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.17s
+
+     Running tests\scrubber_vectors.rs (D:/Projects/WebUI/target-ci\debug\deps\scrubber_vectors-760d90c1dbd07eec.exe)
+
+running 3 tests
+test unterminated_think_tail_survives_as_reasoning ... ok
+test think_field_split_matrix_replays_cross_engine_vectors ... ok
+test utf8_transport_matrix_records_zero_mangling ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests\store_compat.rs (D:/Projects/WebUI/target-ci\debug\deps\store_compat-a46815927762f982.exe)
+
+running 6 tests
+test fixture_02_missing_index_honest_block_matches_ts ... ok
+test fixture_04_video_time_range_block_matches_ts ... ok
+test fixture_05_shift_correct_path_lands_block_and_keyframe ... ok
+test fixture_03_empty_index_injects_nothing ... ok
+test node_written_meta_and_chunks_parse_field_by_field ... ok
+test fixture_01_rust_block_is_ts_block_byte_exact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+   Doc-tests ruke_attach
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ruke_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ruke_server
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+EXIT=0

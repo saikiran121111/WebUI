@@ -1,0 +1,915 @@
+{
+  "aggregate": {
+    "abstained_cases": 6,
+    "cases_scored": 38,
+    "denominator": "38 frozen cases across 7 families; the 7 gated capabilities are NOT part of this denominator",
+    "families_passed": 7,
+    "families_run": 7,
+    "gated_cases_not_run": 7,
+    "overall_pass": true
+  },
+  "corpus": {
+    "chunks": 29,
+    "documents": 29,
+    "unit_of_relevance": "document"
+  },
+  "families": [
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 2,
+        "mrr": 7,
+        "ndcg_at_5": 7,
+        "precision_at_5": 7,
+        "recall_at_5": 7
+      },
+      "description": "Symbol-bearing identifiers and versions must not collapse into shorter tokens.",
+      "failures": [],
+      "floor": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 0.6,
+        "recall_at_5": 0.9
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 7,
+      "name": "symbol_identifiers",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 4,
+        "mrr": 5,
+        "ndcg_at_5": 5,
+        "precision_at_5": 5,
+        "recall_at_5": 5
+      },
+      "description": "Same surface words, different subject: a lexical hit is not relevance.",
+      "failures": [],
+      "floor": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 0.6,
+        "recall_at_5": 0.9
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 5,
+      "name": "lexical_hard_negatives",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 1,
+        "mrr": 4,
+        "ndcg_at_5": 4,
+        "precision_at_5": 4,
+        "recall_at_5": 4
+      },
+      "description": "Rare names, numbers, URLs and codes survive verbatim.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.75,
+        "recall_at_5": 1.0
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 4,
+      "name": "exact_identifiers",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 1,
+        "mrr": 6,
+        "ndcg_at_5": 6,
+        "precision_at_5": 6,
+        "recall_at_5": 6
+      },
+      "description": "Han, kana and Indic scripts must be searchable at all, not one opaque run.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.6,
+        "recall_at_5": 0.8
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 6,
+      "name": "scripts_without_spaces",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "mrr": 5,
+        "ndcg_at_5": 5,
+        "precision_at_5": 5,
+        "recall_at_5": 5
+      },
+      "description": "A vowelled query must match a document typed without vowel marks.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.75,
+        "recall_at_5": 1.0
+      },
+      "floor_misses": [],
+      "measured": {
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 5,
+      "name": "vowels_and_diacritics",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 1,
+        "mrr": 5,
+        "ndcg_at_5": 5,
+        "precision_at_5": 5,
+        "recall_at_5": 5
+      },
+      "description": "Ordinary phrased questions, terse or polite, must still retrieve.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.6,
+        "recall_at_5": 0.8
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 5,
+      "name": "european_natural_questions",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "abstention_accuracy": 6
+      },
+      "description": "Nothing relevant exists: the run must abstain instead of presenting top-K as evidence.",
+      "failures": [],
+      "floor": {
+        "abstention_accuracy": 1.0
+      },
+      "floor_misses": [],
+      "measured": {
+        "abstention_accuracy": 1.0
+      },
+      "n": 6,
+      "name": "abstention_no_answer_in_corpus",
+      "status": "passed"
+    }
+  ],
+  "gated_not_run": [
+    {
+      "capability": "embeddings",
+      "counted_in_denominator": false,
+      "detail": {
+        "binary": null,
+        "builtin": false,
+        "claims": {
+          "dim": 1024,
+          "languages": "documented multilingual",
+          "pooling": "documented last-token + normalize"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "Qwen/Qwen3-Embedding-0.6B",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "multilingual_quality_on_this_host": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "name": "neural_embedding",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "recall@k / nDCG against the same frozen families with a learned embedder"
+    },
+    {
+      "capability": "rerank",
+      "counted_in_denominator": false,
+      "detail": {
+        "binary": null,
+        "builtin": false,
+        "claims": {
+          "protocol": "documented generative/instruct scoring"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "Qwen/Qwen3-Reranker-0.6B",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "quality_on_this_host": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "Qwen/Qwen3-Reranker-0.6B",
+      "name": "neural_reranking",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "answer-bearing passage recall after neural reordering of the same candidates"
+    },
+    {
+      "capability": "documents.ocr",
+      "counted_in_denominator": false,
+      "detail": {
+        "binary": null,
+        "builtin": false,
+        "claims": {
+          "ocr": "documented"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "PaddleOCR-VL",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "hi": false,
+          "te": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "PaddleOCR-VL",
+      "name": "document_layout_ocr",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "per-page OCR CER, reading order and table structure on scanned/mixed PDFs"
+    },
+    {
+      "capability": "speech.asr",
+      "counted_in_denominator": false,
+      "detail": {
+        "binary": null,
+        "builtin": false,
+        "claims": {
+          "languages": "registry multilingual, includes te and hi"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "openai/whisper-large-v3",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "en": false,
+          "hi": false,
+          "te": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "openai/whisper-large-v3",
+      "name": "asr_multilingual",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "WER/CER per language including Telugu and Hindi on real human recordings"
+    },
+    {
+      "capability": "speech.diarize",
+      "counted_in_denominator": false,
+      "detail": {
+        "binary": null,
+        "builtin": false,
+        "claims": {
+          "speakers": "anonymous labels only"
+        },
+        "detail": "provider requires an access token and licence acceptance; startup must not fail",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "pyannote/speaker-diarization-community-1",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "license_acceptance_required",
+        "verified": {}
+      },
+      "install_status": "license_acceptance_required",
+      "model": "pyannote/speaker-diarization-community-1",
+      "name": "speaker_diarization",
+      "reason": "license_acceptance_required",
+      "status": "not_run",
+      "would_measure": "DER on overlapping speech (license acceptance also required)"
+    },
+    {
+      "capability": "speech.align",
+      "counted_in_denominator": false,
+      "detail": {
+        "binary": null,
+        "builtin": false,
+        "claims": {
+          "languages": "as published",
+          "output": "word/character timing"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "Qwen/Qwen3-ForcedAligner-0.6B",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "en": false,
+          "hi": false,
+          "te": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "Qwen/Qwen3-ForcedAligner-0.6B",
+      "name": "forced_alignment",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "word-level timestamp error against hand-marked intervals"
+    },
+    {
+      "capability": "video.timeline",
+      "counted_in_denominator": false,
+      "detail": {
+        "binary": {
+          "detail": "validated by `ffmpeg -version`; found via project-local",
+          "found": true,
+          "inside_repo": true,
+          "name": "ffmpeg",
+          "path": "node_modules/ffmpeg-static/ffmpeg.exe",
+          "source": "project-local"
+        },
+        "builtin": true,
+        "claims": {
+          "evidence": "atomic timeline record with per-stage coverage",
+          "timing": "source timestamps from the container, never frame_index/nominal_fps"
+        },
+        "detail": "built into this package; the external program it needs was validated via project-local: validated by `ffmpeg -version`; found via project-local",
+        "est_peak_mib": 0,
+        "heavy": false,
+        "id": "ruke-video-timeline",
+        "requires_binary": "ffmpeg",
+        "revision": "builtin-v1",
+        "status": "available",
+        "verified": {}
+      },
+      "install_status": "available",
+      "model": "ruke-video-timeline",
+      "name": "temporal_video_localisation",
+      "reason": "installed_but_unmeasured",
+      "status": "not_run",
+      "would_measure": "interval hit rate and mean absolute error on a human-labelled long video"
+    }
+  ],
+  "generated_utc": "2026-11-16T01:33:49Z",
+  "languages": {
+    "ar": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 3,
+      "recall_at_5": 1.0
+    },
+    "en": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 22,
+      "recall_at_5": 1.0
+    },
+    "es": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "fr": {
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "hi": {
+      "mrr": 1.0,
+      "n": 1,
+      "recall_at_5": 1.0
+    },
+    "ja": {
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "te": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 3,
+      "recall_at_5": 1.0
+    },
+    "vi": {
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "zh": {
+      "mrr": 1.0,
+      "n": 1,
+      "recall_at_5": 1.0
+    }
+  },
+  "method": "bm25 + hashed-lexical cosine, reciprocal-rank fusion, corpus-relative abstention",
+  "method_comparison": {
+    "abstention_law": {
+      "dense_only": "none - a dense view cannot test corpus support, so every abstention-family case scores 0.0 (honest, not skipped)",
+      "hybrid_dense_lexical": "inherited from the lexical support test"
+    },
+    "methods": {
+      "dense_only": {
+        "failures": [
+          {
+            "family": "scripts_without_spaces",
+            "qid": "t2",
+            "top": [
+              "d_telugu_weather",
+              "d_telugu_cinema",
+              "d_zh_price",
+              "d_ja_train",
+              "d_hindi_weather"
+            ],
+            "why": "answer_bearing_unit_not_top_1"
+          },
+          {
+            "family": "abstention_no_answer_in_corpus",
+            "qid": "n1",
+            "top": [
+              "d_es_boiler",
+              "d_deck_ship",
+              "d_rust_ownership",
+              "d_vi_tuition",
+              "d_person_milano"
+            ],
+            "why": "presented_top_k_without_support"
+          },
+          {
+            "family": "abstention_no_answer_in_corpus",
+            "qid": "n2",
+            "top": [
+              "d_rust_versions",
+              "d_py_packaging",
+              "d_zh_price",
+              "d_sport_scores",
+              "d_ar_meeting"
+            ],
+            "why": "presented_top_k_without_support"
+          },
+          {
+            "family": "abstention_no_answer_in_corpus",
+            "qid": "n3",
+            "top": [
+              "d_vi_tuition",
+              "d_invoice_number",
+              "d_person_milano",
+              "d_windows_error",
+              "d_ja_train"
+            ],
+            "why": "presented_top_k_without_support"
+          },
+          {
+            "family": "abstention_no_answer_in_corpus",
+            "qid": "n4",
+            "top": [
+              "d_telugu_weather",
+              "d_telugu_cinema",
+              "d_zh_price",
+              "d_ja_train",
+              "d_hindi_weather"
+            ],
+            "why": "presented_top_k_without_support"
+          },
+          {
+            "family": "abstention_no_answer_in_corpus",
+            "qid": "n5",
+            "top": [
+              "d_ar_meeting",
+              "d_hindi_weather",
+              "d_ja_train",
+              "d_telugu_cinema",
+              "d_telugu_weather"
+            ],
+            "why": "presented_top_k_without_support"
+          },
+          {
+            "family": "abstention_no_answer_in_corpus",
+            "qid": "n6",
+            "top": [
+              "d_es_boiler",
+              "d_fr_bakery",
+              "d_vi_tuition",
+              "d_ar_meeting",
+              "d_zh_price"
+            ],
+            "why": "presented_top_k_without_support"
+          }
+        ],
+        "overall": {
+          "abstention_accuracy": 0.0,
+          "forbidden_top1_rate": 0.0,
+          "mrr": 0.9843749999999999,
+          "n": 38,
+          "ndcg_at_5": 0.9884665547991082,
+          "precision_at_5": 0.2,
+          "recall_at_5": 1.0
+        },
+        "per_family": {
+          "abstention_no_answer_in_corpus": {
+            "case_count_with_mean_denominators": {
+              "abstention_accuracy": 6
+            },
+            "measured": {
+              "abstention_accuracy": 0.0
+            },
+            "n": 6
+          },
+          "european_natural_questions": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 1,
+              "mrr": 5,
+              "ndcg_at_5": 5,
+              "precision_at_5": 5,
+              "recall_at_5": 5
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 5
+          },
+          "exact_identifiers": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 1,
+              "mrr": 4,
+              "ndcg_at_5": 4,
+              "precision_at_5": 4,
+              "recall_at_5": 4
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 4
+          },
+          "lexical_hard_negatives": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 4,
+              "mrr": 5,
+              "ndcg_at_5": 5,
+              "precision_at_5": 5,
+              "recall_at_5": 5
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 5
+          },
+          "scripts_without_spaces": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 1,
+              "mrr": 6,
+              "ndcg_at_5": 6,
+              "precision_at_5": 6,
+              "recall_at_5": 6
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 0.9166666666666667,
+              "ndcg_at_5": 0.9384882922619097,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 6
+          },
+          "symbol_identifiers": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 2,
+              "mrr": 7,
+              "ndcg_at_5": 7,
+              "precision_at_5": 7,
+              "recall_at_5": 7
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 7
+          },
+          "vowels_and_diacritics": {
+            "case_count_with_mean_denominators": {
+              "mrr": 5,
+              "ndcg_at_5": 5,
+              "precision_at_5": 5,
+              "recall_at_5": 5
+            },
+            "measured": {
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 5
+          }
+        },
+        "per_language": {
+          "ar": {
+            "abstention_accuracy": 0.0,
+            "mrr": 1.0,
+            "n": 3,
+            "recall_at_5": 1.0
+          },
+          "en": {
+            "abstention_accuracy": 0.0,
+            "mrr": 1.0,
+            "n": 22,
+            "recall_at_5": 1.0
+          },
+          "es": {
+            "abstention_accuracy": 0.0,
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "fr": {
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "hi": {
+            "mrr": 1.0,
+            "n": 1,
+            "recall_at_5": 1.0
+          },
+          "ja": {
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "te": {
+            "abstention_accuracy": 0.0,
+            "mrr": 0.75,
+            "n": 3,
+            "recall_at_5": 1.0
+          },
+          "vi": {
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "zh": {
+            "mrr": 1.0,
+            "n": 1,
+            "recall_at_5": 1.0
+          }
+        }
+      },
+      "hybrid_dense_lexical": {
+        "failures": [],
+        "overall": {
+          "abstention_accuracy": 1.0,
+          "forbidden_top1_rate": 0.0,
+          "mrr": 1.0,
+          "n": 38,
+          "ndcg_at_5": 1.0,
+          "precision_at_5": 0.2,
+          "recall_at_5": 1.0
+        },
+        "per_family": {
+          "abstention_no_answer_in_corpus": {
+            "case_count_with_mean_denominators": {
+              "abstention_accuracy": 6
+            },
+            "measured": {
+              "abstention_accuracy": 1.0
+            },
+            "n": 6
+          },
+          "european_natural_questions": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 1,
+              "mrr": 5,
+              "ndcg_at_5": 5,
+              "precision_at_5": 5,
+              "recall_at_5": 5
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 5
+          },
+          "exact_identifiers": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 1,
+              "mrr": 4,
+              "ndcg_at_5": 4,
+              "precision_at_5": 4,
+              "recall_at_5": 4
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 4
+          },
+          "lexical_hard_negatives": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 4,
+              "mrr": 5,
+              "ndcg_at_5": 5,
+              "precision_at_5": 5,
+              "recall_at_5": 5
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 5
+          },
+          "scripts_without_spaces": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 1,
+              "mrr": 6,
+              "ndcg_at_5": 6,
+              "precision_at_5": 6,
+              "recall_at_5": 6
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 6
+          },
+          "symbol_identifiers": {
+            "case_count_with_mean_denominators": {
+              "forbidden_top1_rate": 2,
+              "mrr": 7,
+              "ndcg_at_5": 7,
+              "precision_at_5": 7,
+              "recall_at_5": 7
+            },
+            "measured": {
+              "forbidden_top1_rate": 0.0,
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 7
+          },
+          "vowels_and_diacritics": {
+            "case_count_with_mean_denominators": {
+              "mrr": 5,
+              "ndcg_at_5": 5,
+              "precision_at_5": 5,
+              "recall_at_5": 5
+            },
+            "measured": {
+              "mrr": 1.0,
+              "ndcg_at_5": 1.0,
+              "precision_at_5": 0.2,
+              "recall_at_5": 1.0
+            },
+            "n": 5
+          }
+        },
+        "per_language": {
+          "ar": {
+            "abstention_accuracy": 1.0,
+            "mrr": 1.0,
+            "n": 3,
+            "recall_at_5": 1.0
+          },
+          "en": {
+            "abstention_accuracy": 1.0,
+            "mrr": 1.0,
+            "n": 22,
+            "recall_at_5": 1.0
+          },
+          "es": {
+            "abstention_accuracy": 1.0,
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "fr": {
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "hi": {
+            "mrr": 1.0,
+            "n": 1,
+            "recall_at_5": 1.0
+          },
+          "ja": {
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "te": {
+            "abstention_accuracy": 1.0,
+            "mrr": 1.0,
+            "n": 3,
+            "recall_at_5": 1.0
+          },
+          "vi": {
+            "mrr": 1.0,
+            "n": 2,
+            "recall_at_5": 1.0
+          },
+          "zh": {
+            "mrr": 1.0,
+            "n": 1,
+            "recall_at_5": 1.0
+          }
+        }
+      }
+    },
+    "note": "These rows are MEASUREMENTS on the frozen cases. They are deliberately not compared against the frozen floors, which belong to the shipped lexical method; comparing a different method to another method's floor would be a category error.",
+    "top_k": 5,
+    "vectors_from": {
+      "dim": 384,
+      "elapsed_ms": 380,
+      "embedder_state": {
+        "closed": false,
+        "failures": 0,
+        "held": 0,
+        "idleTtlMs": 60000,
+        "name": "attach-embedder",
+        "resident": true,
+        "starting": false
+      },
+      "fingerprint": "model=Xenova/all-MiniLM-L6-v2;pool=mean;normalize=true;dim=384",
+      "model": {
+        "id": "Xenova/all-MiniLM-L6-v2",
+        "pooling": "mean",
+        "provider": "local-onnxruntime",
+        "query_instruction": "",
+        "revision": "unpinned"
+      },
+      "normalization": "l2",
+      "produced_by": "scripts/eval-embed-vectors.ts via lib/server/attachindex/embed.ts"
+    }
+  },
+  "suite": "python-retrieval-holdout-v1 (frozen 2026-11-16, hand-authored)",
+  "top_k": 5
+}

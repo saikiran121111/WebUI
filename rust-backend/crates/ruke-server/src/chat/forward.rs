@@ -293,6 +293,17 @@ async fn run_pump(
             "llm stream complete"
         );
     }
+
+    // ORDERED teardown (R02/R05 law: never admit the next request while the
+    // previous generation's upstream is still open). Rust drops function
+    // parameters in REVERSE declaration order, so `_permit` — declared AFTER
+    // `upstream` — would otherwise be released BEFORE the (abandoned) upstream
+    // response is dropped, letting a queued request reach the shared endpoint
+    // while the old connection/handler is still alive. Dropping `upstream`
+    // explicitly closes our side of that connection first; the permit is
+    // released only afterwards.
+    drop(upstream);
+
     // `_guard` drops HERE: exactly once, on every exit path.
 }
 

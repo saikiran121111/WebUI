@@ -18,6 +18,7 @@ import {
   resolveTarget,
   resolveTaskScope,
   isFollowUp,
+  carriesOwnTask,
   isEnforceableScope,
   isOperationalScope,
   routesToBrowserTurn,
@@ -391,5 +392,65 @@ describe("task-scope laws (TS side)", () => {
       ),
     };
     expect(scopeHosts(resolved)).toEqual(["blinkit.com", "paytm.com"]);
+  });
+
+  // F04 (2026-11-15 audit): an old task scope leaking into an unrelated request.
+  // One law, two languages: carriesOwnTask (TS) == carries_own_task (Rust).
+  it("F04 self-task predicate: own action + own matter beats a pronoun cue", () => {
+    for (const p of [
+      "Write a poem about it",
+      "Translate this into French",
+      "Summarize it in three bullet points for my landlord",
+      "Draw a picture of this",
+    ]) {
+      expect(carriesOwnTask(p), `expected own task: ${p}`).toBe(true);
+    }
+    for (const p of [
+      "add bread too",
+      "on the checkout page",
+      "the chargers again",
+      "What is its rating?",
+      "and what about the delivery fee",
+      "find its price",
+      "pizza too",
+      "",
+    ]) {
+      expect(carriesOwnTask(p), `expected continuation: ${p}`).toBe(false);
+    }
+  });
+
+  it("F04 a pronoun inside a fresh request is not action authorization", () => {
+    const session = ["Order milk on Zepto"];
+    for (const follow of ["Write a poem about it", "Translate this into French"]) {
+      const scope = foldTaskScope([...session, follow]);
+      expect(scope.intent, `intent leaked from: ${follow}`).toBe("none");
+      expect(scope.targets, `destination leaked from: ${follow}`).toEqual([]);
+      expect(isOperationalScope(scope), `operational wall from: ${follow}`).toBe(false);
+      expect(routesToBrowserTurn(scope), `browser routing from: ${follow}`).toBe(false);
+      expect(browserActivates(scope, follow, true), `browser activation from: ${follow}`).toBe(false);
+    }
+    // Separation law: a fresh ask that borrows this domain's OWN research verb
+    // legitimately derives that intent, and its pronoun may keep the previous
+    // SUBJECT as evidence scope - what must not survive is the ACTION: no
+    // operate intent, no mandatoryHosts wall, no browser routing.
+    const explain = foldTaskScope([...session, "Explain it in simple words for a five year old"]);
+    expect(explain.intent).toBe("research");
+    expect(explain.targets.map((t) => t.phrase)).toEqual(["Zepto"]);
+    expect(isOperationalScope(explain), "a research carry must never become a wall").toBe(false);
+    expect(routesToBrowserTurn(explain)).toBe(false);
+    expect(browserActivates(explain, "Explain it in simple words for a five year old", true)).toBe(false);
+  });
+
+  it("F04 positive controls: real continuation still carries the site task", () => {
+    const session = ["Order milk on Zepto"];
+    for (const follow of ["add bread too", "the chargers again", "on the checkout page"]) {
+      const scope = foldTaskScope([...session, follow]);
+      expect(scope.intent, `continuity lost: ${follow}`).toBe("operate");
+      expect(scope.targets.map((t) => t.phrase), `destination lost: ${follow}`).toEqual(["Zepto"]);
+    }
+    const subject = foldTaskScope([...session, "What is its rating?"]);
+    expect(subject.intent).toBe("research");
+    expect(subject.targets.map((t) => t.phrase)).toEqual(["Zepto"]);
+    expect(isOperationalScope(subject), "research carry must not become a wall").toBe(false);
   });
 });

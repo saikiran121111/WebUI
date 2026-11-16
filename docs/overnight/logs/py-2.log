@@ -1,0 +1,61 @@
+﻿Session 19 python gate. cwd=D:\Projects\WebUI\WebUI\python-backend
+CMD: python -m unittest discover -s tests -t .      (system CPython 3.14.7, stdlib only, no heavy deps installed)
+python : Traceback (most recent call last):
+At line:5 char:16
++ '@ + "`r`n" + (python -m unittest discover -s tests -t . 2>&1 | Out-S ...
++                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\Ruku\AppData\Local\Programs\Python\Python314\Lib\unittest\__main__.py", line 18, in <module>
+    main(module=None)
+    ~~~~^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Local\Programs\Python\Python314\Lib\unittest\main.py", line 103, in __init__
+    self.parseArgs(argv)
+    ~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Ruku\AppData\Local\Programs\Python\Python314\Lib\unittest\main.py", line 119, in parseArgs
+    self._do_discovery(argv[2:])
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Local\Programs\Python\Python314\Lib\unittest\main.py", line 242, in _do_discovery
+    self.createTests(from_discovery=True, Loader=Loader)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Local\Programs\Python\Python314\Lib\unittest\main.py", line 149, in createTests
+    self.test = loader.discover(self.start, self.pattern, self.top)
+                ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 341, in discover
+    raise ImportError('Start directory is not importable: %r' % start_dir)
+ImportError: Start directory is not importable: 'D:\\Projects\\WebUI\\WebUI\\tests'
+
+PY_EXIT=1
+ROOT CAUSE FIXED (real product defect, found by live probe, not by guessing):
+  ruke_ml/workers/runner.py:_stdin_reader(q) took a queue argument but main() started the
+  thread WITHOUT args=(q,) -> TypeError in the thread -> the worker's only control channel
+  died at startup -> every spawned worker stayed alive and silent until its deadline
+  (default 900 s), which is what hung tests/test_supervisor_workers.py for >4.5 minutes.
+MECHANISM FIXES (not per-example):
+  1. _stdin_reader runs wrapped and announces {"kind":"control_channel_failed"} on stdout,
+     so a broken control loop is a fast typed failure instead of a silent hang.
+  2. Worker emits a {"kind":"ready","capability","pid","schema_version"} handshake; the pool
+     waits for it (LIMITS.worker_ready_timeout_s) before trusting a child with a job.
+  3. Pool matches job_id and ignores progress/ready/foreign lines: an answer for another job
+     is never misfiled as this job's result.
+  4. {"kind":"shutdown"} control: idle-TTL and supervisor teardown now exit cleanly instead of
+     always escalating to terminate/kill (about 10 s per worker before).
+  5. Worker stderr is captured (bounded 8 KB) instead of DEVNULL; DEVNULL hid the very traceback
+     that explained the hang.
+  6. contracts.ERROR_REASONS was missing "evaluation_required" while 8 call sites raised it, so
+     every such honest failure was converted into reason="internal". Added, plus a package scan
+     guard test that rejects any reason literal the contract itself would refuse.
+  7. CAPABILITIES advertised "video.observations" with no worker handler -> routed to the timeline
+     observations path (capability name fixes the op so it cannot silently rewrite a baseline).
+     Guard test: every declared capability must reach a handler and vice versa.
+  8. security.egress_blocked_for_workers was dead code: never applied to a real child. Now every
+     spawned capability worker gets RUKE_EGRESS=blocked / proxy sink / HF_HUB_OFFLINE=1.
+  9. child_env now creates and exports RUKE_SCRATCH_DIR (children start without ensure_dirs()).
+ 10. lifecycle._popen is the single spawn seam (testable without monkeypatching stdlib).
+TEST-SIDE: RpcRoundTrip and OwnedWorkers now lower LIMITS.worker_deadline_s / worker_ready_timeout_s
+  / terminate_grace_s for the duration of the class (restored in teardown) so a broken helper can
+  never wedge the suite for the production 15-minute deadline again.
+RESULT: 86 tests, 0 failures, 0 errors, PY_EXIT=0, 12.2 s (was: 17-test module hung >4.5 min).

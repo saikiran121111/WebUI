@@ -411,6 +411,13 @@ const FOLLOW_CUES = new Set(["it", "its", "them", "this", "that", "same", "again
 // question is insufficient proof" on its own; it continues only with a real
 // previous scope to resolve against, in mergeTaskScope).
 const CONTINUATION_SCAFFOLD = new Set(["and", "or", "but", "so", "then", "nor", "too", "also", "now"]);
+// F04: tokens that may precede a turn's leading slot without becoming its
+// predicate. Interrogatives and copulas need no entry: isContentToken already
+// refuses them, which is what keeps a question ("what about its fee") from
+// looking like a new imperative action.
+const NON_HEAD_OPENERS = new Set([
+  ...CONTINUATION_SCAFFOLD, ...ARTICLES, ...PREPS, ...ONLY_LEAD, ...COPULAS,
+]);
 
 // Content-token law (audit WS01, 2026-11-05): a token belonging to NONE of
 // the functional/scaffolding vocabularies above carries lexical meaning —
@@ -1067,9 +1074,10 @@ export function mergeTaskScope(prev: TaskScope | null, prompt: string): TaskScop
   if (derived.targets.length > 0) return derived;
   const toks = tokenize(prompt);
   const anaphoric = toks.some((t) => FOLLOW_CUES.has(t.clean));
+  const selfTask = carriesOwnTask(prompt);
   if (prev && prev.intent !== "none") {
     if (derived.intent !== "none") {
-      if (anaphoric) {
+      if (anaphoric && !selfTask) {
         return {
           intent: derived.intent,
           targets: prev.targets,
@@ -1079,9 +1087,36 @@ export function mergeTaskScope(prev: TaskScope | null, prompt: string): TaskScop
       }
       return derived;
     }
-    if (isFollowUp(prompt)) return prev;
+    if (!selfTask && isFollowUp(prompt)) return prev;
   }
   return derived;
+}
+
+/**
+ * F04 SELF-TASK LAW (2026-11-15). Words the harness knows as scaffolding,
+ * shopping/UI nouns, site verbs, research verbs and anaphora cues are ALL
+ * closed class here (NON_CONTENT_SETS), so a token that is a CONTENT token in
+ * the leading slot of a turn is by construction not an action this domain's
+ * task machinery can perform: it is a fresh predicate. Requiring a second
+ * content token after it keeps elliptical noun fragments ("the chargers
+ * again", "pizza too", "on the checkout page") working as continuations, which
+ * is what an ongoing browser session legitimately relies on.
+ * Therefore a pronoun inside a turn that names its own action AND its own
+ * matter ("Write a poem about it", "Translate this into French") is
+ * language-level reference, NOT proof that the human still authorizes the
+ * previous ACTION or the previous destination. Conversation continuity,
+ * evidence scope and action authorization are separate; a pronoun is not a
+ * permission. Deterministic: no brand tables, no per-example word list, no
+ * model call. Mirrors `carries_own_task` in `ruke-server/src/task_scope.rs`.
+ */
+export function carriesOwnTask(prompt: string): boolean {
+  const toks = tokenize(prompt);
+  if (toks.length === 0) return false;
+  let i = 0;
+  while (i < toks.length && NON_HEAD_OPENERS.has(toks[i].clean)) i += 1;
+  if (i >= toks.length) return false;
+  if (!isContentToken(toks[i].clean)) return false;
+  return toks.slice(i + 1).some((t) => isContentToken(t.clean));
 }
 
 /**

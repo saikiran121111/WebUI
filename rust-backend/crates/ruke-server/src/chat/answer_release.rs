@@ -152,12 +152,15 @@ fn marker_ids(s: &str) -> Vec<String> {
 /// `retrieved` is computed by the CALLER from server state (citation map /
 /// action ledger) — never from model prose.
 pub fn audit_research_answer(text: &str, citations: &HashSet<String>, retrieved: bool) -> String {
-    let repaired = audit_prose(text, citations);
+    let segs = scan_markdown(text);
+    let repaired = audit_prose(&segs, citations);
     // R3: the ledger decides, not the prose. Only when the server knows the
-    // turn retrieved NOTHING does research-claiming wording get flagged.
+    // turn retrieved NOTHING does research-claiming wording get flagged -- and
+    // only wording the renderer treats as PROSE, never bytes inside a code
+    // sample (F15).
     let no_sources = citations.is_empty() && !retrieved;
     if no_sources
-        && RE_RESEARCH_WORDING.is_match(&repaired)
+        && RE_RESEARCH_WORDING.is_match(&prose_view(&segs))
         && !repaired.starts_with(SERVER_CHECK_LINE)
     {
         return format!("{SERVER_CHECK_LINE}\n{repaired}");
@@ -167,43 +170,251 @@ pub fn audit_research_answer(text: &str, citations: &HashSet<String>, retrieved:
 
 /* ── segmentation: fenced blocks and inline code are byte-protected ───── */
 
-fn audit_prose(text: &str, ids: &HashSet<String>) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    segments(text, 0, ids, &mut parts);
-    parts.concat()
+fn audit_prose(segs: &[Segment], ids: &HashSet<String>) -> String {
+    segs.iter()
+        .map(|seg| {
+            if seg.verbatim {
+                seg.text.clone()
+            } else {
+                audit_sentences(&seg.text, ids)
+            }
+        })
+        .collect::<String>()
 }
 
-fn segments(s: &str, depth: u8, ids: &HashSet<String>, parts: &mut Vec<String>) {
-    if s.is_empty() {
-        return;
+/* F15 (2026-11-15 brief): MARKDOWN-AWARE segmentation, byte-equivalent to TS
+ * `scanMarkdown` in lib/chat/answer-release.ts (read the long law comment
+ * THERE; this comment stays ASCII so the two files cannot drift by encoding).
+ * Structural rules only -- never a phrase, token or example list:
+ *   fenced code / inline code / indented code / markdown table rows are
+ *   VERBATIM, everything else is prose audited sentence by sentence.
+ * Reconstruction law: concatenating every segment reproduces the input bytes.
+ * The shared matrix pins both sides (`segments` section: verbatim-bytes
+ * concatenation per fixture), so a drift in either language goes red. */
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+struct Segment {
+    text: String,
+    verbatim: bool,
+}
+
+struct FenceRun {
+    ch: char,
+    len: usize,
+    indent: usize,
+}
+
+fn fence_run(line: &str) -> Option<FenceRun> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0usize;
+    while i < chars.len() && i < 4 && (chars[i] == ' ' || chars[i] == '\t') {
+        i += 1;
     }
-    if depth == 0 {
-        if let Some(at) = s.find("```") {
-            segments(&s[..at], 1, ids, parts);
-            let end = match s[at + 3..].find("```") {
-                Some(close) => at + 3 + close + 3,
-                None => s.len(),
-            };
-            parts.push(s[at..end].to_string()); // fence: verbatim
-            segments(&s[end..], 0, ids, parts);
-            return;
+    if i >= chars.len() {
+        return None;
+    }
+    let ch = chars[i];
+    if ch != '`' && ch != '~' {
+        return None;
+    }
+    let mut len = 0usize;
+    while i + len < chars.len() && chars[i + len] == ch {
+        len += 1;
+    }
+    if len < 3 {
+        return None;
+    }
+    Some(FenceRun {
+        ch,
+        len,
+        indent: i,
+    })
+}
+
+fn fence_closes(line: &str, open_ch: char, open_len: usize) -> bool {
+    match fence_run(line) {
+        None => false,
+        Some(run) => {
+            if run.ch != open_ch || run.len < open_len {
+                return false;
+            }
+            let chars: Vec<char> = line.chars().collect();
+            let mut end = run.indent + run.len;
+            while end < chars.len() && (chars[end] == ' ' || chars[end] == '\t') {
+                end += 1;
+            }
+            end == chars.len()
         }
     }
-    if depth <= 1 {
-        if let Some(at) = s.find('`') {
-            let close = s[at + 1..].find('`').map(|c| at + 1 + c);
-            let nl = s[at + 1..].find('\n').map(|n| at + 1 + n);
-            if let Some(close) = close {
-                if nl.map_or(true, |n| close < n) {
-                    segments(&s[..at], 2, ids, parts);
-                    parts.push(s[at..=close].to_string()); // inline code: verbatim
-                    segments(&s[close + 1..], 1, ids, parts);
-                    return;
+}
+
+fn indented_code(line: &str) -> bool {
+    line.starts_with("    ") || line.starts_with('\t')
+}
+
+fn table_row(line: &str) -> bool {
+    let t = line.trim();
+    if t.starts_with('|') {
+        return true;
+    }
+    t.matches('|').count() >= 2
+}
+
+/// Split one physical line into prose and inline-code segments (a backtick run
+/// of length N closes only on another run of EXACTLY N).
+fn split_inline_code(line: &str) -> Vec<Segment> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut out: Vec<Segment> = Vec::new();
+    let mut i = 0usize;
+    let mut prose_start = 0usize;
+    while i < chars.len() {
+        if chars[i] != '`' {
+            i += 1;
+            continue;
+        }
+        let mut n = 0usize;
+        while i + n < chars.len() && chars[i + n] == '`' {
+            n += 1;
+        }
+        let mut j = i + n;
+        let mut close: Option<usize> = None;
+        while j < chars.len() {
+            if chars[j] == '`' {
+                let mut m = 0usize;
+                while j + m < chars.len() && chars[j + m] == '`' {
+                    m += 1;
                 }
+                if m == n {
+                    close = Some(j);
+                    break;
+                }
+                j += m;
+            } else {
+                j += 1;
             }
         }
+        let close = match close {
+            None => {
+                i += n; // unclosed run: literal backticks, still prose
+                continue;
+            }
+            Some(c) => c,
+        };
+        if prose_start < i {
+            out.push(Segment {
+                text: chars[prose_start..i].iter().collect(),
+                verbatim: false,
+            });
+        }
+        out.push(Segment {
+            text: chars[i..close + n].iter().collect(),
+            verbatim: true,
+        });
+        i = close + n;
+        prose_start = i;
     }
-    parts.push(audit_sentences(s, ids));
+    if prose_start < chars.len() {
+        out.push(Segment {
+            text: chars[prose_start..].iter().collect(),
+            verbatim: false,
+        });
+    }
+    out
+}
+
+/// The single segmentation truth for BOTH the release audit and diagnosis.
+fn scan_markdown(text: &str) -> Vec<Segment> {
+    let mut out: Vec<Segment> = Vec::new();
+    let mut fence: Option<(char, usize)> = None;
+    let mut prev_blank = true; // start of the answer is a block boundary
+    let mut prev_code = false;
+
+    let mut lines: Vec<(String, String)> = Vec::new();
+    let mut cur = String::new();
+    for ch in text.chars() {
+        if ch == '\n' {
+            lines.push((std::mem::take(&mut cur), "\n".to_string()));
+        } else {
+            cur.push(ch);
+        }
+    }
+    if !cur.is_empty() {
+        lines.push((cur, String::new()));
+    }
+
+    for (content, nl) in lines {
+        let whole = format!("{content}{nl}");
+        if let Some((ch, len)) = fence {
+            out.push(Segment {
+                text: whole,
+                verbatim: true,
+            });
+            if fence_closes(&content, ch, len) {
+                fence = None;
+            }
+            prev_blank = false;
+            continue;
+        }
+        if let Some(run) = fence_run(&content) {
+            fence = Some((run.ch, run.len));
+            out.push(Segment {
+                text: whole,
+                verbatim: true,
+            });
+            prev_blank = false;
+            continue;
+        }
+        if content.trim().is_empty() {
+            out.push(Segment {
+                text: whole,
+                verbatim: false,
+            });
+            prev_blank = true;
+            continue;
+        }
+        if indented_code(&content) && (prev_blank || prev_code) {
+            out.push(Segment {
+                text: whole,
+                verbatim: true,
+            });
+            prev_code = true;
+            prev_blank = false;
+            continue;
+        }
+        prev_code = false;
+        if table_row(&content) {
+            out.push(Segment {
+                text: whole,
+                verbatim: true,
+            });
+            prev_blank = false;
+            continue;
+        }
+        out.extend(split_inline_code(&content));
+        if !nl.is_empty() {
+            out.push(Segment {
+                text: nl.clone(),
+                verbatim: false,
+            });
+        }
+        prev_blank = false;
+    }
+    out
+}
+
+/// What the model actually CLAIMED: every verbatim block collapses to a line
+/// boundary, so a claim is never assembled ACROSS code or table data.
+fn prose_view(segs: &[Segment]) -> String {
+    segs.iter()
+        .map(|seg| {
+            if seg.verbatim {
+                "\n".to_string()
+            } else {
+                seg.text.clone()
+            }
+        })
+        .collect::<Vec<String>>()
+        .concat()
 }
 
 /// Split prose into lines, then sentences; audit each sentence. Newlines are
@@ -353,7 +564,7 @@ pub fn diagnose_research_answer(text: &str, ids: &HashSet<String>, retrieved: bo
         unresolved,
         available,
         unsupported,
-        claims_research: ids.is_empty() && !retrieved && RE_RESEARCH_WORDING.is_match(text),
+        claims_research: ids.is_empty() && !retrieved && RE_RESEARCH_WORDING.is_match(&prose_view(&scan_markdown(text))),
     }
 }
 
@@ -361,40 +572,16 @@ pub fn diagnose_research_answer(text: &str, ids: &HashSet<String>, retrieved: bo
 /// contribute NOTHING — no markers, no sentences from code bytes. Only the
 /// prose units are COLLECTED (never rejoined — diagnosis rewrites nothing).
 fn diagnose_prose(text: &str) -> Vec<String> {
+    // Same segmentation law as the audit: fenced code, inline code,
+    // indented code and table rows contribute NOTHING -- no markers, no
+    // sentences from those bytes (F15).
     let mut out: Vec<String> = Vec::new();
-    diagnose_segments(text, 0, &mut out);
+    for seg in scan_markdown(text) {
+        if !seg.verbatim {
+            out.extend(sentences_of(&seg.text));
+        }
+    }
     out
-}
-
-fn diagnose_segments(s: &str, depth: u8, out: &mut Vec<String>) {
-    if s.is_empty() {
-        return;
-    }
-    if depth == 0 {
-        if let Some(at) = s.find("```") {
-            diagnose_segments(&s[..at], 1, out);
-            let end = match s[at + 3..].find("```") {
-                Some(close) => at + 3 + close + 3,
-                None => s.len(),
-            };
-            diagnose_segments(&s[end..], 0, out); // fence: invisible
-            return;
-        }
-    }
-    if depth <= 1 {
-        if let Some(at) = s.find('`') {
-            let close = s[at + 1..].find('`').map(|c| at + 1 + c);
-            let nl = s[at + 1..].find('\n').map(|n| at + 1 + n);
-            if let Some(close) = close {
-                if nl.map_or(true, |n| close < n) {
-                    diagnose_segments(&s[..at], 2, out);
-                    diagnose_segments(&s[close + 1..], 1, out); // inline code: invisible
-                    return;
-                }
-            }
-        }
-    }
-    out.extend(sentences_of(s));
 }
 
 /// Lines, then sentences (same splits as audit_sentences/split_sentences),
@@ -464,7 +651,7 @@ mod tests {
     #[test]
     fn matrix_is_present_and_the_server_check_line_is_byte_locked() {
         let (line, cases) = matrix();
-        assert!(cases.len() >= 15, "the matrix must stay non-trivial");
+        assert!(cases.len() >= 24, "the matrix must stay non-trivial");
         assert_eq!(SERVER_CHECK_LINE, line.as_str());
     }
 
@@ -499,6 +686,45 @@ mod tests {
         // Second audit pass keeps it singular (idempotency guard).
         out = audit_research_answer(&out, &HashSet::new(), false);
         assert_eq!(out.matches(SERVER_CHECK_LINE).count(), 1);
+    }
+
+    /* F15 (2026-11-15 brief): the segmentation lock. The SAME matrix section
+     * drives the TS suite (`__tests__/chat/answer-release.test.ts`), so the
+     * two `scan_markdown` / `scanMarkdown` implementations cannot drift:
+     *   1. RECONSTRUCTION - concatenating every segment reproduces the input.
+     *   2. VERBATIM BYTES - the verbatim-classified segments (fenced code,
+     *      inline code, indented code, table rows) concatenate to exactly the
+     *      hand-computed expected string in the fixture.
+     * Expectations are hand-derived markdown structure, never recorded output.
+     */
+    #[derive(serde::Deserialize)]
+    struct SegCase {
+        name: String,
+        text: String,
+        verbatim: String,
+    }
+
+    fn segment_cases() -> Vec<SegCase> {
+        let v: serde_json::Value =
+            serde_json::from_str(MATRIX_JSON).expect("matrix.json parses");
+        serde_json::from_value(v["segments"]["cases"].clone()).expect("matrix segments cases array")
+    }
+
+    #[test]
+    fn segmentation_reconstructs_input_and_pins_verbatim_bytes() {
+        let cases: Vec<SegCase> = segment_cases();
+        assert!(cases.len() >= 8, "the segmentation matrix must stay non-trivial");
+        for c in &cases {
+            let segs = scan_markdown(&c.text);
+            let joined: String = segs.iter().map(|s| s.text.as_str()).collect();
+            assert_eq!(joined, c.text, "reconstruction law on segment case: {}", c.name);
+            let verb: String = segs
+                .iter()
+                .filter(|s| s.verbatim)
+                .map(|s| s.text.as_str())
+                .collect();
+            assert_eq!(verb, c.verbatim, "verbatim bytes on segment case: {}", c.name);
+        }
     }
 
     #[test]

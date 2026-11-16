@@ -17,6 +17,9 @@
 //!   `<think>` text to the reasoning channel INSIDE already-parsed SSE
 //!   fields; the transport is never rewritten and answer text is never
 //!   silently deleted.
+//! - [`policy`] — the ONE standing response policy injected into every
+//!   model-visible turn (⇔ TS `lib/chat/response-policy.ts`); byte parity is locked by a
+//!   Rust test that re-reads the TypeScript source.
 //! - [`sse`] — `ProgressChannel`: `ruke_stage`/`ruke_error`/`[DONE]`
 //!   grammar with the closed latch.
 //! - [`headers`] — `streamHeaders` (application headers).
@@ -40,6 +43,7 @@ pub mod headers;
 pub mod log_safety;
 pub mod next_search;
 pub mod pipeline;
+pub mod policy;
 pub mod scrubber;
 pub mod sse;
 pub mod web_loop;

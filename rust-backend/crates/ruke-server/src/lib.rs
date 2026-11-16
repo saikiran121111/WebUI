@@ -59,6 +59,8 @@ pub mod conversations_routes;
 pub mod decision_routes;
 pub mod ipc;
 pub mod internal_completion;
+pub mod ml_bridge;
+pub mod ml_job;
 pub mod model_stats;
 pub mod persistence;
 pub mod settings_routes;
@@ -121,6 +123,10 @@ pub struct AppState {
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/ruke/health", get(health))
+        // Capability-backend status (brief §9): what the Python supervisor
+        // really is doing — configured / unreachable / live with its declared
+        // per-capability statuses. Status only: no model runs behind this route.
+        .route("/api/ruke/ml-status", get(ml_bridge::status_get))
         // Part 4 (§25/26): the Rust chat core, live for isolated testing
         // only — the Next route at :3000 remains the user-facing one.
         .route("/api/chat", post(chat::chat_post))
@@ -202,6 +208,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/ruke/browser/policy",
             get(browser_routes::policy_get).put(browser_routes::policy_put),
         )
+        // Capability jobs for the Python backend (media-timeline family):
+        // bridge-authed, path-allowlisted, typed-envelope errors. See
+        // ml_job.rs for why capability state never uses a status code.
+        .route("/api/ruke/ml/job", post(ml_job::job_post))
         .with_state(state)
 }
 
@@ -282,7 +292,10 @@ mod tests {
     // other routes.)
     #[tokio::test]
     async fn browser_command_bad_envelope_answers_on_the_wire() {
-        std::env::set_var(crate::ipc::ENV_SECRET, "");
+        // The bridge secret is process-global: hold the test lock for the
+        // whole request so a parallel bridge test can neither see nor flip
+        // this write mid-handler (R05 isolation).
+        let _env = crate::ipc::test_guard::pin_bridge_secret("").await;
         let (s, _t) = state();
         let resp = build_router(s)
             .oneshot(
@@ -306,7 +319,7 @@ mod tests {
 
     #[tokio::test]
     async fn browser_command_unknown_kind_short_circuits_before_the_engine() {
-        std::env::set_var(crate::ipc::ENV_SECRET, "");
+        let _env = crate::ipc::test_guard::pin_bridge_secret("").await;
         let (s, _t) = state();
         let resp = build_router(s)
             .oneshot(

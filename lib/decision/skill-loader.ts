@@ -8,10 +8,42 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { isSafeSkillName, projectRoot } from "../skills/registry";
 import { MODE_CONTRACTS } from "./contracts";
-import type { DecisionEnvelope } from "./types";
+import { isRendererMode, type DecisionEnvelope, type RendererMode } from "./types";
 
 const CORE_SKILLS_DIR = ".cskills";
 const MAX_SKILL_BUNDLE_BYTES = 9_000;
+
+/**
+ * F02 (2026-11-16): a turn that requests SEVERAL deliverables stays in
+ * standard_chat — one mode validator cannot own two fences — but the prompt
+ * must still arm EVERY requested output contract, otherwise the model is
+ * silently told to produce nothing and the user loses a file. The request
+ * list comes from the envelope's OWN typed task_constraints (provenance: the
+ * scanner wrote it), never from re-parsing or re-classifying the prompt.
+ */
+const DELIVERABLE_REQUEST_PREFIX = "deliverable-request=";
+/** Bounded injection: two extra contracts is already a large prompt. */
+export const MAX_EXTRA_DELIVERABLE_CONTRACTS = 2;
+
+/** Requested deliverable modes other than the active one, in request order. */
+export function requestedDeliverables(env: DecisionEnvelope): RendererMode[] {
+  const out: RendererMode[] = [];
+  for (const constraint of env.task_constraints ?? []) {
+    if (typeof constraint !== "string" || !constraint.startsWith(DELIVERABLE_REQUEST_PREFIX)) continue;
+    const value = constraint.slice(DELIVERABLE_REQUEST_PREFIX.length);
+    if (value === "standard_chat" || value === env.active_mode) continue;
+    if (!isRendererMode(value) || out.includes(value)) continue;
+    out.push(value);
+    if (out.length >= MAX_EXTRA_DELIVERABLE_CONTRACTS) break;
+  }
+  return out;
+}
+
+/** Byte-identical to the Rust `MULTI_DELIVERABLE_NOTE` (golden-replay class). */
+export const MULTI_DELIVERABLE_NOTE =
+  "MULTI-DELIVERABLE TURN: the request asks for more than one deliverable. " +
+  "Emit one fenced block per contract above, in the order requested. " +
+  "Do not merge them and do not drop one.";
 
 /**
  * Skills whose downloaded SKILL.md tells the model to run Python/CLI scripts
@@ -87,6 +119,11 @@ export async function buildDecisionSkillBlock(
   }
   const contract = MODE_CONTRACTS[env.active_mode];
   if (contract) parts.push(contract);
+  const extras = requestedDeliverables(env)
+    .map((mode) => MODE_CONTRACTS[mode])
+    .filter((c): c is string => Boolean(c));
+  parts.push(...extras);
+  if (extras.length > 1) parts.push(MULTI_DELIVERABLE_NOTE);
   if (!parts.length) return null;
   return (
     `<decision_skill mode="${env.active_mode}" decided_by="${env.decided_by}">\n` +

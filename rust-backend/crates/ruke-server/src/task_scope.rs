@@ -978,6 +978,19 @@ fn is_content_token(clean: &str) -> bool {
     !is_interrog(clean) && !NON_CONTENT_SETS.iter().any(|s| in_list(s, clean))
 }
 
+/// F04: tokens that may precede a turn's leading slot without becoming its
+/// predicate. Interrogatives and copulas need no entry here:
+/// `is_content_token` already refuses them, which is what keeps a question
+/// ("what about its fee") from looking like a new imperative action.
+/// ⇔ `NON_HEAD_OPENERS` in `lib/decision/task-scope.ts`.
+fn is_non_head_opener(clean: &str) -> bool {
+    in_list(CONTINUATION_SCAFFOLD, clean)
+        || in_list(ARTICLES, clean)
+        || in_list(PREPS, clean)
+        || in_list(ONLY_LEAD, clean)
+        || in_list(COPULAS, clean)
+}
+
 fn in_list(list: &[&str], w: &str) -> bool {
     list.iter().any(|x| *x == w)
 }
@@ -1872,6 +1885,36 @@ pub fn is_follow_up(prompt: &str) -> bool {
     is_interrog(head) || in_list(PREPS, head) || in_list(ARTICLES, head) || in_list(ONLY_LEAD, head)
 }
 
+/// F04 SELF-TASK LAW (2026-11-15). Every word the harness knows as
+/// scaffolding, shopping/UI noun, site verb, research verb or anaphora cue is
+/// closed class here (NON_CONTENT_SETS), so a CONTENT token sitting in a
+/// turn's leading slot is by construction not an action this domain's task
+/// machinery can perform: it is a fresh predicate. Requiring a second content
+/// token after it keeps elliptical noun fragments ("the chargers again",
+/// "pizza too", "on the checkout page") working as continuations, which is
+/// what an ongoing browser session legitimately relies on. A pronoun inside a
+/// turn that names its own action AND its own matter ("Write a poem about it",
+/// "Translate this into French") is language-level reference, not proof that
+/// the human still authorizes the previous ACTION or destination: a pronoun is
+/// not a permission. ⇔ `carriesOwnTask` in `lib/decision/task-scope.ts`.
+pub fn carries_own_task(prompt: &str) -> bool {
+    let toks = tokenize(prompt);
+    if toks.is_empty() {
+        return false;
+    }
+    let mut i = 0;
+    while i < toks.len() && is_non_head_opener(&toks[i].clean) {
+        i += 1;
+    }
+    if i >= toks.len() {
+        return false;
+    }
+    if !is_content_token(&toks[i].clean) {
+        return false;
+    }
+    toks[i + 1..].iter().any(|t| is_content_token(&t.clean))
+}
+
 fn union_lists(a: &[String], b: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for x in a.iter().chain(b.iter()) {
@@ -1911,10 +1954,11 @@ pub fn merge_task_scope(prev: Option<&TaskScope>, prompt: &str) -> TaskScope {
     }
     let toks = tokenize(prompt);
     let anaphoric = toks.iter().any(|t| in_list(FOLLOW_CUES, &t.clean));
+    let self_task = carries_own_task(prompt);
     if let Some(p) = prev {
         if p.intent != TaskIntent::NoScope {
             if derived.intent != TaskIntent::NoScope {
-                if anaphoric {
+                if anaphoric && !self_task {
                     let mut r = p.clone();
                     r.intent = derived.intent;
                     r.excluded_phrases =
@@ -1925,7 +1969,7 @@ pub fn merge_task_scope(prev: Option<&TaskScope>, prompt: &str) -> TaskScope {
                 }
                 return derived;
             }
-            if is_follow_up(prompt) {
+            if !self_task && is_follow_up(prompt) {
                 return p.clone();
             }
         }
@@ -2286,6 +2330,78 @@ mod tests {
         let si = derive_task_scope("what's the price of milk on blinkit");
         assert!(is_enforceable_scope(&si));
         assert!(!is_operational_scope(&si));
+    }
+
+    #[test]
+    fn f04_self_task_predicate_beats_a_pronoun_cue() {
+        // ⇔ vitest "F04 self-task predicate" in __tests__/decision/task-scope.test.ts.
+        // A turn that predicates a CONTENT token (a word outside every
+        // closed-class vocabulary here) and names its own further matter is a
+        // new task; a cue inside it is language-level reference only.
+        for p in [
+            "Write a poem about it",
+            "Translate this into French",
+            "Summarize it in three bullet points for my landlord",
+            "Draw a picture of this",
+        ] {
+            assert!(carries_own_task(p), "expected own task: {p}");
+        }
+        // Continuation legs: elliptical fragments, and turns built entirely
+        // from this domain's own vocabulary (shopping nouns, UI nouns, site
+        // verbs) - an ongoing browser session depends on these.
+        for p in [
+            "add bread too",
+            "on the checkout page",
+            "the chargers again",
+            "What is its rating?",
+            "and what about the delivery fee",
+            "find its price",
+            "pizza too",
+            "",
+        ] {
+            assert!(!carries_own_task(p), "expected continuation: {p}");
+        }
+    }
+
+    #[test]
+    fn f04_pronoun_in_a_fresh_request_is_not_action_authorization() {
+        // ⇔ vitest "F04 a pronoun inside a fresh request is not action
+        // authorization". A pronoun is not a permission: the milk-order
+        // destination and the operate action must not survive an unrelated ask.
+        let session: Vec<String> = vec!["Order milk on Zepto".to_string()];
+        for follow in ["Write a poem about it", "Translate this into French"] {
+            let mut turns = session.clone();
+            turns.push(follow.to_string());
+            let scope = fold_task_scope(&turns);
+            assert_eq!(scope.intent, TaskIntent::NoScope, "intent leaked: {follow}");
+            assert!(scope.targets.is_empty(), "destination leaked: {follow}");
+            assert!(!is_operational_scope(&scope), "wall leaked: {follow}");
+            assert!(!routes_to_browser_turn(&scope), "browser routing leaked: {follow}");
+        }
+        // Separation law: an ask that borrows this domain's own research verb
+        // keeps the previous SUBJECT as evidence scope, never the ACTION.
+        let mut turns = session.clone();
+        turns.push("Explain it in simple words for a five year old".to_string());
+        let explain = fold_task_scope(&turns);
+        assert_eq!(explain.intent, TaskIntent::Research);
+        assert_eq!(explain.targets.len(), 1);
+        assert_eq!(explain.targets[0].phrase, "Zepto");
+        assert!(!is_operational_scope(&explain));
+        assert!(!routes_to_browser_turn(&explain));
+    }
+
+    #[test]
+    fn f04_positive_controls_still_carry_the_site_task() {
+        // ⇔ vitest "F04 positive controls".
+        let session: Vec<String> = vec!["Order milk on Zepto".to_string()];
+        for follow in ["add bread too", "the chargers again", "on the checkout page"] {
+            let mut turns = session.clone();
+            turns.push(follow.to_string());
+            let scope = fold_task_scope(&turns);
+            assert_eq!(scope.intent, TaskIntent::Operate, "continuity lost: {follow}");
+            assert_eq!(scope.targets.len(), 1, "destination lost: {follow}");
+            assert_eq!(scope.targets[0].phrase, "Zepto");
+        }
     }
 
     #[test]

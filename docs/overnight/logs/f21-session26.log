@@ -1,0 +1,17 @@
+SESSION 26 - F21 lifecycle + compaction durability (offline verification)
+command 1: npx tsc --noEmit --incremental false
+  first run: exit 2 (4 errors: embed.ts:157 stray brace after the F21 embedder rewrite;
+             browser.ts childLogger signature; pdfEngine PDFDocumentProxy.destroy not in the
+             pinned type; ownedResource use() returning undefined from the finally branch)
+  fix: removed the stray brace; childLogger("documents/browser").debug(obj,msg);
+       capability-probe cast for unpdf destroy(); use() finally now if/else (no bare return)
+  rerun: exit 0
+command 2: npx vitest run __tests__/lifecycle __tests__/chat/compaction-durability.test.ts
+           __tests__/documents __tests__/compact-abort-refs.test.ts __tests__/compact-pipeline.test.ts
+  result: Test Files 17 passed (17); Tests 170 passed (170); exit 0
+  includes: real-Chromium pdfEngine (2), render-lifecycle (6, proxy destroyed on success AND on
+            read-throw, page closed exactly once), owned-resource law+class (16),
+            compaction-durability (9, Telugu constraint survives a summary that dropped it),
+            document engines (xlsx/pptx/docx/powerbi/recalc) unchanged and green,
+            compact-abort-refs (9) and compact-pipeline (22) tracked fixtures untouched.
+classification: F21 = implemented AND offline verified. Live confirmation blocked by D-003.

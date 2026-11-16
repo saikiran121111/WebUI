@@ -1,0 +1,32 @@
+﻿cargo :     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+At line:2 char:42
++ ... st-backend; cargo test -p ruke-server --target-dir D:\Projects\WebUI\ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Finished `t...get(s) in 0.13s:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+     Running tests\attachment_replay.rs (D:\Projects\WebUI\target-ci\debug\deps\attachment_replay-e98a7221a03a8427.exe)
+
+running 6 tests
+test attachment_04_video_time_range_keyframes_dropped ... FAILED
+test attachment_05_video_frames_with_skill_shift ... ok
+test attachment_02_missing_index_honest_block ... ok
+test attachment_03_empty_index_zero_evidence ... ok
+test attachment_01_retrieval_success ... ok
+test attachment_06_legacy_parity ... ok
+
+failures:
+
+---- attachment_04_video_time_range_keyframes_dropped stdout ----
+
+thread 'attachment_04_video_time_range_keyframes_dropped' (21672) panicked at crates\ruke-server\tests\common\mod.rs:88:29:
+cannot read fixture D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-server/../../fixtures\attachments/04-video-time-range-keyframes-dropped.json: The system cannot find the file specified. (os error 2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    attachment_04_video_time_range_keyframes_dropped
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `-p ruke-server --test attachment_replay`

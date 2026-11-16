@@ -24,6 +24,10 @@ import { useChat } from "../hooks/useChat";
 import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
+import {
+  initialFollowState, reduceFollow, shouldPin, pinTarget, PIN_TOLERANCE_PX,
+  type FollowAction, type FollowState, type ScrollerGeometry,
+} from "../lib/ui/scrollFollow";
 import { getBrowserState } from "../lib/browser-client/browserStore";
 
 function uid(prefix = ""): string {
@@ -98,22 +102,148 @@ export default function HomePage() {
     void compact("manual");
   }, [compact, compactState.isCompacting, status]);
 
+  // ---- F19: ONE following/free controller ---------------------------------
+  // The decision LAW lives in the pure reducer lib/ui/scrollFollow.ts and is
+  // pinned by __tests__/ui/scroll-follow.test.ts (no browser needed). This
+  // layer only (a) reads real geometry, (b) dispatches actions, (c) projects
+  // `following` into React state for the jump-to-latest pill. React state is
+  // never an INPUT to the decision: the old code kept a mirror ref written
+  // during render, which lost to any unrelated re-render and let a queued rAF
+  // pin yank the reader back to the bottom mid-generation.
+  const messagesContentRef = useRef<HTMLDivElement | null>(null);
+  const followRef = useRef<FollowState>(initialFollowState(true));
+  const pinRafRef = useRef<number | null>(null);
+
+  const dispatchFollow = useCallback((action: FollowAction) => {
+    const next = reduceFollow(followRef.current, action);
+    followRef.current = next;
+    setHasScrolledUp(!next.following);          // projection for the pill ONLY
+  }, []);
+
+  const geometryOf = (el: HTMLElement): ScrollerGeometry => ({
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  });
+
+  // One rAF-coalesced pin per frame. The write is TAGGED before it lands, so
+  // the scroll event it produces is consumed as programmatic and can never be
+  // read as reader intent (and can never unpin itself).
+  const pinToBottom = useCallback(() => {
+    if (pinRafRef.current != null) return;
+    pinRafRef.current = requestAnimationFrame(() => {
+      pinRafRef.current = null;
+      const c = messagesContainerRef.current;
+      if (!c || !shouldPin(followRef.current)) return;   // re-read at run time
+      const target = pinTarget(geometryOf(c));
+      if (Math.abs(c.scrollTop - target) <= PIN_TOLERANCE_PX) return;
+      followRef.current = reduceFollow(followRef.current, { type: "pin_request", target });
+      c.scrollTop = target;
+    });
+  }, []);
+
+  // Explicitly (re)engage following: jump-to-latest, new chat, chat switch.
+  // Synchronous, so the rAF write scheduled right after sees `following`.
+  const followNow = useCallback(() => {
+    dispatchFollow({ type: "reset" });
+    pinToBottom();
+  }, [dispatchFollow, pinToBottom]);
+
+  // Content grew (stream delta): re-pin while following. The following check is
+  // read INSIDE the rAF, so an unpin that happens in between is honoured.
+  useEffect(() => {
+    if (shouldPin(followRef.current)) pinToBottom();
+  }, [messages, pinToBottom]);
+
+  // Async layout growth (images finishing, lazily mounted viewers, table
+  // reflow) and viewport resizes change geometry WITHOUT a `messages` change.
+  // Geometry is dispatched as intent-free; the reducer turns a SHRINK into an
+  // explanation budget, so the browser's compensating scroll event (an upward
+  // scrollTop change of the same size) is never mistaken for reader intent.
+  useEffect(() => {
+    const wrap = messagesContentRef.current;
+    const c = messagesContainerRef.current;
+    if (typeof ResizeObserver === "undefined" || !c) return;
+    const ro = new ResizeObserver(() => {
+      dispatchFollow({ type: "geometry", geo: geometryOf(c) });
+      if (shouldPin(followRef.current)) pinToBottom();
+    });
+    if (wrap) ro.observe(wrap);              // content height
+    ro.observe(c);                           // viewport height
+    return () => ro.disconnect();
+  }, [dispatchFollow, pinToBottom]);
+
+  // Cleanup law: a pin scheduled in the last frame before unmount must not fire
+  // against a detached container.
+  useEffect(() => () => {
+    if (pinRafRef.current != null) cancelAnimationFrame(pinRafRef.current);
+    pinRafRef.current = null;
+  }, []);
+
+  // Reader intent. Wheel-up and touch-drag unpin SYNCHRONOUSLY so a pin already
+  // scheduled this frame cannot land afterwards. Keyboard paging and scrollbar
+  // drags produce REAL scroll events, which the reducer judges by geometry; a
+  // synthetic key handler would invent intent the browser never expressed.
+  useEffect(() => {
+    const c = messagesContainerRef.current;
+    if (!c) return;
+    const onScroll = () => dispatchFollow({ type: "scroll", geo: geometryOf(c) });
+    // Nested-scroll boundary: scrollers marked data-nested-scroll (the
+    // reasoning box) own their wheel/touch intent - the bubbled event must NOT
+    // unpin the list; the inner controller follows the box itself.
+    const inNested = (t: EventTarget | null): boolean =>
+      t instanceof Element && !!t.closest("[data-nested-scroll]");
+    const onWheel = (e: WheelEvent) => {
+      if (inNested(e.target)) return;
+      if (e.deltaY < 0) dispatchFollow({ type: "wheel_up" });
+      else onScroll();
+    };
+    // Touch parity: dragging a finger DOWN the screen moves content UP - the
+    // same upward intent as wheel-up.
+    let lastTouchY: number | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      lastTouchY = inNested(e.target) ? null : (e.touches[0]?.clientY ?? null);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (inNested(e.target)) return;
+      const y = e.touches[0]?.clientY ?? null;
+      if (lastTouchY != null && y != null && y > lastTouchY + 4) dispatchFollow({ type: "touch_up" });
+      if (y != null) lastTouchY = y;
+    };
+    const onTouchEnd = () => { lastTouchY = null; };
+    c.addEventListener("scroll", onScroll, { passive: true });
+    c.addEventListener("wheel", onWheel, { passive: true });
+    c.addEventListener("touchstart", onTouchStart, { passive: true });
+    c.addEventListener("touchmove", onTouchMove, { passive: true });
+    c.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      c.removeEventListener("scroll", onScroll);
+      c.removeEventListener("wheel", onWheel);
+      c.removeEventListener("touchstart", onTouchStart);
+      c.removeEventListener("touchmove", onTouchMove);
+      c.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [dispatchFollow]);
   // Demo showcase: `?demo=ui` on load or the `/demo-ui` command injects a
   // deterministic interactive sample via load() — no model server needed.
   // (A `?demo=anatomy` / `/demo-anatomy` trigger existed until the anatomy
   // mode retired on 2026-11-07 by user directive.)
   const loadDemo = useCallback(() => {
     load(buildDemoConversation());
-    setHasScrolledUp(false);
-  }, [load]);
+    followNow();
+  }, [load, followNow]);
   useEffect(() => {
     const demo = new URLSearchParams(window.location.search).get("demo");
     if (demo === "ui") loadDemo();
   }, [loadDemo]);
   const runSend = useCallback((text: string, attachments: Attachment[] = []) => {
     if (text.trim() === "/demo-ui") { loadDemo(); return; }
+    // F19: a NEW turn starts following, synchronously, before the first delta
+    // arrives - an unpin the reader made while reading older messages must not
+    // suppress the view of the answer they just asked for.
+    followNow();
     send(text, { attachments });
-  }, [send, loadDemo]);
+  }, [send, loadDemo, followNow]);
 
 
   // Ids deleted this session — a stale in-flight list refresh must never
@@ -259,128 +389,13 @@ export default function HomePage() {
     };
   }, [messages, activeId, status, refreshList, saveTick]);
 
-  // Follow the stream by pinning the container to the bottom. A smooth
-  // scrollIntoView per chunk cancels the previous in-flight animation and
-  // lags behind growing content (which used to flip hasScrolledUp and cause
-  // top/bottom jitter). An instant scrollTop pin, coalesced to one rAF per
-  // frame, tracks incremental growth smoothly.
-  const stickToBottomRef = useRef(true);
-  stickToBottomRef.current = !hasScrolledUp;
-  const pinRafRef = useRef<number | null>(null);
-
-  const pinToBottom = useCallback(() => {
-    if (pinRafRef.current != null) return;
-    pinRafRef.current = requestAnimationFrame(() => {
-      pinRafRef.current = null;
-      const c = messagesContainerRef.current;
-      if (c && stickToBottomRef.current) c.scrollTop = c.scrollHeight;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!hasScrolledUp) {
-      pinToBottom();
-    } else if (pinRafRef.current != null) {
-      cancelAnimationFrame(pinRafRef.current);
-      pinRafRef.current = null;
-    }
-  }, [messages, hasScrolledUp, pinToBottom]);
-
-  // §3 (2026-11-13 brief): async layout growth — images finishing, lazily
-  // mounted studio viewers, table reflow — changes content height WITHOUT a
-  // `messages` state change, so the effect above cannot re-pin. Watch the
-  // content wrapper instead: while the user is following, keep the bottom
-  // pinned. (A scrollTop write resizes no observed box, so there is no
-  // feedback loop; the callback reuses the same one-rAF-per-frame pin.)
-  const messagesContentRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const wrap = messagesContentRef.current;
-    if (!wrap || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => {
-      if (stickToBottomRef.current) pinToBottom();
-    });
-    ro.observe(wrap);
-    return () => ro.disconnect();
-  }, [pinToBottom]);
-
-  // §3 cleanup law: a pin scheduled in the last frame before unmount must
-  // not fire against a detached container.
-  useEffect(() => () => {
-    if (pinRafRef.current != null) cancelAnimationFrame(pinRafRef.current);
-  }, []);
-
-  // Observe scroll position. Wheel-up unpins immediately so a pending pin
-  // can't yank the user back down mid-generation.
-  useEffect(() => {
-    const c = messagesContainerRef.current;
-    if (!c) return;
-    // Direction-aware with hysteresis: any upward movement unpins, even a few
-    // px from the bottom (the old 120px dead zone re-pinned small upward
-    // scrolls, making free scrolling impossible mid-stream). Re-pin only once
-    // the user is back within 8px of the bottom.
-    let lastScrollTop = c.scrollTop;
-    const onScroll = () => {
-      const wentUp = c.scrollTop < lastScrollTop - 1;
-      lastScrollTop = c.scrollTop;
-      const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
-      if (wentUp && dist > 8) setHasScrolledUp(true);
-      else if (dist <= 8) setHasScrolledUp(false);
-    };
-    // §3 nested-scroll boundary: scrollers marked data-nested-scroll (the
-    // reasoning box) own their wheel/touch intent — the bubbled event must
-    // NOT unpin the list; the inner controller follows the box itself.
-    const inNested = (t: EventTarget | null): boolean =>
-      t instanceof Element && !!t.closest("[data-nested-scroll]");
-    const onWheel = (e: WheelEvent) => {
-      if (inNested(e.target)) return;
-      if (e.deltaY < 0) {
-        // Synchronous: a rAF pin scheduled earlier this frame must not yank
-        // the user back down before React flushes hasScrolledUp.
-        stickToBottomRef.current = false;
-        setHasScrolledUp(true);
-      } else {
-        onScroll();
-      }
-    };
-    // Touch parity (§3): dragging a finger DOWN the screen moves content UP
-    // — the same upward intent as wheel-up, so unpin synchronously. Keyboard
-    // paging and scrollbar drags already fire real scroll events, which the
-    // direction-aware listener above covers; nested scrollers are excluded.
-    let lastTouchY: number | null = null;
-    const onTouchStart = (e: TouchEvent) => {
-      lastTouchY = inNested(e.target) ? null : (e.touches[0]?.clientY ?? null);
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      if (inNested(e.target)) return;
-      const y = e.touches[0]?.clientY ?? null;
-      if (lastTouchY != null && y != null && y > lastTouchY + 4) {
-        stickToBottomRef.current = false;
-        setHasScrolledUp(true);
-      }
-      if (y != null) lastTouchY = y;
-    };
-    const onTouchEnd = () => { lastTouchY = null; };
-    c.addEventListener("scroll", onScroll, { passive: true });
-    c.addEventListener("wheel", onWheel, { passive: true });
-    c.addEventListener("touchstart", onTouchStart, { passive: true });
-    c.addEventListener("touchmove", onTouchMove, { passive: true });
-    c.addEventListener("touchend", onTouchEnd, { passive: true });
-    return () => {
-      c.removeEventListener("scroll", onScroll);
-      c.removeEventListener("wheel", onWheel);
-      c.removeEventListener("touchstart", onTouchStart);
-      c.removeEventListener("touchmove", onTouchMove);
-      c.removeEventListener("touchend", onTouchEnd);
-    };
-  }, []);
-
   const handleNew = useCallback(() => {
     // Clear messages too — leaving them in state with a null activeId makes
     // the persist effect re-save them under a brand-new id (a phantom clone).
     clear();
     setActiveId(null);
-    setHasScrolledUp(false);
-  }, [clear]);
+    followNow();
+  }, [clear, followNow]);
 
   // Cmd/Ctrl+Shift+N → new chat.
   useEffect(() => {
@@ -399,7 +414,7 @@ export default function HomePage() {
       syncedMessagesRef.current = JSON.stringify(conv.messages ?? []);
       load(conv);
       setActiveId(id);
-      setHasScrolledUp(false);
+      followNow();
       // Opening an unread chat clears the flag (Claude parity: the dot is a
       // user-set marker, so persist it; no updatedAt bump → no reorder).
       if (conv.meta.unread) {
@@ -415,7 +430,7 @@ export default function HomePage() {
     // On desktop (sm+) it's a permanent column; collapsing it on chat select
     // was jarring, so leave the user's layout choice untouched.
     if (window.matchMedia("(max-width: 639px)").matches) setSidebarOpen(false);
-  }, [load]);
+  }, [load, followNow]);
 
   const handleDelete = useCallback(async (id: string) => {
     setConfirmDelete({ id });
@@ -432,9 +447,9 @@ export default function HomePage() {
     if (activeId === id) {
       clear();
       setActiveId(null);
-      setHasScrolledUp(false);
+      followNow();
     }
-  }, [confirmDelete, activeId, clear]);
+  }, [confirmDelete, activeId, clear, followNow]);
 
   const handleDeleteSelected = useCallback((ids: string[]) => {
     if (ids.length > 0) setConfirmDeleteIds(ids);
@@ -452,9 +467,9 @@ export default function HomePage() {
     if (activeId && deleted.includes(activeId)) {
       clear();
       setActiveId(null);
-      setHasScrolledUp(false);
+      followNow();
     }
-  }, [confirmDeleteIds, activeId, clear]);
+  }, [confirmDeleteIds, activeId, clear, followNow]);
 
   const handleTogglePin = useCallback(async (id: string) => {
     const conv = await getConversation(id);
@@ -630,7 +645,7 @@ export default function HomePage() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 14, scale: 0.95 }}
               transition={{ duration: 0.18 }}
-              onClick={() => { setHasScrolledUp(false); pinToBottom(); }}
+              onClick={() => { followNow(); }}
               className="absolute bottom-[130px] left-1/2 -translate-x-1/2 z-30
                 flex items-center gap-1.5 px-3 py-1.5 rounded-full
                 surface-glass text-white/80 text-[11px] font-medium shadow-lg shadow-black/50

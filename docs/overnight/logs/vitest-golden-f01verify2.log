@@ -1,0 +1,94 @@
+﻿node.exe : npm notice run webui-chat@0.2.0 npx
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Ruku\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run webui-chat@0.2.0 npx:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run __tests__/rust-golden
+[33mThe CJS build of Vite's Node API is deprecated. See 
+https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/rust-golden/contract-manifest.test.ts (8 tests) 6ms
+ ✓ __tests__/rust-golden/store-fixture.test.ts (3 tests) 15ms
+ ✓ __tests__/rust-golden/decision-serialization.test.ts (6 tests) 108ms
+ ✓ __tests__/rust-golden/decision-parity.test.ts (2 tests) 33ms
+[16:16:05.400] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:16:05.403] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-3n0k901t","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:16:05.405] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:16:05.410] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"read_page"}[39m
+[16:16:05.429] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":3,"finish":"none","ms":26}[39m
+[16:16:05.439] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:16:05.439] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"strata-mock","mode":"standard_chat","url":"http://127.0.0.1:9/v1/chat/completions"}[39m
+[16:16:05.441] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"strata-mock","mode":"standard_chat","ms":1,"sseChunks":2}[39m
+[16:16:05.443] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:16:05.443] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-59fdqrug","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:16:05.444] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:16:05.445] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":2,"finish":"none","ms":2}[39m
+[16:16:05.447] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:16:05.447] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-ochczb74","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:16:05.447] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:16:05.448] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"web_search"}[39m
+[16:16:05.448] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":1,"kept":4}[39m
+[16:16:05.449] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":3,"calls":"web_search"}[39m
+[16:16:05.449] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":2,"kept":3}[39m
+[16:16:05.450] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":4,"calls":"web_search"}[39m
+[16:16:05.450] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":5,"finish":"none","ms":3}[39m
+[16:16:05.453] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:16:05.454] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-qwfgfapw","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:16:05.454] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":0}[39m
+[16:16:05.456] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:16:05.456] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-178aeiem","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:16:05.456] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":0}[39m
+ ❯ __tests__/rust-golden/web.test.ts (7 tests | 1 failed) 104ms
+   × golden: model-directed web tool loop > 01 model-directed research — web_search → read_page → answer (progress path) 51ms
+     → expected '{"ok":true,"tool":"web_search","searc…' to be null
+ ✓ __tests__/rust-golden/errors.test.ts (8 tests) 803ms
+ ✓ __tests__/rust-golden/chat-core.test.ts (8 tests) 808ms
+ ✓ __tests__/rust-golden/skills.test.ts (5 tests) 811ms
+ ✓ __tests__/rust-golden/sse-vectors.test.ts (3 tests) 847ms
+ ✓ __tests__/rust-golden/attachments.test.ts (6 tests) 849ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 01 model-directed research — 
+web_search → read_page → answer (progress path)
+AssertionError: expected '{"ok":true,"tool":"web_search","searc…' to be null
+
+- Expected: 
+null
+
++ Received: 
+"{\"ok\":true,\"tool\":\"web_search\",\"searchSessionId\":\"ws-<sid>\",\"queryResults\":[{\"query\":\"project nimbus 
+roadmap 2026\",\"intent\":\"general\",\"resultCount\":5}],\"resultsReturned\":5,\"results\":[{\"url\":\"https://nimbus.
+example.com/roadmap-2026\",\"title\":\"Project Nimbus Roadmap 2026\",\"snippet\":\"The latest Nimbus roadmap: sync 
+engine in March 2026, offline mode in Q2 2026.\",\"domain\":\"nimbus.example.com\",\"publishedDate\":\"2026-02-11T09:00
+:00Z\",\"engine\":\"duckduckgo\",\"origin\":\"search\"},{\"url\":\"https://nimbus-community.example.org/t/roadmap-threa
+d\",\"title\":\"Roadmap thread - Nimbus community\",\"snippet\":\"Maintainers on the Project Nimbus roadmap 2026: sync 
+March, offline Q2.\",\"domain\":\"nimbus-community.example.org\",\"engine\":\"brave\",\"origin\":\"search\"},{\"url\":\
+"https://nimbus.example.com/old-announcement\",\"title\":\"Old announcement - Nimbus 2024 recap\",\"snippet\":\"The 
+Nimbus roadmap for 2024 shipped on schedule.\",\"domain\":\"nimbus.example.com\",\"publishedDate\":\"2024-12-30T00:00:0
+0Z\",\"engine\":\"bing\",\"origin\":\"search\"},{\"url\":\"https://www.example.com/blog/nimbus-sync-engine\",\"title\":
+\"Nimbus sync engine ships\",\"snippet\":\"Hands on with the Nimbus sync engine from the 2026 roadmap.\",\"domain\":\"e
+xample.com\",\"engine\":\"duckduckgo\",\"origin\":\"search\"},{\"url\":\"https://old.reddit.com/r/projectnimbus/comment
+s/golden1\",\"title\":\"Project Nimbus discussion\",\"snippet\":\"Anyone following the latest Project Nimbus roadmap ne
+ws?\",\"domain\":\"old.reddit.com\",\"engine\":\"reddit\",\"origin\":\"search\"}],\"remainingBudget\":{\"searches\":2,\
+"readUrls\":16,\"rounds\":7}}"
+
+ ❯ __tests__/rust-golden/web.test.ts:487:27
+    485|     expect(p1.messages.map((m) => m.role)).toEqual(["system", "system"…
+    486|     const asst1 = p1.messages[5] as { content: unknown; tool_calls: { …
+    487|     expect(asst1.content).toBeNull();
+       |                           ^
+    488|     expect(asst1.tool_calls).toEqual([{ id: "call-a1", type: "function…
+    489|     const [env1] = toolEnvelopes(p1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 9 passed (10)
+      Tests  1 failed | 55 passed (56)
+   Start at  16:16:04
+   Duration  1.21s (transform 852ms, setup 0ms, collect 1.61s, tests 4.38s, environment 1ms, prepare 890ms)
+

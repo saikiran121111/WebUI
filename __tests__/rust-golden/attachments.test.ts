@@ -234,21 +234,22 @@ describe("golden: attachment retrieval", () => {
     expect(msgs.some((m) => String(m.content).includes("<knowledge_index"))).toBe(false);
   });
 
-  it("04 video time_range on standard_chat — keyframes DROPPED by the off-by-one (bug recorded)", async () => {
+  it("04 video time_range on standard_chat — keyframes LAND on the user turn (F08 fixed)", async () => {
     const { logical, upstreamCalls } = await runAndRecord({
-      rel: "attachments/04-video-time-range-keyframes-dropped.json",
-      scenario: "video attachment, explicit timestamp (time_range) on standard_chat — keyframes lost",
+      rel: "attachments/04-video-time-range-standard-chat.json",
+      scenario: "video attachment, explicit timestamp (time_range) on standard_chat — keyframes reach the user turn",
       semantics:
         "'around 1:45:00' -> routeQuery single HMS -> time_range [c-180, c+180] -> only the overlapping " +
         "chunk survives, with a [01:45:00 - 01:46:00] header (fmtStamp). rules() uses the video variant " +
         "(§5k 2026-11-13: the time_range sample of one chunk out of the whole video must never be called a " +
         "complete record — RE-RECORDED header + rules bytes). " +
-        "PRODUCTION BUG RECORDED (not fixed, §8): nearestFrames DID load the keyframe, but " +
-        "buildAttachmentTurn appends frames to messages[userIdx] (turn.ts:224) where userIdx = lastUserIdx+1 — " +
-        "undefined on standard_chat (no skill block, no shift) — so the frame is SILENTLY DROPPED: the " +
-        "forwarded user turn has NO image_url part. retrieval_done still reports {1,1} (blocks, not frames). " +
-        "P1 (2026-11-01): a <runtime_clock> system block is injected between the user turn and the " +
-        "knowledge block; the dropped-frame off-by-one is unchanged.",
+        "F08 FIXED (2026-11-15, brief §4): the injection index used to be re-derived as lastUserIdx + 1, " +
+        "which on standard_chat (no skill block, no shift) pointed PAST the user turn, so the loaded " +
+        "keyframe was SILENTLY DROPPED. route.ts/pipeline.ts now resolve the turn slot ONCE " +
+        "(resolveTurnIndex) and re-resolve it after every injected block, so the keyframe rides the END " +
+        "of the forwarded user turn (intro text + image_url). retrieval_done {1,1} still counts blocks, " +
+        "not frames. Injection order for this turn: [knowledge_index, response_policy, runtime_clock, " +
+        "user]. (The pre-fix fixture name said keyframes-dropped; renamed with the fix.)",
       comparison: "structural",
       rawBody: userTurn("What is happening in the training video around 1:45:00?", {
         att_id: "att_golden1d", name: "pivot-table-training.mp4", category: "video",
@@ -259,13 +260,14 @@ describe("golden: attachment retrieval", () => {
     const msgs = messagesOf(upstreamCalls[0].bodyJson);
     const sys = msgs.find((m) => String(m.content).startsWith("<knowledge_index"));
     expect(String(sys!.content)).toContain("[01:45:00 - 01:46:00]\nDemo: rendering the pivot table.");
-    // Off-by-one: block AFTER the user turn; frame dropped (messages[userIdx] undefined).
-    // P1 (2026-11-01): the live-clock block sits between the user turn and the
-    // knowledge block; the off-by-one contract is unchanged.
-    expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system"]);
-    expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe(true);
-    const userParts = msgs[0].content as { type: string }[];
-    expect(userParts.some((p) => p.type === "image_url")).toBe(false);
+    // F08 (2026-11-15): every injected block lands BEFORE the user turn and the
+    // keyframe rides the END of that user turn — no silent drop.
+    expect(msgs.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
+    expect(String(msgs[0].content)).toContain("<knowledge_index name=\"pivot-table-training.mp4\">");
+    expect(String(msgs[1].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
+    expect(String(msgs[2].content).startsWith("<runtime_clock>")).toBe(true);
+    const userParts = msgs[3].content as { type: string }[];
+    expect(userParts.some((p) => p.type === "image_url")).toBe(true);
     expect(userParts.some((p) => p.type === "attachment_ref")).toBe(false);
   });
 
@@ -274,13 +276,13 @@ describe("golden: attachment retrieval", () => {
       rel: "attachments/05-video-frames-with-skill-shift.json",
       scenario: "same video retrieval with decision_mode excel (skill block present) — correct injection",
       semantics:
-        "CONTRAST FIXTURE for 04: with a skill block, route.ts:429 injects decision_skill at lastUserIdx, " +
+        "CONTRAST FIXTURE for 04: with a skill block, route.ts injects decision_skill at lastUserIdx, " +
         "the user turn really shifts to lastUserIdx+1, and the attachment pipeline then behaves as its " +
         "comment describes: knowledge block lands BEFORE the user turn; the keyframe rides the END of the " +
         "user turn — intro text 'Moments from the attached video...' + image_url (data:image/jpeg;base64," +
-        "fixed 1x1 jpeg). Message order: [decision_skill, runtime_clock, knowledge_index, user] " +
-        "(P1 2026-11-01 live-clock injection adds the second system block). Proves the off-by-one in " +
-        "04 is specifically the missing-shift case, not the whole injection design. " +
+        "fixed 1x1 jpeg). Message order after F08 (2026-11-15): [decision_skill, knowledge_index, " +
+        "response_policy, runtime_clock, user]. Pre-fix this was the shift-correct contrast proving " +
+        "04’s drop was the missing-shift case; the fix makes BOTH paths land the frame. " +
         "§5k (2026-11-13): RE-RECORDED header + video rules bytes (coverage-honest wording).",
       comparison: "structural",
       rawBody: JSON.stringify({
@@ -295,12 +297,13 @@ describe("golden: attachment retrieval", () => {
     const msgs = messagesOf(upstreamCalls[0].bodyJson);
     expect(String(msgs[0].content)).toBe("<decision_skill_block id=\"decision_skill:excel\">");
     expect(upstreamCalls[0].anchors[0].kind).toBe("decision_skill");
-    // P1 (2026-11-01): order is [decision_skill, runtime_clock, knowledge_index, user].
-    expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe(true);
-    expect(String(msgs[2].content)).toContain("<knowledge_index name=\"pivot-table-training.mp4\">");
-    expect(String(msgs[2].content)).toContain("[01:45:00 - 01:46:00]\nDemo: rendering the pivot table.");
-    expect(msgs[3].role).toBe("user");
-    const parts = msgs[3].content as { type: string; text?: string; image_url?: { url: string } }[];
+    // F08 (2026-11-15): [decision_skill, knowledge_index, policy, clock, user].
+    expect(String(msgs[1].content)).toContain("<knowledge_index name=\"pivot-table-training.mp4\">");
+    expect(String(msgs[1].content)).toContain("[01:45:00 - 01:46:00]\nDemo: rendering the pivot table.");
+    expect(String(msgs[2].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
+    expect(String(msgs[3].content).startsWith("<runtime_clock>")).toBe(true);
+    expect(msgs[4].role).toBe("user");
+    const parts = msgs[4].content as { type: string; text?: string; image_url?: { url: string } }[];
     expect(parts[0].type).toBe("text");
     expect(parts.some((p) => p.type === "text" && String(p.text).startsWith("Moments from the attached video"))).toBe(true);
     const img = parts.find((p) => p.type === "image_url");
@@ -312,10 +315,10 @@ describe("golden: attachment retrieval", () => {
       rel: "attachments/06-legacy-parity.json",
       scenario: "same retrieval on the legacy stream:false path",
       semantics:
-        "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes (including " +
-        "the standard_chat off-by-one: block after the user turn; P1 2026-11-01: order is user, " +
-        "runtime_clock, knowledge); only the stage FRAMES are absent on the " +
-        "legacy path (stage() is a no-op), so retrieval_done never appears. " +
+        "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes — F08 " +
+        "(2026-11-15) fixed the standard_chat off-by-one on both paths, so every block lands BEFORE the " +
+        "user turn: [knowledge_index, response_policy, runtime_clock, user]. Only the stage FRAMES are " +
+        "absent on the legacy path (stage() is a no-op), so retrieval_done never appears. " +
         "§5k (2026-11-13): RE-RECORDED header bytes (coverage-honest wording).",
       comparison: "byte-exact",
       streamFalse: true,
@@ -325,8 +328,9 @@ describe("golden: attachment retrieval", () => {
     });
     expect(logical.frames.some((f) => f.kind === "stage")).toBe(false);
     const msgs = messagesOf(upstreamCalls[0].bodyJson);
-    // P1 (2026-11-01): user, runtime_clock, knowledge — parity with the progress path.
-    expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system"]);
+    // F08 (2026-11-15): knowledge, policy, clock, then the user turn — parity with the progress path.
+    expect(msgs.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
+    expect(String(msgs[0].content)).toContain("<knowledge_index name=\"intro-biology.pdf\">");
     expect(run.headers["x-decision-mode"]).toBe("standard_chat");
   });
 

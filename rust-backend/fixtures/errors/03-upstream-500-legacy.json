@@ -22,7 +22,7 @@
         "authorization": "Bearer golden-key",
         "content-type": "application/json"
       },
-      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"fail hard\"},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"}]}"
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":false,\"messages\":[{\"role\":\"system\",\"content\":\"RESPONSE POLICY FOR THIS ASSISTANT:\\n- Answer the request that was actually made, at the depth it asks for: a short question gets a short, direct answer; an explicit request for detail, comparison or steps gets the detail.\\n- Ordinary small talk and status questions stay brief and natural. Do not convert them into a report, a plan, or a list.\\n- Do not advertise capabilities, tools, integrations or services unless the human asks what you can do or what is available.\\n- Never describe work that is not actually happening: no claimed searches, files, background jobs, indexing or progress that did not run.\\n- If something is not possible here, say so plainly in one line instead of replacing it with a broader offer.\"},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"},{\"role\":\"user\",\"content\":\"fail hard\"}]}"
     }
   ],
   "response": {

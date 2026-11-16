@@ -31,6 +31,7 @@ import {
   TurnProgressTracker,
   type TurnProgressSnapshot,
 } from "../lib/progress/turnProgress";
+import { createTurnFence, type TurnFence, type TurnRef } from "../lib/progress/turnFence";
 
 export type SendStatus = "streaming" | "submitted" | "complete" | "error" | "aborted";
 
@@ -333,6 +334,14 @@ export function useChat({
   const effortRef = useRef(effort);
   effortRef.current = effort;
   const assistantIdRef = useRef<string | null>(null);
+  // F18 (brief 2026-11-15) — TURN OWNERSHIP. Every stream frame is tagged with
+  // the turn that created it and applied only while that turn is current, so a
+  // late frame from an abandoned/superseded turn can never write citations,
+  // activity entries, revisions or usage onto the newest assistant bubble.
+  // The fence itself is a pure module (lib/progress/turnFence.ts).
+  const fenceRef = useRef<TurnFence | null>(null);
+  if (!fenceRef.current) fenceRef.current = createTurnFence();
+  const fence = fenceRef.current;
   const streamContentRef = useRef<string>("");
   const reasoningStartRef = useRef<number | null>(null);
   /** §3 (2026-11-13): accumulated reasoning INTERVAL ms for the turn. */
@@ -427,6 +436,14 @@ export function useChat({
 
   const load = useCallback((conversation: Conversation) => {
     releaseCompactOwnership(); // I28: an in-flight compact must not survive the swap
+    // F18/F21 ownership: SWITCHING CONVERSATIONS ends the previous turn. Its
+    // frames are fenced off, its transport is actually cancelled (so the
+    // server can release the single shared upstream permit instead of a
+    // hidden background turn), and its per-turn accumulators are cleared
+    // rather than leaking into the conversation the user just opened.
+    fence.invalidate();
+    abortRef.current?.abort();
+    abortRef.current = null;
     setMessages(conversation.messages ?? []);
     messagesRef.current = conversation.messages ?? [];
     // A new conversation always starts with a fresh LLM history that
@@ -450,7 +467,7 @@ export function useChat({
     progressRef.current = null;
     fenceOpenedRef.current = false;
     setTurnProgress(null);
-  }, [stopProgressTick, releaseCompactOwnership]);
+  }, [stopProgressTick, releaseCompactOwnership, fence]);
 
   const clear = useCallback(() => {
     releaseCompactOwnership(); // I28
@@ -464,6 +481,7 @@ export function useChat({
     setCompactState({ lastRun: null, isCompacting: false, badgeAt: -1 });
     lastInputRef.current = null;
     assistantIdRef.current = null;
+    fence.invalidate();
     streamContentRef.current = "";
     pendingContentRef.current = "";
     pendingReasoningRef.current = "";
@@ -479,10 +497,22 @@ export function useChat({
     progressRef.current = null;
     fenceOpenedRef.current = false;
     setTurnProgress(null);
-  }, [stopProgressTick, releaseCompactOwnership]);
+  }, [stopProgressTick, releaseCompactOwnership, fence]);
 
-  const handleEvent = useCallback((ev: any, abort: AbortController | null) => {
+  const handleEvent = useCallback((
+    ev: any,
+    abort: AbortController | null,
+    turn: TurnRef | null,
+  ) => {
+    // F18 ownership gate (checked BEFORE the abort signal): a frame is applied
+    // only while the turn THAT PRODUCED IT is still current. Abandoning a turn
+    // by switching chats never fired its abort signal, so without this fence a
+    // late frame from the old turn used to land on the newest assistant bubble
+    // — writing citations, activity entries or usage onto the wrong turn and
+    // making evidence history look like current work.
+    if (!fence.owns(turn)) return;
     if (abort?.signal.aborted) return;
+    const id = turn.id; // the message this frame belongs to, never "whatever is current now"
 
     // Server phase frames (ruke_stage): real counts into the tracker, plus
     // web metadata that streamed turns deliver in-band instead of headers.
@@ -497,7 +527,6 @@ export function useChat({
         handleBrowserStage(ev.stage.stage, ev.stage.session, ev.stage.tabId, ev.stage.turn);
       }
       if (ev.stage.stage === "web_meta") {
-        const id = assistantIdRef.current;
         const gateMeta = ev.stage.searchGate ?? ev.stage.researchLfm;
         // P5 rich-results transport: the frame carries the PresentationPlan
         // and the full validated surface set (OVERWRITE law — every re-emit
@@ -537,8 +566,7 @@ export function useChat({
       // resurrect retracted bytes.
       if (ev.stage.stage === "web:content_revise") {
         flushPending(true);
-        const id = assistantIdRef.current;
-        if (id) {
+        {
           const rawCut = ev.stage.contentCutTo;
           const repl = typeof ev.stage.contentText === "string" ? ev.stage.contentText : "";
           const applyCut = (base: string): string => {
@@ -557,7 +585,6 @@ export function useChat({
       // entry with the same kind+round, ⇔ the engine's pairing).
       if (ev.stage.stage === "web:activity") {
         closeReasoningInterval(); // the engine is acting — thinking is on hold (§3 interval law)
-        const id = assistantIdRef.current;
         if (id) {
           const entry = {
             kind: String(ev.stage.activity ?? "unknown"),
@@ -624,7 +651,6 @@ export function useChat({
     if (ev.usage) {
       // Stored on the message: feeds the next turn's honest ETA baselines
       // (persistence is verbatim, so they accumulate across sessions).
-      const id = assistantIdRef.current;
       if (id) {
         setMessages(prev => prev.map(m => m.id === id ? { ...m, usage: ev.usage } : m));
       }
@@ -637,7 +663,7 @@ export function useChat({
       setError(ev.finishReason === "error" ? ev.errorMessage || "Generation failed" : null);
       setIsThinking(false);
     }
-  }, [scheduleFlush, flushPending, closeReasoningInterval]);
+  }, [scheduleFlush, flushPending, closeReasoningInterval, fence]);
 
   const runRepairRounds = useCallback(async (
     assistantId: string,
@@ -764,6 +790,9 @@ export function useChat({
       assistantIdRef.current = assistantMsg.id;
       streamContentRef.current = "";
       decisionModeRef.current = null;
+      // F18: this turn becomes the single current turn. Anything captured from
+      // an earlier turn is now stale and its frames are dropped.
+      const turn = fence.begin(assistantMsg.id);
 
       // Fresh honest tracker seeded with THIS user's measured ETAs.
       progressRef.current = new TurnProgressTracker(computeBaselines(messagesRef.current));
@@ -813,7 +842,10 @@ export function useChat({
       // message is appended to BOTH the UI history and the LLM history.
       const requestHistory = [...llmHistoryRef.current, userMsg];
 
-      await client.chat(
+      // F16 (2026-11-15): `chat()` resolving is NOT proof the turn succeeded.
+      // The stream now settles with an explicit terminal outcome, and this hook
+      // — the owner of persistence, repair and status — must honour it.
+      const settlement = await client.chat(
         {
           messages: requestHistory,
           model,
@@ -835,7 +867,7 @@ export function useChat({
           // converted to this zone (never its own machine zone).
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
-        (ev) => handleEvent(ev, controller),
+        (ev) => handleEvent(ev, controller, turn),
         controller.signal,
         (headers) => {
           const hdrs = decodeSseHeaders(headers);
@@ -873,7 +905,10 @@ export function useChat({
       closeReasoningInterval();
       flushPending(true);
 
-      if (!controller.signal.aborted) {
+      // F16: never run a repair/continuation round on a turn that failed, was
+      // cancelled or ended mid-tool-round — those turns need a retry, not an
+      // extra model call that "fixes" an answer the human never accepted.
+      if (!controller.signal.aborted && settlement.outcome === "success") {
         const curMode = decisionModeRef.current;
         await runRepairRounds(
           assistantMsg.id,
@@ -888,18 +923,8 @@ export function useChat({
         // Mirroring `messagesRef` would UNDO any compaction.
       }
 
-      if (!controller.signal.aborted) {
-        // §3 closure safety net: engines close every action, so an entry
-        // still open here means its terminal frame never arrived.
-        closeOpenActivities(assistantMsg.id, "interrupted");
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id ? { ...m, state: "complete", finishedAt: Date.now() } : m
-        ));
-        setStatus("complete");
-        setReasoningContent("");
-        reasoningContentStateRef.current = "";
-        finishProgress("complete");
-      } else {
+      const turnOutcome = settlement.outcome;
+      if (turnOutcome === "cancelled" || controller.signal.aborted) {
         closeOpenActivities(assistantMsg.id, "cancelled");
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id && m.state === "streaming"
@@ -908,6 +933,44 @@ export function useChat({
         ));
         setStatus("aborted");
         finishProgress("aborted");
+      } else if (turnOutcome === "error" || turnOutcome === "incomplete_tool_round") {
+        // F16 law: an errored or orphaned-tool-round turn MUST NOT be recorded
+        // as complete. The partial text the human already saw stays on the
+        // bubble (never erased), but the turn is flagged and its actions close
+        // as interrupted.
+        const reason = settlement.errorMessage
+          || (turnOutcome === "incomplete_tool_round"
+            ? "The model asked to use a tool, but the turn ended before the tool ran."
+            : "Generation failed");
+        closeOpenActivities(assistantMsg.id, "interrupted");
+        setError(reason);
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsg.id ? { ...m, state: "error", error: reason, finishedAt: Date.now() } : m
+        ));
+        setStatus("error");
+        setReasoningContent("");
+        reasoningContentStateRef.current = "";
+        finishProgress("error");
+      } else {
+        // success, or a truncated answer: partial text is REAL content, so the
+        // bubble stays complete and readable — but a truncation is named, never
+        // presented as a finished answer.
+        // §3 closure safety net: engines close every action, so an entry
+        // still open here means its terminal frame never arrived.
+        closeOpenActivities(assistantMsg.id, "interrupted");
+        setMessages(prev => prev.map(m =>
+          m.id === assistantMsg.id ? { ...m, state: "complete", finishedAt: Date.now() } : m
+        ));
+        if (turnOutcome === "truncated") {
+          setError("The model stopped before finishing the answer. The text above is what it managed to write.");
+          setStatus("error");
+          finishProgress("error");
+        } else {
+          setStatus("complete");
+          finishProgress("complete");
+        }
+        setReasoningContent("");
+        reasoningContentStateRef.current = "";
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {

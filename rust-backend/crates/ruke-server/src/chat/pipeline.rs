@@ -15,10 +15,12 @@
 //!   when the last user turn has `attachment_ref` parts — TS computes
 //!   `hasAttachmentRefs` in the HANDLER, before the pipeline mutates the
 //!   payload. `buildAttachmentTurn` then runs UNCONDITIONALLY with the
-//!   handler-computed `lastUserIdx + 1` injection index: with a skill
-//!   block inserted above it points after the shifted turn (correct),
-//!   without one it is off by one (the recorded quirk — fixture 05 pins
-//!   the interaction; REPRODUCED, not fixed). `{"stage":"retrieval_done",
+//!   recomputed at call time by [`resolve_turn_index`] — the old
+//!   handler-computed `lastUserIdx + 1` was correct only when the step-4 skill
+//!   block had shifted the turn, and otherwise put the evidence block AFTER
+//!   the question (and the keyframes on the wrong message). Fixture 05 pinned
+//!   that interaction; re-recorded against the corrected bytes — the TS
+//!   oracle and this port changed together. `{"stage":"retrieval_done",
 //!   "done":n,"total":n}` closes the pair — honest `0/0` on failure
 //!   (log + continue; retrieval NEVER emits `ruke_error`). TS threads
 //!   its single combined signal through retrieval, so the Rust side
@@ -55,7 +57,7 @@ use ruke_decision::skill_block::build_decision_skill_block;
 use ruke_skills::jsstr::js_slice_head;
 use ruke_skills::lazy::inject_system_before;
 
-use crate::chat::{attach, clock, forward, sse::ProgressChannel};
+use crate::chat::{attach, clock, forward, policy, sse::ProgressChannel};
 use crate::AppState;
 
 /// Post-repair (2026-11-05): the chat pipeline PREFETCHES NOTHING, so
@@ -156,10 +158,11 @@ pub async fn run_turn_pipeline(
     // Evidence lands ONLY in this request's payload copy; the user's
     // stored conversation never sees it (persistence reads the original,
     // not this mutated copy — the handler holds the sole owner). The
-    // injection index is the handler-computed `lastUserIdx + 1` passed
-    // UNCONDITIONALLY: correct when the skill block above shifted the
-    // turn, off by one when it did not. Recorded TS behavior, reproduced
-    // (module docs). `buildAttachmentTurn` is called even with NO refs
+    // index is RECOMPUTED at call time by [`resolve_turn_index`] — so evidence
+    // lands BEFORE the current user turn whether or not a skill block fired
+    // (F08: the unconditional `last_user_idx + 1` was off by one on every
+    // no-skill turn; fixture 05 recorded that behavior and was re-recorded).
+    // The retrieval call itself stays unconditional: 
     // exactly like the TS oracle — it fast-returns 0 there.
     let att_ids: Vec<String> = payload
         .get("messages")
@@ -189,15 +192,23 @@ pub async fn run_turn_pipeline(
                     model: model.to_string(),
                     admission: state.admission.clone(),
                 };
+                // F08: resolve the CURRENT position of the user turn (any
+                // injected system block above it shifts the entry-time index).
+                let att_turn_idx = resolve_turn_index(messages, last_user_idx);
                 build_attachment_turn(
                     messages,
-                    last_user_idx + 1,
+                    att_turn_idx,
                     question,
                     &state.root,
                     state.attach_embedder.as_ref(),
                     &state.http,
                     &llm,
                     token,
+                    // F07: the shown ledger is scoped to the conversation. The
+                    // `browser_session` marker is the only conversation identity
+                    // the Rust request carries (it rides EVERY chat send), so
+                    // turns without it keep the bare v1 attachment key.
+                    browser.as_ref().map(|b| b.0.as_str()),
                 )
                 .await
             }
@@ -327,8 +338,18 @@ pub async fn run_turn_pipeline(
     // function). Injected LAST among the system blocks so the
     // <runtime_clock> block sits immediately before the user turn.
     if let Some(messages) = payload.get_mut("messages").and_then(Value::as_array_mut) {
+        // F01 + F08: resolve the CURRENT turn position, then place the one
+        // standing response policy and the clock block before that turn (both
+        // AFTER the step-4 skill / step-5 evidence blocks), clock immediately
+        // before the user turn. ⇔ TS route step 7.
+        let block_idx = resolve_turn_index(messages, last_user_idx);
+        inject_system_before(
+            messages,
+            block_idx,
+            policy::RESPONSE_POLICY.to_string(),
+        );
         let block = clock::build_clock_block(turn_timezone, turn_now);
-        inject_system_before(messages, last_user_idx + 1, block);
+        inject_system_before(messages, block_idx + 1, block);
     }
 
     tracing::info!(
@@ -527,6 +548,23 @@ pub async fn pump_progress(
 // (step 5) keys on real attachment refs, not these flags, so nothing
 // downstream needed them.
 
+/// Brief §3 law — TS `resolveTurnIndex` (`app/api/chat/route.ts`): the REAL
+/// position of the current user turn at read time. `last_user_idx` is computed
+/// at turn ENTRY, but every SYSTEM block injected before it (step-4 skill,
+/// step-5 attachment evidence, the F01 response policy) shifts it. Reading or
+/// injecting at the stale index addressed an injected block instead of the turn
+/// — the F08 off-by-one. Recomputing is exact for any number of prior
+/// injections: only injected SYSTEM blocks can sit at or after `last_user_idx`.
+pub(crate) fn resolve_turn_index(messages: &[Value], last_user_idx: usize) -> usize {
+    let mut i = last_user_idx;
+    while i < messages.len()
+        && messages[i].get("role").and_then(Value::as_str) == Some("system")
+    {
+        i += 1;
+    }
+    i
+}
+
 /// Test/CI escape hatch ⇔ the retired crate helper (TS owns the real
 /// `gateDisabledByEnv`; this is the pre-bridge check with identical
 /// semantics — `WEB_SEARCH_GATE_DISABLED`, with the legacy
@@ -545,6 +583,39 @@ mod tests {
     // the TS suite (route-tool-availability + web-tool-loop vectors).
 
     use super::*;
+
+    #[test]
+    fn resolve_turn_index_tracks_every_injected_block() {
+        use serde_json::json;
+
+        let user = json!({ "role": "user", "content": "q" });
+        let mut msgs = vec![
+            json!({ "role": "user", "content": "old" }),
+            json!({ "role": "assistant", "content": "a" }),
+            user.clone(),
+        ];
+        let last = 2usize;
+        // No injection at all: the turn has NOT moved (the old +1 pointed past it).
+        assert_eq!(resolve_turn_index(&msgs, last), 2);
+        // One injected block (skill) shifts it by one.
+        inject_system_before(&mut msgs, last, "skill".to_string());
+        assert_eq!(resolve_turn_index(&msgs, last), 3);
+        // Evidence + policy + clock: recompute follows all of them.
+        inject_system_before(&mut msgs, 3, "evidence".to_string());
+        inject_system_before(&mut msgs, 4, policy::RESPONSE_POLICY.to_string());
+        inject_system_before(&mut msgs, 5, "clock".to_string());
+        assert_eq!(resolve_turn_index(&msgs, last), 6);
+        // The resolved index addresses the REAL user turn, never a block.
+        assert_eq!(msgs[resolve_turn_index(&msgs, last)], user);
+        // The ordering the model must see: blocks first, clock immediately
+        // before the turn.
+        let roles: Vec<&str> = msgs.iter().map(|m| m["role"].as_str().unwrap()).collect();
+        assert_eq!(
+            roles,
+            vec!["user", "assistant", "system", "system", "system", "system", "user"]
+        );
+        assert_eq!(msgs[4]["content"].as_str().unwrap(), policy::RESPONSE_POLICY);
+    }
 
     #[test]
     fn kill_switch_reads_both_env_names() {

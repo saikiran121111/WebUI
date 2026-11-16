@@ -91,6 +91,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::Span;
 
 use ruke_contracts::stages::{CitationMap, StageEvent};
+// F13/P7 (brief part 8): the canonical attachment_ref reader (same law the
+// attachment pipeline uses) so this turn's attachment identities can ride
+// the tool-session create RPC. Only IDS cross; the evidence-clue derivation
+// law stays single-owned in TS (lib/server/attachindex/media-hints.ts).
+use ruke_attach::collect_attachment_refs;
 use ruke_skills::lazy::inject_system_before;
 
 use crate::chat::answer_release::{answer_issues, audit_research_answer, diagnose_research_answer};
@@ -114,7 +119,8 @@ const WEB_TOOL_GUIDANCE: &str = "WEB RESEARCH TOOL LAWS FOR THIS TURN:\n\
 - If the tool budget runs out, answer from the evidence you have and state plainly what is still missing. A budget_exhausted or failure envelope is not permission to guess.\n\
 - If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.\n\
 - A failed, blocked or empty lookup is NOT evidence that the fact does not exist: never tell the human it does not exist based on a lookup that failed — say what you searched and what you could not retrieve.\n\
-- Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.";
+- Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.\n\
+ - Scope: these laws govern claims that genuinely need external or current evidence. They do not make this turn a research task, and they never require you to mention searching, sources, tools or capabilities in the answer.";
 
 /// Fallback final directive ⇔ TS `WEB_TOOL_FINAL_DIRECTIVE` (same
 /// byte-parity note as [`WEB_TOOL_GUIDANCE`]).
@@ -315,12 +321,14 @@ fn turn_retrieved(merged: &CitationMap, last_ledger: &Option<Value>) -> bool {
 /// `[DONE]`, and the live reasoning stream never waited. Returns the
 /// displayed content length (UTF-16 units) after the release — the next
 /// round's cut offset.
-async fn release_round(
+/// The audit half of the release point: correct the round's live text IN PLACE
+/// with one `web:content_revise` frame, and return the displayed content length
+/// (UTF-16 units) after the correction. Never touches held terminal frames.
+async fn audit_round_content(
     ch: &mut ProgressChannel,
     relay: &ToolStreamRelay,
     merged: &CitationMap,
     retrieved: bool,
-    held: &mut Vec<Vec<u8>>,
     round_start_len: usize,
 ) -> usize {
     let mut audited = relay.content.clone();
@@ -334,10 +342,31 @@ async fn release_round(
             ch.stage(&ev).await;
         }
     }
+    round_start_len + utf16_len(&audited)
+}
+
+/// The terminal half (F16, 2026-11-15): release this round's held
+/// `finish_reason`/`[DONE]` frames. Split out of the release point so the
+/// turn's FINAL metadata can ride BEFORE its terminal frames — a `web_meta`
+/// emitted after `[DONE]` only reached the client when the network happened to
+/// coalesce it into the same read (TS mirror: `flushHeld`).
+async fn flush_held(ch: &mut ProgressChannel, held: &mut Vec<Vec<u8>>) {
     for f in held.drain(..) {
         ch.raw(f).await;
     }
-    round_start_len + utf16_len(&audited)
+}
+
+async fn release_round(
+    ch: &mut ProgressChannel,
+    relay: &ToolStreamRelay,
+    merged: &CitationMap,
+    retrieved: bool,
+    held: &mut Vec<Vec<u8>>,
+    round_start_len: usize,
+) -> usize {
+    let len = audit_round_content(ch, relay, merged, retrieved, round_start_len).await;
+    flush_held(ch, held).await;
+    len
 }
 
 /// One upstream request/response round: serialize `payload`, stream the
@@ -546,6 +575,20 @@ pub async fn run_web_tool_loop(
     // citations, so the session mints from S1; the TS create side numbers
     // journaled-prior aliases clear of that seed and starts the session
     // after the highest prior alias (web-tools-rpc.ts numbering law).
+    // F13/P7 (brief part 8, "connect video evidence to search"): media
+    // evidence must be able to produce REAL search-tool arguments. The ids of
+    // the attachments this turn references ride the create RPC; the TS session
+    // reads their stored indexes and derives bounded, provenance-labelled
+    // clues (visible url / quoted speech / proper noun / scene keyword), which
+    // the TS executors then inject into web_search. Rust forwards identity
+    // only - no second extraction law, so the two transports cannot drift.
+    // Same bound as the TS loop: last 8 messages, at most 3 attachments.
+    let attachment_ids: Vec<String> = payload
+        .get("messages")
+        .and_then(Value::as_array)
+        .map(|messages| turn_attachment_ids(messages))
+        .unwrap_or_default();
+
     let created = match bridge
         .post_json(
             next_search::TOOLS_PATH,
@@ -561,6 +604,9 @@ pub async fn run_web_tool_loop(
                 // mirror). Repair: no gate feeds this path anymore — chat
                 // turns research at the default "any" policy.
                 "freshness": "any",
+                // F13/P7: attachment identities for evidence-derived search
+                // clues (validated fail-closed on the TS side).
+                "attachmentIds": &attachment_ids,
                 // Repair (brief §5): the conversation rides so the session
                 // journals its own findings, and the response carries this
                 // conversation's journaled prior evidence (`priorEvidence`).
@@ -741,16 +787,19 @@ pub async fn run_web_tool_loop(
                 // Release point: this round's LIVE-streamed answer text is
                 // checked against server state (citation map + ledger
                 // snapshot — never prose); if the audit changed it, ONE
-                // `web:content_revise` frame corrects it in place before
-                // the held terminal frames go out. The turn ENDS here, so
-                // the offset never advances again (no dead store).
-                // ⇔ TS `releaseRound`.
-                release_round(
+                // `web:content_revise` frame corrects it in place. F16
+                // (2026-11-15) terminal-ownership law: on the ENDING round the
+                // order is revise -> the turn's FINAL grounded metadata ->
+                // exactly one `[DONE]`. Emitting `web_meta` after the held
+                // terminal frames made it arrive only when the network
+                // happened to coalesce it into the same read as `[DONE]`.
+                // The turn ENDS here, so the offset never advances again
+                // (no dead store). ⇔ TS `auditRoundContent` + `flushHeld`.
+                audit_round_content(
                     ch,
                     &relay,
                     &merged,
                     turn_retrieved(&merged, &last_ledger),
-                    &mut held,
                     round_start_len,
                 )
                 .await;
@@ -786,6 +835,7 @@ pub async fn run_web_tool_loop(
                         Some(json!({"toolRounds": rounds_used, "actions": actions}));
                     ch.stage(&ev).await;
                 }
+                flush_held(ch, &mut held).await;
                 break 'outer Outcome::Finished;
             }
 
@@ -1107,9 +1157,99 @@ pub async fn run_web_tool_loop(
     // `_guard` drops here: exactly once.
 }
 
+/// F13/P7 (brief part 8): the attachment identities this turn references,
+/// bounded to the last 8 messages and 3 unique ids (same bound as the TS
+/// loop, `collectTurnAttachmentIds`). Only identities cross the bridge: the
+/// evidence-clue derivation law is single-owned in
+/// `lib/server/attachindex/media-hints.ts`, so both transports ride one rule.
+fn turn_attachment_ids(messages: &[Value]) -> Vec<String> {
+    let tail: &[Value] = if messages.len() > 8 {
+        &messages[messages.len() - 8..]
+    } else {
+        &messages[..]
+    };
+    let mut ids: Vec<String> = Vec::new();
+    for r in collect_attachment_refs(tail) {
+        if !ids.iter().any(|x| *x == r.att_id) {
+            ids.push(r.att_id);
+        }
+        if ids.len() >= 3 {
+            break;
+        }
+    }
+    ids
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // F13/P7 (brief part 8): the create-RPC identity leg. Identities only -
+    // bounded, deduped, validated - because the clue-extraction law is TS-owned
+    // and both transports must ride exactly one rule.
+    fn att_msg(ids: &[&str]) -> Value {
+        json!({
+            "role": "user",
+            "content": ids
+                .iter()
+                .map(|id| json!({"type": "attachment_ref", "att_id": id}))
+                .collect::<Vec<Value>>(),
+        })
+    }
+
+    fn plain_msg() -> Value {
+        json!({"role": "user", "content": [{"type": "text", "text": "keep looking"}]})
+    }
+
+    #[test]
+    fn turn_attachment_ids_empty_without_refs() {
+        assert!(turn_attachment_ids(&[]).is_empty());
+        assert!(turn_attachment_ids(&[plain_msg()]).is_empty());
+    }
+
+    #[test]
+    fn turn_attachment_ids_dedupes_in_first_seen_order_and_caps_at_three() {
+        let msgs = vec![
+            att_msg(&["att_alpha1", "att_alpha1", "att_beta2"]),
+            att_msg(&["att_gamma3", "att_delta4"]),
+        ];
+        assert_eq!(
+            turn_attachment_ids(&msgs),
+            vec!["att_alpha1", "att_beta2", "att_gamma3"]
+        );
+    }
+
+    #[test]
+    fn turn_attachment_ids_only_scans_the_last_eight_messages() {
+        // One attachment nine messages back is stale task scope, not this
+        // turn's evidence - and a stale id must never authorize a fresh search.
+        let mut old: Vec<Value> = vec![att_msg(&["att_oldest1"])];
+        for _ in 0..8 {
+            old.push(plain_msg());
+        }
+        assert_eq!(old.len(), 9);
+        assert!(turn_attachment_ids(&old).is_empty());
+        // The same ref inside the window (8 messages) does ride.
+        let mut fresh: Vec<Value> = vec![att_msg(&["att_oldest1"])];
+        for _ in 0..7 {
+            fresh.push(plain_msg());
+        }
+        assert_eq!(fresh.len(), 8);
+        assert_eq!(turn_attachment_ids(&fresh), vec!["att_oldest1"]);
+    }
+
+    #[test]
+    fn turn_attachment_ids_rejects_malformed_ids() {
+        let msgs = vec![json!({
+            "role": "user",
+            "content": [
+                { "type": "attachment_ref", "att_id": "../../etc/passwd" },
+                { "type": "attachment_ref", "att_id": "att_NOT-HEX" },
+                { "type": "attachment_ref", "att_id": 17 },
+            ]
+        })];
+        assert!(turn_attachment_ids(&msgs).is_empty());
+    }
 
     fn frame(s: &str) -> Vec<u8> {
         s.as_bytes().to_vec()
@@ -1216,10 +1356,60 @@ mod tests {
 
     #[test]
     fn utf16_len_matches_js_string_length() {
-        // `contentCutTo` ⇔ JS `String.slice` offsets: UTF-16 code units
+        // `content_cut_to` ⇔ JS `String.slice` offsets: UTF-16 code units
         // on both engines, through emoji and Telugu alike.
         assert_eq!(utf16_len("😀"), 2);
         assert_eq!(utf16_len("తెలుగు"), 6);
         assert_eq!(utf16_len("😀తెలుగు"), 8);
+    }
+
+    #[tokio::test]
+    async fn ending_release_orders_audit_then_metadata_then_terminal() {
+        // F16 (2026-11-15) terminal-ownership law, ⇔ the TS pin in
+        // __tests__/chat/web-tool-loop-terminal-ownership.test.ts. The ENDING
+        // round's release sequence is: integrity audit (one revise frame when
+        // it changed the text) → the turn's FINAL grounded `web_meta` → the
+        // round's held finish/`[DONE]` frames. Before the split of `flush_held`
+        // out of the release point, the metadata rode AFTER `[DONE]`, so it
+        // only reached a client when the network happened to coalesce it into
+        // the same read as the sentinel — otherwise it was dead bytes.
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(16);
+        let mut ch = ProgressChannel::new(tx);
+
+        let mut relay = ToolStreamRelay::default();
+        relay.content = "It costs $50 [S9].".to_string();
+        let mut merged = CitationMap::new();
+        merged.insert("S1".to_string(), json!({"url": "https://arborworks.example"}));
+
+        let mut held = vec![
+            frame(r#"data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#),
+            frame("data: [DONE]\n\n"),
+        ];
+
+        audit_round_content(&mut ch, &relay, &merged, true, 0).await;
+        let mut ev = StageEvent::new("web_meta");
+        ev.web_citations = Some(merged.clone());
+        ev.research_ledger =
+            Some(json!({"toolRounds": 1, "actions": [{"id": "s-a1", "tool": "web_search", "ok": true}]}));
+        ch.stage(&ev).await;
+        flush_held(&mut ch, &mut held).await;
+        drop(ch);
+
+        let mut wire = String::new();
+        while let Some(b) = rx.recv().await {
+            wire.push_str(std::str::from_utf8(&b).unwrap());
+        }
+
+        let revise = wire
+            .find("web:content_revise")
+            .expect("the dangling alias owes an integrity revise frame");
+        let meta = wire
+            .find("web_meta")
+            .expect("an executed action owes grounded metadata on the wire");
+        let done = wire.rfind("[DONE]").expect("the held terminal frames ride last");
+        assert!(revise < meta, "the revise must precede the final metadata: {wire}");
+        assert!(meta < done, "web_meta must precede the terminal that closes the turn: {wire}");
+        assert_eq!(wire.matches("[DONE]").count(), 1, "exactly one terminal: {wire}");
+        assert!(held.is_empty(), "flush_held drained the parked terminal frames");
     }
 }

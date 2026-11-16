@@ -1,0 +1,10 @@
+SESSION 25 broad regression (session 25, first-hand)
+npx vitest run __tests__/server __tests__/chat __tests__/rust-golden __tests__/stream
+ -> Test Files  47 passed (47)
+ ->      Tests  371 passed (371)
+ -> Duration 215.81s ; VITEST_EXIT=0
+note: __tests__/server/extract-zip.test.ts = 214.9s of that (two cases exercise the 60 s 7za password/timeout path)
+notable greens: rust-golden/attachments (6, incl. fixture_01 byte-exact TS<->Rust attach block + coverage line),
+ rust-golden/sse-vectors (3), chat/answer-release (69 after the F15 matrix grew),
+ server/attach-index-tx, server/attach-index-cancel, server/attach-coverage-honesty, server/attach-retrieve-honest,
+ server/video-asr-failure-coverage (1, silent track keeps visual evidence)

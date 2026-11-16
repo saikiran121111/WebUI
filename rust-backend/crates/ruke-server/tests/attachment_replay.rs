@@ -12,7 +12,7 @@
 //! Everything else reuses the Part-4 harness: `assert_response` (status,
 //! full header set, ms-normalized or byte-exact body, logical frames, tail)
 //! and `assert_upstream_call` (BYTE-IDENTICAL forwarded body — so the
-//! injection/strip behavior, the recorded `lastUserIdx + 1` quirk, and the
+//! injection/strip behavior, the F08-corrected turn index (2026-11-15), and the
 //! keyframe data-url are all compared verbatim against TypeScript).
 
 mod common;
@@ -82,8 +82,8 @@ async fn attachment_03_empty_index_zero_evidence() {
 }
 
 #[tokio::test]
-async fn attachment_04_video_time_range_keyframes_dropped() {
-    replay("attachments/04-video-time-range-keyframes-dropped.json").await;
+async fn attachment_04_video_time_range_keyframes_land() {
+    replay("attachments/04-video-time-range-standard-chat.json").await;
 }
 
 #[tokio::test]

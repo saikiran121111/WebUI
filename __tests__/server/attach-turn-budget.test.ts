@@ -6,8 +6,14 @@
  *    silence ("This turn's evidence budget is already full…");
  *  - the block below a served attachment carries an exact dropped-count
  *    marker ("[5 more relevant passages exist… ask to continue…]");
- *  - the shown ledger (I20) persists across turns: a repeat question
- *    surfaces a DIFFERENT passage instead of the same top hit.
+ *  - the shown ledger (I20) persists across turns: asking for MORE of the same
+ *    attachment surfaces a DIFFERENT passage instead of the same top hit.
+ *    F07 (2026-11-15) changed the LITERAL-REPEAT case deliberately: an exact
+ *    repeat now gets its own top passage BACK, because the brief reproduces
+ *    "a repeated exact question lost its answer" as a defect (proof:
+ *    __tests__/server/attach-intent-f07.test.ts). Turn 2 below was an exact
+ *    repeat that pinned the old behaviour, so it now asks an explicit
+ *    CONTINUATION instead; nothing else in this file changed.
  *
  * ATTACH_TURN_BUDGET_CHARS is read at module load — vi.hoisted sets it
  * before any import. The embedder seam returns an empty vector (BM25 alone;
@@ -52,12 +58,12 @@ function seed(attId: string, name: string) {
 // time patterns). "describe everything" must NOT match the exhaustive list.
 const Q = "According to the indexed documents, describe everything about widget usage.";
 
-function messages(): { role: string; content: unknown[] }[] {
+function messages(question: string = Q): { role: string; content: unknown[] }[] {
   return [
     {
       role: "user",
       content: [
-        { type: "text", text: Q },
+        { type: "text", text: question },
         { type: "attachment_ref", att_id: A, name: "doc-a.txt", category: "text" },
         { type: "attachment_ref", att_id: B, name: "doc-b.txt", category: "text" },
       ],
@@ -106,9 +112,11 @@ describe("shared turn budget (I05)", () => {
     expect(readShown(B)).toEqual([]);
   });
 
-  it("turn 2 (same question): the shown ledger demotes chunk 0 — a DIFFERENT passage is served", async () => {
-    const msgs = messages();
-    const blocks = await buildAttachmentTurn(msgs as never[], 0, Q);
+  it("turn 2 (a continuation ask): the shown ledger demotes chunk 0 — a DIFFERENT passage is served", async () => {
+    // F07: rotation is driven by continuation, not by an unrelated re-ask.
+    const CONT = "keep going with the other widget passages you have not shown yet";
+    const msgs = messages(CONT);
+    const blocks = await buildAttachmentTurn(msgs as never[], 0, CONT);
     expect(blocks).toBe(2);
     const sys = systemBlocks(msgs).join("\n");
     expect(sys).toContain("widget ALPHA1"); // fresh wins over the shown top hit

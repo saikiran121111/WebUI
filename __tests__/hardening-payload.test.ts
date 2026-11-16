@@ -129,12 +129,15 @@ describe("keyframes stay inside the user turn, never the system block", () => {
       spineBlocks: [],
       frames: [{ at: 100, file: "frames/f_00001.jpg" }],
     };
-    writeIndex(ATT, meta, chunks, texts.join(" "));
+    // F09: a published generation is validated as a whole - every keyframe its
+    // meta declares must already be on disk (the production order: ffmpeg
+    // writes frames, then the build commits them into the generation).
     fs.mkdirSync(path.join(indexDir(ATT), "frames"), { recursive: true });
     fs.writeFileSync(
       path.join(indexDir(ATT), "frames", "f_00001.jpg"),
       Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0xff, 0xd9]),
     );
+    writeIndex(ATT, meta, chunks, texts.join(" "));
 
     const question = "What frequency calibrates the turbine blade resonance?";
     const messages: any[] = [{

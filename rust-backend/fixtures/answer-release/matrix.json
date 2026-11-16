@@ -128,6 +128,67 @@
       "citations": ["S1"],
       "retrieved": true,
       "expected": "Build failed at line 31/39/40. Fix the syntax error."
+    },
+    {
+      "name": "tilde-fenced JSON keeps a citation-shaped token as literal data (F15)",
+      "text": "Notes:\n~~~json\n{\"tag\": \"[S9]\"}\n~~~\nDone.",
+      "citations": [
+        "S1"
+      ],
+      "retrieved": true,
+      "expected": "Notes:\n~~~json\n{\"tag\": \"[S9]\"}\n~~~\nDone."
+    },
+    {
+      "name": "a four-backtick fence protects a nested three-backtick line and its S9 bytes (F15)",
+      "text": "````text\ninner ``` marker [S9]\n````\nEnd.",
+      "citations": [
+        "S1"
+      ],
+      "retrieved": true,
+      "expected": "````text\ninner ``` marker [S9]\n````\nEnd."
+    },
+    {
+      "name": "research wording inside a code sample buys no blanket disclaimer (F15 R3)",
+      "text": "Sample:\n```\nconst s = \"according to my searches, Boreal leads\";\n```\nThat line is only sample text.",
+      "citations": [],
+      "retrieved": false,
+      "expected": "Sample:\n```\nconst s = \"according to my searches, Boreal leads\";\n```\nThat line is only sample text."
+    },
+    {
+      "name": "double-backtick inline code keeps S9 verbatim (F15)",
+      "text": "Token `` [S9] `` here.",
+      "citations": [
+        "S1"
+      ],
+      "retrieved": true,
+      "expected": "Token `` [S9] `` here."
+    },
+    {
+      "name": "four-space indented code keeps a citation-shaped comment verbatim (F15)",
+      "text": "Run:\n\n    print(x)  # [S9]\n\nDone.",
+      "citations": [
+        "S1"
+      ],
+      "retrieved": true,
+      "expected": "Run:\n\n    print(x)  # [S9]\n\nDone."
+    },
+    {
+      "name": "a markdown table cell keeps S9 as data while a resolving citation stays (F15)",
+      "text": "| id | token |\n| a | [S9] |\nEnd [S1].",
+      "citations": [
+        "S1"
+      ],
+      "retrieved": true,
+      "expected": "| id | token |\n| a | [S9] |\nEnd [S1]."
+    },
+    {
+      "name": "POSITIVE CONTROL: prose S9 stripped, fenced S9 untouched",
+      "text": "The price is $9 [S9].\n```\n[S9] literal\n```\nDone.",
+      "citations": [
+        "S1"
+      ],
+      "retrieved": true,
+      "expected": "The price is $9.\n```\n[S9] literal\n```\nDone."
     }
   ],
   "diagnose": {
@@ -223,9 +284,102 @@
         "citations": ["S1"],
         "retrieved": true,
         "expected": { "unresolved": [], "available": ["S1"], "unsupported": [], "claimsResearch": false }
+      },
+      {
+        "name": "code-only research wording with zero retrieval claims nothing (F15)",
+        "text": "Sample:\n```\naccording to my searches, Boreal leads 42\n```\nEnd.",
+        "citations": [],
+        "retrieved": false,
+        "expected": {
+          "unresolved": [],
+          "available": [],
+          "unsupported": [],
+          "claimsResearch": false
+        }
+      },
+      {
+        "name": "an S9 token in a table cell is data, not a broken citation (F15)",
+        "text": "| id | token |\n| a | [S9] |\nEnd.",
+        "citations": [
+          "S1"
+        ],
+        "retrieved": true,
+        "expected": {
+          "unresolved": [],
+          "available": [
+            "S1"
+          ],
+          "unsupported": [],
+          "claimsResearch": false
+        }
+      },
+      {
+        "name": "POSITIVE CONTROL: prose S9 is still an unresolved broken citation",
+        "text": "It supports SCIM [S9] per the note.\n| id | token |\n| a | x |",
+        "citations": [
+          "S1"
+        ],
+        "retrieved": true,
+        "expected": {
+          "unresolved": [
+            "S9"
+          ],
+          "available": [
+            "S1"
+          ],
+          "unsupported": [
+            "It supports SCIM [S9] per the note."
+          ],
+          "claimsResearch": false
+        }
       }
     ]
   },
+  "segments": {
+  "_law": "F15 (2026-11-15 brief): the segmentation lock. scanMarkdown (TS lib/chat/answer-release.ts) and scan_markdown (Rust crates/ruke-server/src/chat/answer_release.rs) must both (1) reproduce the input bytes exactly when their segments are concatenated, and (2) concatenate to exactly the bytes listed in verbatim (the verbatim-classified segments in order: fenced code, inline code, indented code, table rows). Expectations are hand-computed markdown structure, never recorded output. Structural rules only, no phrase/token list.",
+  "cases": [
+    {
+      "name": "tilde fence body is one verbatim block",
+      "text": "Notes:\n~~~json\n{\"tag\": \"[S9]\"}\n~~~\nDone.\n",
+      "verbatim": "~~~json\n{\"tag\": \"[S9]\"}\n~~~\n"
+    },
+    {
+      "name": "long fence survives a shorter nested fence line",
+      "text": "````text\ninner ``` marker [S9]\n````\nEnd.\n",
+      "verbatim": "````text\ninner ``` marker [S9]\n````\n"
+    },
+    {
+      "name": "double-backtick inline span",
+      "text": "Token `` [S9] `` here.\n",
+      "verbatim": "`` [S9] ``"
+    },
+    {
+      "name": "indented code block after a blank line",
+      "text": "Run:\n\n    code [S9]\nmore\n",
+      "verbatim": "    code [S9]\n"
+    },
+    {
+      "name": "list continuation indentation is prose, not code",
+      "text": "- first item\n    continuation [S9]\n",
+      "verbatim": ""
+    },
+    {
+      "name": "both table rows are data",
+      "text": "| id | value |\n| [S9] | 12 |\n",
+      "verbatim": "| id | value |\n| [S9] | 12 |\n"
+    },
+    {
+      "name": "backticks mid-line do not open a fence",
+      "text": "A ```unclosed [S9] tail\n",
+      "verbatim": ""
+    },
+    {
+      "name": "fence indented up to three spaces still opens",
+      "text": "  ```js\nlet a = 1; [S9]\n  ```\n",
+      "verbatim": "  ```js\nlet a = 1; [S9]\n  ```\n"
+    }
+  ]
+},
   "separation": {
     "_law": "MHR-F (WS26, 2026-11-06) + the 2026-11-13 brief: CITATION INTEGRITY and SEMANTIC SUPPORT are separate concerns with separate owners. Integrity is the HARNESS's: the [S#] grammar is minted by the server, so a marker resolving to NO minted source is a broken reference — the release path strips the marker bytes (whitespace/punctuation residue cleanup only) and NEVER otherwise touches the sentence's words. A marker that DOES resolve is never removed, moved or altered, even when an adjacent marker in the same sentence is fabricated. Semantic SUPPORT is the MODEL's — and since 2026-11-13 the harness's diagnosis is INTERNAL TELEMETRY ONLY: it never reaches the model as a message, never retracts streamed text, and never triggers a regeneration. releaseCases pin the release law; separationCases pin that the SAME input still DIAGNOSES (log-only) while releasing integrity-only — a diagnosis flag changes ZERO bytes the human sees, false-positive volatile matches included. Known limitation (documented, not hidden): the diagnosis cannot see the human's own turn, so a re-stated user constraint is still reported as telemetry — harmless, since telemetry decides nothing. releaseCases are shared byte-for-byte with `cases`.",
     "releaseCases": [

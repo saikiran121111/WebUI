@@ -160,6 +160,65 @@ export function planPresentation(input: PresentationInput): PresentationPlan | n
   return null;
 }
 
+/* ---------------------------------------------------------------------- */
+/* F05 (2026-11-15 brief) - SURFACE CORROBORATION
+ *
+ * The ambiguous-domain law above stops ONE ambiguous word from selecting a
+ * vertical surface, and it works: 'npm package for parsing yaml' and
+ * 'pattern match' stay off the tracker/sports rungs. It cannot settle an
+ * ask that legitimately contains TWO domain-flavored words while being
+ * about something else entirely, because the prompt alone does not say
+ * which - that needs real evidence. Three rungs are state-dependent
+ * (finance prices, sports scores, live-state trackers are only worth a
+ * vertical card when a vertical source actually answered), so their choice
+ * is corroborated against the retrieval result. The prompt still wins
+ * outright whenever it is unambiguous (that rung PRIMARY pattern), which is
+ * what keeps every measured positive intact. Nothing here can ADD a
+ * surface; it can only decline an unsupported one. The news rung already
+ * followed exactly this law (its reason string is '... news domains in top
+ * results'), so this extends an existing rule instead of inventing one.
+ */
+const FINANCE_DOMAINS = [
+  "wsj.com", "barrons.com", "marketwatch.com", "investopedia.com", "ft.com",
+  "seekingalpha.com", "moneycontrol.com", "valueinvestor.in", "etmoney.com",
+  "finance.yahoo.com", "investor.gov", "sec.gov", "irs.gov", "bls.gov",
+  "coingecko.com", "coinmarketcap.com", "kraken.com", "binance.com",
+];
+const SPORTS_DOMAINS = [
+  "espn.com", "espn.in", "sports.yahoo.com", "the-score.com", "fifa.com",
+  "theifl.com", "icc-cricket.com", "cricbuzz.com", "espncricinfo.com",
+  "atptour.com", "wimbledon.com", "iihf.com", "worldrugby.org",
+];
+const TRACKER_DOMAINS = [
+  "github.com", "pypi.org", "npmjs.com", "crates.io", "rubygems.org",
+  "statuspage.io", "downdetector.com", "pingdom.com", "ups.com", "fedex.com",
+  "dhl.com", "speedpass.co.in", "17track.net",
+];
+
+const VERTICAL_DOMAINS: Record<string, string[]> = {
+  finance: FINANCE_DOMAINS,
+  sports: SPORTS_DOMAINS,
+  tracker: TRACKER_DOMAINS,
+};
+
+/** PRIMARY pattern of the rung that owns this surface (unambiguous ask). */
+const SURFACE_PRIMARY: Record<string, RegExp> = {
+  finance: FIN_PRIMARY,
+  sports: SPORTS_PRIMARY,
+  tracker: TRACKER_PRIMARY,
+};
+
+export function corroborateSurface(
+  plan: PresentationPlan,
+  userPrompt: string,
+  evidenceDomains: string[],
+): PresentationPlan | null {
+  const list = VERTICAL_DOMAINS[plan.primary];
+  if (!list) return plan;
+  if (SURFACE_PRIMARY[plan.primary].test(userPrompt)) return plan;
+  if (evidenceDomains.some((d) => list.some((v) => domainWithin(d, v)))) return plan;
+  return null;
+}
 /** YouTube domain law — structured hop domains and short links alike. */
 const YOUTUBE_DOMAINS = ["youtube.com", "youtu.be"];
 
@@ -187,7 +246,7 @@ export function derivePresentation(
     topDomains.push(d);
     if (topDomains.length === 5) break;
   }
-  return planPresentation({
+  const plan = planPresentation({
     userPrompt,
     location: plannerLaw.location,
     hasGeoEvidence,
@@ -195,4 +254,7 @@ export function derivePresentation(
     intents: gateQueries.map((q) => q.intent.toLowerCase()),
     topDomains,
   });
+  // F05: state-dependent surfaces must be corroborated by the evidence that
+  // actually came back. See the corroboration law above.
+  return plan ? corroborateSurface(plan, userPrompt, topDomains) : null;
 }

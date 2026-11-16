@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { EvidenceBundle } from "@/lib/web-search/pipeline";
+import { conversationsDir } from "./dataRoot";
 
 /**
  * WS05 (audit 2026-11-05, repair item 5) — the SERVER-OWNED research
@@ -27,7 +28,9 @@ import type { EvidenceBundle } from "@/lib/web-search/pipeline";
  * computed at module load, same id sanitizer.
  */
 
-const DATA_DIR = process.env.WEBUI_DATA_DIR ?? path.join(process.env.HOME!, ".local-intelligence", "conversations");
+// R6: lazy shared resolver — see lib/persistence/dataRoot.ts. Same root as
+// lib/persistence/disk.ts, still resolved per call, never at module load.
+const DATA_DIR = (): string => conversationsDir();
 
 /** A fetched document as the server attests it. */
 export interface JournalSource {
@@ -79,7 +82,7 @@ function safeId(id: string): string {
  * conversation-save POST can never write or clobber the journal.
  */
 export function researchJournalFile(conversationId: string): string {
-  return path.join(DATA_DIR, `${safeId(conversationId)}.research.json`);
+  return path.join(DATA_DIR(), `${safeId(conversationId)}.research.json`);
 }
 
 function clampTurn(turn: JournalTurn): JournalTurn {

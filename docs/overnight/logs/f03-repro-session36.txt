@@ -1,0 +1,351 @@
+﻿node.exe : npm notice run webui-chat@0.2.0 npx
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Ruku\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run webui-chat@0.2.0 npx:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run __tests__/web-search/domain-constraints-f03.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See 
+https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts (37 tests | 27 failed) 14ms
+   × F03 contrast scope: a cue stops at a contrastive boundary > do_not_then_only_blocks_the_first_allows_the_second 5ms
+     → expected [ 'alpha.com', 'beta.com' ] to deeply equal [ 'alpha.com' ]
+   × F03 preference is ranking, exclusivity is a separate axis > trust_plus_consult_never_arms_a_wall 1ms
+     → expected [ 'alpha.com', 'beta.com' ] to deeply equal []
+   × F03 preference is ranking, exclusivity is a separate axis > an_explicit_exclusivity_marker_arms_the_wall_for_a_prefer_cue 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 quotation role: target vs instruction > quoted_site_operator_being_explained_creates_no_policy 0ms
+     → expected [ 'alpha.com' ] to deeply equal []
+   × F03 quotation role: target vs instruction > quoted_host_that_is_the_operand_of_a_cue_is_a_target 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 negation composition and exclusion cues > negated_block_cue_cancels_instead_of_blocking 0ms
+     → expected [ 'alpha.com' ] to deeply equal []
+   × F03 negation composition and exclusion cues > exclusion_cue_excludes_its_target 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 negation composition and exclusion cues > other_than_is_an_exclusion_cue 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 negation composition and exclusion cues > correction_retracts_an_earlier_exclusion 0ms
+     → expected [ 'alpha.com' ] to deeply equal []
+   × F03 multilingual cue vocabulary (script-aware boundaries) > es_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > es_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > de_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > de_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > fr_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > fr_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > hi_only 1ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > hi_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > ja_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > ja_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > zh_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > zh_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > ar_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > ar_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > te_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > te_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > vi_only 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+   × F03 multilingual cue vocabulary (script-aware boundaries) > vi_except 0ms
+     → expected [] to deeply equal [ 'alpha.com' ]
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 27 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 contrast scope: a cue stops at a contrastive boundary 
+> do_not_then_only_blocks_the_first_allows_the_second
+AssertionError: expected [ 'alpha.com', 'beta.com' ] to deeply equal [ 'alpha.com' ]
+
+- Expected
++ Received
+
+  Array [
+    "alpha.com",
++   "beta.com",
+  ]
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:26:30
+     24|   it("do_not_then_only_blocks_the_first_allows_the_second", () => {
+     25|     const l = law("Do not use alpha.com, but only use beta.com");
+     26|     expect(l.blockedDomains).toEqual(["alpha.com"]);
+       |                              ^
+     27|     expect(l.allowedDomains).toEqual(["beta.com"]);
+     28|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 preference is ranking, exclusivity is a separate axis 
+> trust_plus_consult_never_arms_a_wall
+AssertionError: expected [ 'alpha.com', 'beta.com' ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "alpha.com",
++   "beta.com",
++ ]
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:40:30
+     38|   it("trust_plus_consult_never_arms_a_wall", () => {
+     39|     const l = law("Trust alpha.com, but also consult beta.com");
+     40|     expect(l.allowedDomains).toEqual([]);
+       |                              ^
+     41|     expect(l.blockedDomains).toEqual([]);
+     42|     expect(l.preferredDomains).toEqual(["alpha.com", "beta.com"]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 preference is ranking, exclusivity is a separate axis 
+> an_explicit_exclusivity_marker_arms_the_wall_for_a_prefer_cue
+AssertionError: expected [] to deeply equal [ 'alpha.com' ]
+
+- Expected
++ Received
+
+- Array [
+-   "alpha.com",
+- ]
++ Array []
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:47:30
+     45|   it("an_explicit_exclusivity_marker_arms_the_wall_for_a_prefer_cue", …
+     46|     const l = law("Consult alpha.com only");
+     47|     expect(l.allowedDomains).toEqual(["alpha.com"]);
+       |                              ^
+     48|     expect(l.blockedDomains).toEqual([]);
+     49|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 quotation role: target vs instruction > 
+quoted_site_operator_being_explained_creates_no_policy
+AssertionError: expected [ 'alpha.com' ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "alpha.com",
++ ]
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:60:30
+     58|   it("quoted_site_operator_being_explained_creates_no_policy", () => {
+     59|     const l = law('In the query "site:alpha.com" the prefix limits hit…
+     60|     expect(l.allowedDomains).toEqual([]);
+       |                              ^
+     61|     expect(l.blockedDomains).toEqual([]);
+     62|     expect(l.preferredDomains).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 quotation role: target vs instruction > 
+quoted_host_that_is_the_operand_of_a_cue_is_a_target
+AssertionError: expected [] to deeply equal [ 'alpha.com' ]
+
+- Expected
++ Received
+
+- Array [
+-   "alpha.com",
+- ]
++ Array []
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:67:30
+     65|   it("quoted_host_that_is_the_operand_of_a_cue_is_a_target", () => {
+     66|     const l = law('Only use "alpha.com" and nothing else');
+     67|     expect(l.allowedDomains).toEqual(["alpha.com"]);
+       |                              ^
+     68|     expect(l.blockedDomains).toEqual([]);
+     69|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 negation composition and exclusion cues > 
+negated_block_cue_cancels_instead_of_blocking
+AssertionError: expected [ 'alpha.com' ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "alpha.com",
++ ]
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:80:30
+     78|   it("negated_block_cue_cancels_instead_of_blocking", () => {
+     79|     const l = law("Do not exclude alpha.com from the comparison");
+     80|     expect(l.blockedDomains).toEqual([]);
+       |                              ^
+     81|     expect(l.allowedDomains).toEqual([]);
+     82|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 negation composition and exclusion cues > 
+exclusion_cue_excludes_its_target
+AssertionError: expected [] to deeply equal [ 'alpha.com' ]
+
+- Expected
++ Received
+
+- Array [
+-   "alpha.com",
+- ]
++ Array []
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:86:30
+     84|   it("exclusion_cue_excludes_its_target", () => {
+     85|     const l = law("Search everything except alpha.com");
+     86|     expect(l.blockedDomains).toEqual(["alpha.com"]);
+       |                              ^
+     87|     expect(l.allowedDomains).toEqual([]);
+     88|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 negation composition and exclusion cues > 
+other_than_is_an_exclusion_cue
+AssertionError: expected [] to deeply equal [ 'alpha.com' ]
+
+- Expected
++ Received
+
+- Array [
+-   "alpha.com",
+- ]
++ Array []
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:92:30
+     90|   it("other_than_is_an_exclusion_cue", () => {
+     91|     const l = law("Any source other than alpha.com is out of date");
+     92|     expect(l.blockedDomains).toEqual(["alpha.com"]);
+       |                              ^
+     93|   });
+     94| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 negation composition and exclusion cues > 
+correction_retracts_an_earlier_exclusion
+AssertionError: expected [ 'alpha.com' ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "alpha.com",
++ ]
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:97:30
+     95|   it("correction_retracts_an_earlier_exclusion", () => {
+     96|     const l = law("Do not use alpha.com. Actually use alpha.com for th…
+     97|     expect(l.blockedDomains).toEqual([]);
+       |                              ^
+     98|   });
+     99| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> es_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> de_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> fr_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> hi_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> ja_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> zh_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> ar_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> te_only
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> vi_only
+AssertionError: expected [] to deeply equal [ 'alpha.com' ]
+
+- Expected
++ Received
+
+- Array [
+-   "alpha.com",
+- ]
++ Array []
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:164:34
+    162|       const l = law(prompt);
+    163|       if (want === "allow") {
+    164|         expect(l.allowedDomains).toEqual(["alpha.com"]);
+       |                                  ^
+    165|         expect(l.blockedDomains).toEqual([]);
+    166|       } else {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/27]⎯
+
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> es_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> de_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> fr_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> hi_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> ja_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> zh_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> ar_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> te_except
+ FAIL  __tests__/web-search/domain-constraints-f03.test.ts > F03 multilingual cue vocabulary (script-aware boundaries) 
+> vi_except
+AssertionError: expected [] to deeply equal [ 'alpha.com' ]
+
+- Expected
++ Received
+
+- Array [
+-   "alpha.com",
+- ]
++ Array []
+
+ ❯ __tests__/web-search/domain-constraints-f03.test.ts:167:34
+    165|         expect(l.blockedDomains).toEqual([]);
+    166|       } else {
+    167|         expect(l.blockedDomains).toEqual(["alpha.com"]);
+       |                                  ^
+    168|         expect(l.allowedDomains).toEqual([]);
+    169|       }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/27]⎯
+
+ Test Files  1 failed (1)
+      Tests  27 failed | 10 passed (37)
+   Start at  01:02:58
+   Duration  535ms (transform 111ms, setup 0ms, collect 302ms, tests 14ms, environment 0ms, prepare 64ms)
+

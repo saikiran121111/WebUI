@@ -1,9 +1,9 @@
 {
   "_meta": {
     "scenario": "getDecisionSync §4a intent-law vectors + blank-message fallback envelope",
-    "semantics": "§4a intent law (re-recorded 2026-11-13; every pre-§4a pin below is a documented legacy-defect change, not silent drift): an artifact WORD is not an artifact REQUEST. Quoted/code spans are masked first; clauses split on [.!?\\n;]+ AFTER alnum-dot-alnum runs ('file.docx', 'v2.5') become spaces (filename/version/decimal dots are not clause boundaries — 'create file.docx' binds docs); an artifact word counts as requested only when a production cue precedes it in the same clause — all cue/artifact/direction/negation/meta relations compare MATCH STARTS by order only, never end-vs-start (adjacent matches share their boundary character, so end-vs-start is off-by-one there; fixed in both engines 2026-11-13; this is why 'export as xlsx'/'generate pdf report' were misses before) (cue vocabulary is ENGLISH-ONLY — a non-Latin verb with a Latin artifact word falls gracefully to standard_chat); negation before the word vetoes it; convert/export governs the word directly as the SOURCE format (the word after a to/into/as direction word is the output); summary/outline-style meta phrases mark discussed material; two+ requested intents are ambiguous ('in-process-deliverable-ambiguous') — INTENT_ORDER precedence retired. Unicode \\p{L}/\\p{N}/\\p{M} consuming word classes in BOTH engines: caféexcel/résumébuilder no longer split, bare résumé matches its own word, résumé2 honestly misses. Honest confidence: 0.8 verb-bound, 0.5 miss/ambiguous — the retired blanket 1.0 was false certainty. Anatomy/3d/cad vocabulary stays standard_chat (retired 2026-11-06/07) unless a §4a cue-bound request survives ('make an exploded diagram in html' -> html_render; 'interior design with html' -> html_render because 'design' is a production cue now).",
+    "semantics": "§4a intent law (re-recorded 2026-11-13; every pre-§4a pin below is a documented legacy-defect change, not silent drift): an artifact WORD is not an artifact REQUEST. Quoted/code spans are masked first; clauses split on [.!?\\n;]+ AFTER alnum-dot-alnum runs ('file.docx', 'v2.5') become spaces (filename/version/decimal dots are not clause boundaries — 'create file.docx' binds docs); an artifact word counts as requested only when a production cue precedes it in the same clause — all cue/artifact/direction/negation/meta relations compare MATCH STARTS by order only, never end-vs-start (adjacent matches share their boundary character, so end-vs-start is off-by-one there; fixed in both engines 2026-11-13; this is why 'export as xlsx'/'generate pdf report' were misses before) (cue vocabulary is ENGLISH-ONLY — a non-Latin verb with a Latin artifact word falls gracefully to standard_chat); negation before the word vetoes it; convert/export governs the word directly as the SOURCE format (the word after a to/into/as direction word is the output); summary/outline-style meta phrases mark discussed material; two+ requested intents are ambiguous ('in-process-deliverable-ambiguous') — INTENT_ORDER precedence retired. Unicode \\p{L}/\\p{N}/\\p{M} consuming word classes in BOTH engines: caféexcel/résumébuilder no longer split, bare résumé matches its own word, résumé2 honestly misses. Honest confidence: 0.8 verb-bound, 0.5 miss/ambiguous — the retired blanket 1.0 was false certainty. Anatomy/3d/cad vocabulary stays standard_chat (retired 2026-11-06/07) unless a §4a cue-bound request survives ('make an exploded diagram in html' -> html_render; 'interior design with html' -> html_render because 'design' is a production cue now). F02 (re-recorded 2026-11-16, typed-relation law): a request is a request whatever its politeness - 'would like'/\"'d like\" are production cues, so 'I would like a spreadsheet of the figures' routes excel; a COGNITIVE or REPORT frame around the format word is never a request - 'I would like to understand how a pdf stores fonts', 'walk me through how to generate a docx', 'she exported a pptx last Friday', 'it looked like a pdf' and 'Explain what a PDF and a DOCX are' all stay standard_chat. Polysemy stays polysemy ('deck' of cards / terrace deck / poker deck). Honest decided_by vocabulary: -none (no deliverable found, never reported as a match), -match (exactly one), -multiple (two or more requested deliverables, recorded in task_constraints as 'deliverable-request=<mode>' in first-appearance order; active_mode stays standard_chat because the scan must not invent a winner and the injection layer arms every requested contract). The retired -ambiguous label conflated 'several deliverables' with 'uncertain', which silently lost one requested output.",
     "comparison": "semantic",
-    "notes": "Field-for-field (mode/skill/decided_by/trim/confidence) — regex existence only, no span capture. Re-recorded 2026-11-13 for the §4a intent law (brief §4): the OLD corpus pinned the ASCII-\\b quirks, INTENT_ORDER precedence and confidence 1 as contracts; brief §6 reclassifies those as legacy defects, so their pins moved to the OPPOSITE behavior.",
+    "notes": "Field-for-field (mode/skill/decided_by/trim/confidence) — regex existence only, no span capture. Re-recorded 2026-11-13 for the §4a intent law (brief §4): the OLD corpus pinned the ASCII-\\b quirks, INTENT_ORDER precedence and confidence 1 as contracts; brief §6 reclassifies those as legacy defects, so their pins moved to the OPPOSITE behavior. F02 2026-11-16 re-record adds the polite-desire cues, the cognitive/report frame law and the explicit multi-deliverable record; the decided_by pin vocabulary changed from -ambiguous to -multiple, and a plain miss now records -none instead of claiming -match. Every changed pin is the intended new law, verified against the live oracle.",
     "harness": "__tests__/rust-golden/decision-parity.test.ts",
     "env": {},
     "normalization": "none — deterministic zero-network function"
@@ -15,7 +15,10 @@
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "build me a spreadsheet now",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
     },
     {
       "prompt": "make a spreadsheet from these numbers",
@@ -23,7 +26,10 @@
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make a spreadsheet from these numbers",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
     },
     {
       "prompt": "create a pdf",
@@ -31,7 +37,10 @@
       "skill_to_load": "pdf",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "create a pdf",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
     },
     {
       "prompt": "generate pdf report",
@@ -39,7 +48,10 @@
       "skill_to_load": "pdf",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "generate pdf report",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
     },
     {
       "prompt": "write a word document",
@@ -47,7 +59,10 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "write a word document",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "make a résumé for me",
@@ -55,7 +70,10 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make a résumé for me",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "create my résumé",
@@ -63,7 +81,10 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "create my résumé",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "Create a résumé.",
@@ -71,7 +92,10 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "Create a résumé.",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "make me a cv",
@@ -79,7 +103,10 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make me a cv",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "I need a deck of slides for Monday",
@@ -87,7 +114,10 @@
       "skill_to_load": "pptx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "I need a deck of slides for Monday",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=ppt"
+      ]
     },
     {
       "prompt": "give me a presentation",
@@ -95,7 +125,10 @@
       "skill_to_load": "pptx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "give me a presentation",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=ppt"
+      ]
     },
     {
       "prompt": "give me a chart of the sales",
@@ -103,7 +136,10 @@
       "skill_to_load": null,
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "give me a chart of the sales",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=chart"
+      ]
     },
     {
       "prompt": "make a chart of the revenue",
@@ -111,7 +147,10 @@
       "skill_to_load": null,
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make a chart of the revenue",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=chart"
+      ]
     },
     {
       "prompt": "build me a landing page",
@@ -119,7 +158,10 @@
       "skill_to_load": "html-viewer",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "build me a landing page",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=html_render"
+      ]
     },
     {
       "prompt": "make an exploded diagram in html",
@@ -127,7 +169,10 @@
       "skill_to_load": "html-viewer",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make an exploded diagram in html",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=html_render"
+      ]
     },
     {
       "prompt": "export as xlsx",
@@ -135,7 +180,10 @@
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "export as xlsx",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
     },
     {
       "prompt": "   make a deck \t",
@@ -143,7 +191,10 @@
       "skill_to_load": "pptx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make a deck",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=ppt"
+      ]
     },
     {
       "prompt": "Make Me A Spreadsheet",
@@ -151,7 +202,10 @@
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "Make Me A Spreadsheet",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
     },
     {
       "prompt": "CREATE A PDF",
@@ -159,7 +213,10 @@
       "skill_to_load": "pdf",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "CREATE A PDF",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
     },
     {
       "prompt": "create file.docx",
@@ -167,7 +224,10 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "create file.docx",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "make a \"quarterly\" deck",
@@ -175,207 +235,235 @@
       "skill_to_load": "pptx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "make a \"quarterly\" deck",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=ppt"
+      ]
     },
     {
       "prompt": "What is a PDF?",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "What is a PDF?",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "Do not create Excel. Explain arrays.",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "Do not create Excel. Explain arrays.",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "Explain a deck of cards.",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "Explain a deck of cards.",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "Create a résumé2.",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "Create a résumé2.",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "put these numbers into my spreadsheet",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "put these numbers into my spreadsheet",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "an Excel file please",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "an Excel file please",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "open the .xlsx",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "open the .xlsx",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "the workbook tab",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "the workbook tab",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "print this pdf",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "print this pdf",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "update my resume today",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "update my resume today",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "save the .pptx",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "save the .pptx",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "export pptx now",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "export pptx now",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "the deck outline",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "the deck outline",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "a powerpoint deck",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "a powerpoint deck",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "presentation in pdf format",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "presentation in pdf format",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "the interior of the pdf",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "the interior of the pdf",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "spreadsheet and a chart",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "spreadsheet and a chart",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "chart the revenue",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "chart the revenue",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "chart of this building's architecture",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "chart of this building's architecture",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "do not create excel",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "do not create excel",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "don't create a pdf, just summarize",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "don't create a pdf, just summarize",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "I don't want a presentation, just notes",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "I don't want a presentation, just notes",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "explain the phrase \"make a deck\"",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "explain the phrase \"make a deck\"",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "write a summary of the pdf",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "write a summary of the pdf",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "draft an outline of the deck",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "draft an outline of the deck",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "write a word document about migratory birds",
@@ -383,7 +471,10 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "write a word document about migratory birds",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "convert the pdf to excel",
@@ -391,7 +482,10 @@
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "convert the pdf to excel",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
     },
     {
       "prompt": "save the deck as a spreadsheet",
@@ -399,191 +493,226 @@
       "skill_to_load": "xlsx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "save the deck as a spreadsheet",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
     },
     {
       "prompt": "export the deck",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "export the deck",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "make a presentation in pdf format",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-ambiguous",
+      "decided_by": "in-process-deliverable-multiple",
       "stripped_prompt": "make a presentation in pdf format",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": [
+        "deliverable-request=ppt",
+        "deliverable-request=pdf"
+      ]
     },
     {
       "prompt": "create a résumé and a spreadsheet",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-ambiguous",
+      "decided_by": "in-process-deliverable-multiple",
       "stripped_prompt": "create a résumé and a spreadsheet",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": [
+        "deliverable-request=docs",
+        "deliverable-request=excel"
+      ]
     },
     {
       "prompt": "make a chart and a deck",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-ambiguous",
+      "decided_by": "in-process-deliverable-multiple",
       "stripped_prompt": "make a chart and a deck",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": [
+        "deliverable-request=chart",
+        "deliverable-request=ppt"
+      ]
     },
     {
       "prompt": "caféexcel",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "caféexcel",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "résumébuilder",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "résumébuilder",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "résumé",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "résumé",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "my résumé",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "my résumé",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "résumé2",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "résumé2",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "file.docx",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "file.docx",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "file.xlsx",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "file.xlsx",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "file.pptx",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "file.pptx",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "the pdfx file",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "the pdfx file",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "what is excelent",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "what is excelent",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "charts",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "charts",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "cvx",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "cvx",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "htmlx dashboard",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "htmlx dashboard",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "word  document",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "word  document",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "word-document",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "word-document",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "power  point",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "power  point",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "render\nscene",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "render\nscene",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "कृपया pdf बनाकर दो",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "कृपया pdf बनाकर दो",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "స్ప్రెడ్‌షీట్ సృష్టించండి",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "స్ప్రెడ్‌షీట్ సృష్టించండి",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "hi make pdf",
@@ -591,15 +720,19 @@
       "skill_to_load": "pdf",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "hi make pdf",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
     },
     {
       "prompt": "create కంప్యూటర్pdf",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "create కంప్యూటర్pdf",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "create కంప్యూటర్ pdf",
@@ -607,15 +740,19 @@
       "skill_to_load": "pdf",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "create కంప్యూటర్ pdf",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
     },
     {
       "prompt": "create कंप्यूटर्resume",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "create कंप्यूटर्resume",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "create कंप्यूटर् resume",
@@ -623,143 +760,163 @@
       "skill_to_load": "docx",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "create कंप्यूटर् resume",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
     },
     {
       "prompt": "an exploded view of the reactor core",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "an exploded view of the reactor core",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "cutaway of the marine engine",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "cutaway of the marine engine",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "anatomy of a jet turbine",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "anatomy of a jet turbine",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "isometric illustration of the server rack",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "isometric illustration of the server rack",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "cross-section of the pump housing",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "cross-section of the pump housing",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "What is the anatomy of the knee?",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "What is the anatomy of the knee?",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "What is an isometric exercise?",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "What is an isometric exercise?",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "what's anatomy?",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "what's anatomy?",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "define isometric",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "define isometric",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "isometric exercises for beginners",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "isometric exercises for beginners",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "anatomy quiz questions",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "anatomy quiz questions",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "I have an anatomy exam tomorrow, any tips?",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "I have an anatomy exam tomorrow, any tips?",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "render scene",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "render scene",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "3D building model",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "3D building model",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "an architectural sketch",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "an architectural sketch",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "exploded isometric chart",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "exploded isometric chart",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "exploded diagram in html",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "exploded diagram in html",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "interior design with html",
@@ -767,39 +924,280 @@
       "skill_to_load": "html-viewer",
       "decided_by": "in-process-deliverable-match",
       "stripped_prompt": "interior design with html",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=html_render"
+      ]
     },
     {
       "prompt": "a model of the city",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "a model of the city",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "tell me a joke",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "tell me a joke",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "PDF REPORT",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "PDF REPORT",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
     },
     {
       "prompt": "Excel",
       "active_mode": "standard_chat",
       "skill_to_load": null,
-      "decided_by": "in-process-deliverable-match",
+      "decided_by": "in-process-deliverable-none",
       "stripped_prompt": "Excel",
-      "confidence": 0.5
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "I would like a spreadsheet of the quarterly figures",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "I would like a spreadsheet of the quarterly figures",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
+    },
+    {
+      "prompt": "I would like to understand how a pdf stores fonts",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "I would like to understand how a pdf stores fonts",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "she'd like a pdf of the invoice",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "she'd like a pdf of the invoice",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
+    },
+    {
+      "prompt": "it looked like a pdf but it is actually a scan",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "it looked like a pdf but it is actually a scan",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "walk me through how to generate a docx",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "walk me through how to generate a docx",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "how should I build a chart from this csv",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "how should I build a chart from this csv",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "she exported a pptx last Friday; what is a slide master",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "she exported a pptx last Friday; what is a slide master",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "we already made the xlsx - explain the formulas",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "we already made the xlsx - explain the formulas",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "Convert the pdf into a slide deck",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Convert the pdf into a slide deck",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=ppt"
+      ]
+    },
+    {
+      "prompt": "Skip the docx, produce a PDF memo instead",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Skip the docx, produce a PDF memo instead",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
+    },
+    {
+      "prompt": "Create a plan for my terrace deck",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "Create a plan for my terrace deck",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "make me a deck for the poker night",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "make me a deck for the poker night",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "Give me the numbers as a workbook",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Give me the numbers as a workbook",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
+    },
+    {
+      "prompt": "make a \"docx\" out of the meeting notes",
+      "active_mode": "docs",
+      "skill_to_load": "docx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "make a \"docx\" out of the meeting notes",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=docs"
+      ]
+    },
+    {
+      "prompt": "Write the summary into a pptx",
+      "active_mode": "ppt",
+      "skill_to_load": "pptx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Write the summary into a pptx",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=ppt"
+      ]
+    },
+    {
+      "prompt": "rebuild the corrupted xlsx",
+      "active_mode": "excel",
+      "skill_to_load": "xlsx",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "rebuild the corrupted xlsx",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=excel"
+      ]
+    },
+    {
+      "prompt": "Explain what a PDF and a DOCX are",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "Explain what a PDF and a DOCX are",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "Create a PDF and an XLSX of these numbers",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-multiple",
+      "stripped_prompt": "Create a PDF and an XLSX of these numbers",
+      "confidence": 0.5,
+      "task_constraints": [
+        "deliverable-request=pdf",
+        "deliverable-request=excel"
+      ]
+    },
+    {
+      "prompt": "Design a landing page for the bakery site",
+      "active_mode": "html_render",
+      "skill_to_load": "html-viewer",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "Design a landing page for the bakery site",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=html_render"
+      ]
+    },
+    {
+      "prompt": "generate a chart of the reaction rates",
+      "active_mode": "chart",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "generate a chart of the reaction rates",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=chart"
+      ]
+    },
+    {
+      "prompt": "please can you draft an invoice template as a pdf",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "please can you draft an invoice template as a pdf",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
+    },
+    {
+      "prompt": "no pdf needed, just explain the tables",
+      "active_mode": "standard_chat",
+      "skill_to_load": null,
+      "decided_by": "in-process-deliverable-none",
+      "stripped_prompt": "no pdf needed, just explain the tables",
+      "confidence": 0.5,
+      "task_constraints": []
+    },
+    {
+      "prompt": "export the table to csv and then build a pdf",
+      "active_mode": "pdf",
+      "skill_to_load": "pdf",
+      "decided_by": "in-process-deliverable-match",
+      "stripped_prompt": "export the table to csv and then build a pdf",
+      "confidence": 0.8,
+      "task_constraints": [
+        "deliverable-request=pdf"
+      ]
     }
   ],
   "blankMessage": {

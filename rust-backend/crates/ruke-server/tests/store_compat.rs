@@ -118,6 +118,9 @@ async fn rust_turn(fx: &Value, user_idx: usize, root: &std::path::Path) -> (Vec<
         &http,
         &llm,
         &CancellationToken::new(),
+        // The TS golden calls buildAttachmentTurn with NO conversationId, so
+        // both sides use the bare attachment key and parity holds.
+        None,
     )
     .await
     .expect("retrieval must never fail here");
@@ -191,8 +194,10 @@ fn node_written_meta_and_chunks_parse_field_by_field() {
 async fn fixture_01_rust_block_is_ts_block_byte_exact() {
     let tmp = seeded_root(&["att_golden1a"]);
     let fx = fixture("01-retrieval-success.json");
-    // The recorded injection-index quirk (lastUserIdx + 1, REPRODUCED).
-    let (messages, n) = rust_turn(&fx, 1, tmp.path()).await;
+    // F08 (2026-11-15): the caller passes the RESOLVED turn index (0 here,
+    // no skill block), so the block lands BEFORE the user turn — exactly
+    // what the re-recorded TS fixture now carries.
+    let (messages, n) = rust_turn(&fx, 0, tmp.path()).await;
     assert_eq!(n, 1, "one knowledge block -> retrieval_done done=total=1");
     assert_eq!(
         rust_block(&messages),
@@ -200,10 +205,10 @@ async fn fixture_01_rust_block_is_ts_block_byte_exact() {
         "formatted evidence block must match TS byte-for-byte"
     );
     assert_eq!(
-        messages[0]["role"], "user",
-        "block lands AFTER the user turn (quirk)"
+        messages[0]["role"], "system",
+        "block lands BEFORE the user turn (F08-corrected index)"
     );
-    assert_eq!(messages[1]["role"], "system");
+    assert_eq!(messages[1]["role"], "user");
 }
 
 #[tokio::test]
@@ -232,21 +237,21 @@ async fn fixture_03_empty_index_injects_nothing() {
 #[tokio::test]
 async fn fixture_04_video_time_range_block_matches_ts() {
     let tmp = seeded_root(&["att_golden1d"]);
-    let fx = fixture("04-video-time-range-keyframes-dropped.json");
-    let (messages, n) = rust_turn(&fx, 1, tmp.path()).await;
+    let fx = fixture("04-video-time-range-standard-chat.json");
+    let (messages, n) = rust_turn(&fx, 0, tmp.path()).await;
     assert_eq!(n, 1);
     assert_eq!(
         rust_block(&messages),
         ts_block(&fx),
         "time_range header + video rules must match"
     );
-    // The quirk: frames target messages[1] (the string block) -> silently
-    // dropped, exactly as fixture 04 records.
-    assert_eq!(messages[1]["role"], "system");
-    let user_parts = messages[0]["content"].as_array().unwrap();
+    // F08 (2026-11-15): the block splices BEFORE the user turn and the loaded
+    // keyframe rides the END of that user turn — no silent drop.
+    assert_eq!(messages[0]["role"], "system");
+    let user_parts = messages[1]["content"].as_array().unwrap();
     assert!(
-        !user_parts.iter().any(|p| p["type"] == "image_url"),
-        "keyframe must be DROPPED here"
+        user_parts.iter().any(|p| p["type"] == "image_url"),
+        "keyframe must LAND on the user turn"
     );
 }
 

@@ -1,0 +1,156 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/decision __tests__/rust-golden __tests__/skills __tests__/render
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/render/html-srcdoc.test.ts (12 tests) 6ms
+ ✓ __tests__/render/treeParse.test.ts (15 tests) 6ms
+ ✓ __tests__/rust-golden/contract-manifest.test.ts (8 tests) 9ms
+ ✓ __tests__/render/registry.test.ts (3 tests) 2ms
+ ✓ __tests__/render/mathDetect.test.ts (4 tests) 2ms
+ ✓ __tests__/render/languages.test.ts (9 tests) 3ms
+ ✓ __tests__/render/schemas.test.ts (18 tests) 7ms
+ ✓ __tests__/skills/modality.test.ts (12 tests) 8ms
+ ✓ __tests__/skills/installer.test.ts (8 tests) 4ms
+ ✓ __tests__/render/fenceRepair.test.ts (13 tests) 8ms
+ ✓ __tests__/decision/task-scope.test.ts (86 tests) 26ms
+ ✓ __tests__/skills/registry.test.ts (10 tests | 1 skipped) 75ms
+ ✓ __tests__/rust-golden/store-fixture.test.ts (3 tests) 59ms
+ ✓ __tests__/render/mathPlugins.test.ts (2 tests) 3ms
+ ❯ __tests__/rust-golden/decision-parity.test.ts (2 tests | 1 failed) 81ms
+   × golden: Part 3 decision-intent vectors (decision/06) > records the intent-matcher corpus from the live oracle 78ms
+     → expected 'in-process-deliverable-multiple' to be 'in-process-deliverable-ambiguous' // Object.is equality
+ ✓ __tests__/decision/artifact-intent-f02.test.ts (39 tests) 82ms
+ ❯ __tests__/rust-golden/decision-serialization.test.ts (6 tests | 2 failed) 230ms
+   × golden: decision envelope serialization > 01 excel intent match — exact response bytes 28ms
+     → Fixture drift detected in decision/01-route-excel-match.json (first difference at line 20):
+  existing: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"excel\\\",\\\"confidence\\\":0.8,\\\"decided_by\\\":\\\"in-process-deliverable-match\\\",\\\"stripped_prompt\\\":\\\"make a spreadsheet from these numbers\\\",\\\"skill_to_load\\\":\\\"xlsx\\\",\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\",\\\"standard_chat\\\"],\\\"enable_validator\\\":\\\"excel\\\",\\\"task_constraints\\\":[],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+  recorded: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"excel\\\",\\\"confidence\\\":0.8,\\\"decided_by\\\":\\\"in-process-deliverable-match\\\",\\\"stripped_prompt\\\":\\\"make a spreadsheet from these numbers\\\",\\\"skill_to_load\\\":\\\"xlsx\\\",\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\",\\\"standard_chat\\\"],\\\"enable_validator\\\":\\\"excel\\\",\\\"task_constraints\\\":[\\\"deliverable-request=excel\\\"],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+   × golden: decision envelope serialization > 02 standard miss with history — stripped_prompt verbatim 2ms
+     → Fixture drift detected in decision/02-route-standard-with-history.json (first difference at line 20):
+  existing: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"standard_chat\\\",\\\"confidence\\\":0.5,\\\"decided_by\\\":\\\"in-process-deliverable-match\\\",\\\"stripped_prompt\\\":\\\"tell me more about that\\\",\\\"skill_to_load\\\":null,\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"excel\\\",\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\"],\\\"enable_validator\\\":\\\"standard_chat\\\",\\\"task_constraints\\\":[],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+  recorded: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"standard_chat\\\",\\\"confidence\\\":0.5,\\\"decided_by\\\":\\\"in-process-deliverable-none\\\",\\\"stripped_prompt\\\":\\\"tell me more about that\\\",\\\"skill_to_load\\\":null,\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"excel\\\",\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\"],\\\"enable_validator\\\":\\\"standard_chat\\\",\\\"task_constraints\\\":[],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+ ✓ __tests__/render/highlight.test.ts (7 tests) 607ms
+[02:26:37.075] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[02:26:37.078] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-k3fa6914","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[02:26:37.080] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[02:26:37.087] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"read_page"}[39m
+[02:26:37.109] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":3,"finish":"none","ms":31}[39m
+[02:26:37.122] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"hey please can you build me a 500-row transaction tracker in"}[39m
+[02:26:37.126] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"excel","by":"in-process-deliverable-match","skill":null,"skillBytes":4712,"model":"test"}[39m
+[02:26:37.128] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"excel","url":"http://127.0.0.1:61677/v1/chat/completions"}[39m
+[02:26:37.114] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[02:26:37.115] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"strata-mock","mode":"standard_chat","url":"http://127.0.0.1:9/v1/chat/completions"}[39m
+[02:26:37.116] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"strata-mock","mode":"standard_chat","ms":1,"sseChunks":2}[39m
+[02:26:37.119] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[02:26:37.119] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-38dpmgm7","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[02:26:37.119] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[02:26:37.121] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":2,"finish":"none","ms":2}[39m
+[02:26:37.123] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[02:26:37.123] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-hud79lt8","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[02:26:37.123] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[02:26:37.124] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"web_search"}[39m
+[02:26:37.124] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":1,"kept":4}[39m
+[02:26:37.125] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":3,"calls":"web_search"}[39m
+[02:26:37.126] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":2,"kept":3}[39m
+[02:26:37.126] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":4,"calls":"web_search"}[39m
+[02:26:37.126] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":5,"finish":"none","ms":3}[39m
+[02:26:37.131] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[02:26:37.131] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-a6nbrkmu","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[02:26:37.132] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":1}[39m
+[02:26:37.135] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[02:26:37.135] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-eowc8dyr","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[02:26:37.136] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":1}[39m
+ ✓ __tests__/rust-golden/web.test.ts (7 tests) 150ms
+ ✓ __tests__/rust-golden/errors.test.ts (8 tests) 1186ms
+[02:26:37.146] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"excel","ms":19,"sseChunks":1}[39m
+ ✓ __tests__/rust-golden/chat-core.test.ts (8 tests) 1193ms
+ ✓ __tests__/rust-golden/skills.test.ts (5 tests) 1205ms
+ ✓ __tests__/rust-golden/sse-vectors.test.ts (3 tests) 1270ms
+[02:26:37.251] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"why is my useEffect firing twice"}[39m
+[02:26:37.252] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"test"}[39m
+[02:26:37.252] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:61677/v1/chat/completions"}[39m
+[02:26:37.254] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[02:26:37.348] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"hello there"}[39m
+[02:26:37.349] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"test"}[39m
+[02:26:37.350] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:61677/v1/chat/completions"}[39m
+[02:26:37.352] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+ ✓ __tests__/rust-golden/attachments.test.ts (6 tests) 1343ms
+[02:26:37.419] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"Your previous ```xlsx fence failed validation: #REF!"}[39m
+[02:26:37.419] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"excel","by":"repair-passthrough","skill":null,"skillBytes":4702,"model":"test"}[39m
+[02:26:37.419] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"excel","url":"http://127.0.0.1:61677/v1/chat/completions"}[39m
+[02:26:37.420] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"excel","ms":1,"sseChunks":1}[39m
+[02:26:37.499] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"explain recursion"}[39m
+[02:26:37.500] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":"test-skill","skillBytes":0,"model":"test"}[39m
+[02:26:37.500] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:61677/v1/chat/completions"}[39m
+[02:26:37.502] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[02:26:37.575] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"/disabled-skill hello"}[39m
+[02:26:37.576] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"test"}[39m
+[02:26:37.576] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:61677/v1/chat/completions"}[39m
+[02:26:37.577] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":1,"sseChunks":1}[39m
+[02:26:37.656] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"please summarize this report for me"}[39m
+[02:26:37.656] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":0,"model":"test"}[39m
+[02:26:37.657] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:61677/v1/chat/completions"}[39m
+[02:26:37.658] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+ ✓ __tests__/skills/chatEngine.test.ts (7 tests) 1929ms
+   ✓ POST /api/chat — Decision Engine pipeline > spreads deliverable-intent word → injects the matched core-skill block + studio fence 1407ms
+ ✓ __tests__/render/allLanguages.test.ts (142 tests) 4424ms
+   ✓ every registry language highlights > cpp produces line spans without throwing 639ms
+   ✓ every registry language highlights > typst produces line spans without throwing 623ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/rust-golden/decision-parity.test.ts > golden: Part 3 decision-intent vectors (decision/06) > records the intent-matcher corpus from the live oracle
+AssertionError: expected 'in-process-deliverable-multiple' to be 'in-process-deliverable-ambiguous' // Object.is equality
+
+Expected: "in-process-deliverable-ambiguous"
+Received: "in-process-deliverable-multiple"
+
+ ❯ __tests__/rust-golden/decision-parity.test.ts:118:64
+    116|     expect(at("make a \"quarterly\" deck").active_mode).toBe("ppt"); /…
+    117|     // Ambiguity replaces INTENT_ORDER precedence:
+    118|     expect(at("make a presentation in pdf format").decided_by).toBe("i…
+       |                                                                ^
+    119|     expect(at("make a presentation in pdf format").active_mode).toBe("…
+    120|     expect(at("make a presentation in pdf format").confidence).toBe(0.…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  __tests__/rust-golden/decision-serialization.test.ts > golden: decision envelope serialization > 01 excel intent match — exact response bytes
+Error: Fixture drift detected in decision/01-route-excel-match.json (first difference at line 20):
+  existing: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"excel\\\",\\\"confidence\\\":0.8,\\\"decided_by\\\":\\\"in-process-deliverable-match\\\",\\\"stripped_prompt\\\":\\\"make a spreadsheet from these numbers\\\",\\\"skill_to_load\\\":\\\"xlsx\\\",\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\",\\\"standard_chat\\\"],\\\"enable_validator\\\":\\\"excel\\\",\\\"task_constraints\\\":[],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+  recorded: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"excel\\\",\\\"confidence\\\":0.8,\\\"decided_by\\\":\\\"in-process-deliverable-match\\\",\\\"stripped_prompt\\\":\\\"make a spreadsheet from these numbers\\\",\\\"skill_to_load\\\":\\\"xlsx\\\",\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\",\\\"standard_chat\\\"],\\\"enable_validator\\\":\\\"excel\\\",\\\"task_constraints\\\":[\\\"deliverable-request=excel\\\"],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+ ❯ Module.writeJsonFixture __tests__/rust-golden/support/golden.ts:91:13
+     89|         return;
+     90|       }
+     91|       throw new Error(
+       |             ^
+     92|         `Fixture drift detected in ${rel} (first difference at line ${…
+     93|         `  existing: ${JSON.stringify(a[at] ?? "")}\n  recorded: ${JSO…
+ ❯ recordDecision __tests__/rust-golden/decision-serialization.test.ts:52:3
+ ❯ __tests__/rust-golden/decision-serialization.test.ts:71:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  __tests__/rust-golden/decision-serialization.test.ts > golden: decision envelope serialization > 02 standard miss with history — stripped_prompt verbatim
+Error: Fixture drift detected in decision/02-route-standard-with-history.json (first difference at line 20):
+  existing: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"standard_chat\\\",\\\"confidence\\\":0.5,\\\"decided_by\\\":\\\"in-process-deliverable-match\\\",\\\"stripped_prompt\\\":\\\"tell me more about that\\\",\\\"skill_to_load\\\":null,\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"excel\\\",\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\"],\\\"enable_validator\\\":\\\"standard_chat\\\",\\\"task_constraints\\\":[],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+  recorded: "    \"bodyBytes\": \"{\\\"active_mode\\\":\\\"standard_chat\\\",\\\"confidence\\\":0.5,\\\"decided_by\\\":\\\"in-process-deliverable-none\\\",\\\"stripped_prompt\\\":\\\"tell me more about that\\\",\\\"skill_to_load\\\":null,\\\"allowed_code_fence\\\":null,\\\"disable_validators\\\":[\\\"excel\\\",\\\"docs\\\",\\\"pdf\\\",\\\"ppt\\\",\\\"chart\\\",\\\"html_render\\\"],\\\"enable_validator\\\":\\\"standard_chat\\\",\\\"task_constraints\\\":[],\\\"extracted_entities\\\":[],\\\"lfm_latency_ms\\\":0}\""
+ ❯ Module.writeJsonFixture __tests__/rust-golden/support/golden.ts:91:13
+     89|         return;
+     90|       }
+     91|       throw new Error(
+       |             ^
+     92|         `Fixture drift detected in ${rel} (first difference at line ${…
+     93|         `  existing: ${JSON.stringify(a[at] ?? "")}\n  recorded: ${JSO…
+ ❯ recordDecision __tests__/rust-golden/decision-serialization.test.ts:52:3
+ ❯ __tests__/rust-golden/decision-serialization.test.ts:90:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  2 failed | 24 passed (26)
+      Tests  3 failed | 439 passed | 1 skipped (443)
+   Start at  02:26:34
+   Duration  5.28s (transform 3.71s, setup 0ms, collect 9.84s, tests 13.92s, environment 4ms, prepare 3.17s)
+

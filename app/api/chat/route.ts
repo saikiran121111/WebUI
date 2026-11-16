@@ -12,6 +12,7 @@ import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
 import { foldTaskScope, type TaskScope } from "../../../lib/decision/task-scope";
 import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
 import { buildClockContext, sessionDateString } from "../../../lib/chat/clock-context";
+import { RESPONSE_POLICY } from "../../../lib/chat/response-policy";
 import {
   MODE_FENCE,
   MODE_SKILL,
@@ -506,7 +507,17 @@ async function runTurnPipeline(
   // lastUserIdx + 1 (the skill block above shifted it).
   try {
     if (hasAttachmentRefs) stage({ stage: "retrieval" });
-    const injected = await buildAttachmentTurn(payload.messages, lastUserIdx + 1, fullText, signal, opts.model);
+    const attTurnIdx = resolveTurnIndex(payload.messages, lastUserIdx);
+    // F07: the conversation id scopes the shown-evidence ledger, so another chat's
+    // "already shown" list can never demote evidence here.
+    const injected = await buildAttachmentTurn(
+      payload.messages,
+      attTurnIdx,
+      fullText,
+      signal,
+      opts.model,
+      opts.conversationId,
+    );
     if (injected) log.info({ blocks: injected }, "attachment evidence injected (this turn only)");
     if (hasAttachmentRefs) {
       stage({ stage: "retrieval_done", done: injected ?? 0, total: injected ?? 0 });
@@ -559,11 +570,9 @@ async function runTurnPipeline(
   //    "what time is it?" refusal/web-search detour. Injected last among the
   //    system blocks so it sits immediately before the user turn.
   //    Rust twin: crates/ruke-server/src/chat/clock.rs (+ pipeline inject).
-  injectSystemBefore(
-    payload.messages,
-    lastUserIdx + 1,
-    buildClockContext({ now: turnInstant, browserTimezone: turnTimezone }),
-  );
+  const blockIdx = resolveTurnIndex(payload.messages, lastUserIdx);
+  injectSystemBefore(payload.messages, blockIdx, RESPONSE_POLICY);
+  injectSystemBefore(payload.messages, blockIdx + 1, buildClockContext({ now: turnInstant, browserTimezone: turnTimezone }));
 
   // One-line routing log: mode + deciding source + skill actually injected.
   log.info(

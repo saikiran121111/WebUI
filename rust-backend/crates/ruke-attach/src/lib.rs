@@ -37,6 +37,9 @@
 //!   [`UnavailableEmbedder`] ⇔ TS `embedOne` throw ⇒ empty vec ⇒
 //!   BM25-alone ranking.
 //! - Frame base64 is hand-rolled standard-alphabet (no base64 crate).
+//! - F09b: dense vectors are only scored when the index's own provenance
+//!   stamp and the stored shapes agree (see [`vectors`]); a length-mismatched
+//!   cosine product is a meaningless number, not a weaker score.
 
 use tokio_util::sync::CancellationToken;
 
@@ -49,6 +52,7 @@ pub mod router;
 pub mod store;
 pub mod turn;
 pub mod types;
+pub mod vectors;
 
 /// The query-embedding seam (`embedOne` in `lib/server/attachindex/
 /// embed.ts`). The ONNX model stays Node-owned; production obtains the
@@ -107,10 +111,14 @@ impl QueryEmbedder for FixedEmbedder {
 pub use crate::embedder::HttpQueryEmbedder;
 pub use crate::notes::{generate_notes, notes_version, Cancelled, NotesLlm};
 pub use crate::retrieve::{retrieve_evidence, Evidence, RetrieveOpts};
-pub use crate::router::{route_query, QueryMode, RoutedQuery};
+pub use crate::router::{
+    fingerprint_query, is_continuation_ask, route_query, route_query_in, QueryMode, RouteAxis,
+    RoutedQuery, TimeWindow,
+};
 pub use crate::store::{
     has_index, index_dir, read_index, read_notes, read_notes_with_version, read_shown,
-    remove_index, valid_att_id, write_notes, write_shown,
+    read_shown_entry, remove_index, shown_key, valid_att_id, write_notes, write_shown,
+    ShownEntry,
 };
 pub use crate::turn::{
     anchor_query, build_attachment_turn, collect_attachment_refs, AttachmentRef,

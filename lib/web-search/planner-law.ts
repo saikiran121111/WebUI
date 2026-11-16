@@ -126,81 +126,18 @@ export interface PlannerLaw {
   budget: SearchBudget;
 }
 
-// §4b clause segmentation (2026-11-13 brief): an instruction binds to its
-// OWN clause. A "." splits only when it ENDS a sentence (whitespace or
-// end-of-text follows) so dotted domains ("alpha.com") survive; ";", "!",
-// "?", and newlines always split — the missing ";" was the audited hole:
-// "Do not use alpha.com; use beta.com." used to be ONE segment, so its
-// block cue draped "use beta.com" too. No lookaround: `(?:\s|$)` consumes
-// the terminator. (The retired comment claimed parity with
-// `re_segment_split` in planner_law.rs — that mirror was removed with the
-// crate in the 2026-11-03 TS rollback; this layer is TS-only.)
-const SEGMENT_SPLIT_RE = /(?:[!?\n;]+|\.(?:\s|$))/;
+// §4b domain-policy law now lives in ./domain-constraints (F03 rewrite
+// 2026-11-16). The machinery retired here - flat ALLOW_CUE_RE/BLOCK_CUE_RE
+// lists, a segment-level rule where an earlier block beat a later allow, and
+// a RAW (unmasked) site: scan - is exactly what made "Do not use alpha.com,
+// but only use beta.com" block BOTH domains, made "Trust alpha.com, but also
+// consult beta.com" arm a hard wall instead of a ranking, and made an
+// explanation of the syntax "site:alpha.com" create a real allow-list. The
+// replacement records target / polarity / cue SCOPE / exclusivity / evidence
+// span / instruction authority per constraint and composes them mechanically
+// (see that module header for the law table). DOMAIN_TOKEN_RE stays because
+// hostOf() still needs a domain-shaped fallback parse for malformed URLs.
 const DOMAIN_TOKEN_RE = /(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}/gi;
-const SITE_OP_RE = /\bsite:\s*([a-z0-9][a-z0-9.:-]*(?:\/[^\s]*)?)/gi;
-/**
- * §4b polarity cues (2026-11-13 brief). These REPLACE the segment-level
- * ONLY_SCOPE_RE/BLOCK_SCOPE_RE tests: one cue draping a whole segment
- * made "Do not use alpha.com; use beta.com." block BOTH domains and
- * "Only use alpha.com, never beta.com." allow BOTH. Polarity now binds
- * per token: the nearest cue starting BEFORE the token inside the
- * token's own clause decides it; a block cue earlier than an allow cue
- * governs it ("never trust X" blocks X); a token with no preceding cue
- * creates NO policy at all (a bare mention is never an allow-list entry).
- */
-const ALLOW_CUE_RE =
-  /\b(?:only|just|exclusively|purely|solely|stick to|restrict(?:ed)? to|confine(?:d)? to|limit(?:ed)? to|trust)\b/gi;
-const BLOCK_CUE_RE =
-  /\b(?:don'?t|do\s+not|does\s+not|never|avoid|skip|exclude|without)\b/gi;
-/**
- * §4b provenance masking (2026-11-13 brief): quoted speech, typographic
- * quotes, guillemets, inline code, and fenced code NEVER create user
- * policy — "Explaining a quoted restriction can activate that
- * restriction" was the audited defect. Spans become equal-length blanks
- * so every clause/cue/token offset stays aligned. ASCII apostrophes are
- * deliberately NOT span delimiters: they sit inside block cues ("don't").
- */
-const FENCED_CODE_RE = /```[\s\S]*?```/g;
-const QUOTE_SPAN_RE = /`[^`\n]*`|"[^"]*"|“[^”]*”|«[^»]*»/g;
-function maskNonUserSpans(text: string): string {
-  return text
-    .replace(FENCED_CODE_RE, (m) => " ".repeat(m.length))
-    .replace(QUOTE_SPAN_RE, (m) => " ".repeat(m.length));
-}
-
-interface CuePos {
-  start: number;
-  block: boolean;
-}
-
-/**
- * Effective polarity of one token occurrence (true = blocked, false =
- * allowed, null = the mention creates no policy). Cues sorted by start;
- * only cues starting BEFORE the token count. The nearest cue wins,
- * except that a block cue governs any allow cue following it in the same
- * clause ("never trust X" → blocked; "only use X, never Y" → X allowed,
- * Y blocked).
- */
-function tokenPolarity(cues: CuePos[], tokenStart: number): boolean | null {
-  let polarity: boolean | null = null;
-  for (const c of cues) {
-    if (c.start >= tokenStart) break;
-    if (c.block) polarity = true;
-    else if (polarity === null) polarity = false;
-  }
-  return polarity;
-}
-/** Platform names usable as block verbs without a written domain token.
- *  NEVER a default block-list: consulted ONLY inside block-scope segments
- *  the USER wrote (policy correction 2026-11-02 — weak sources are softly
- *  ranked in reranker.ts, never blocked by default). */
-const BLOCK_NAMES_RE =
-  /\b(?:reddit|quora|facebook|instagram|twitter|pinterest|medium|tiktok|youtube|4chan)s?\b/gi;
-const NAME_TO_DOMAIN: Record<string, string> = {
-  reddit: "reddit.com", quora: "quora.com", facebook: "facebook.com",
-  instagram: "instagram.com", twitter: "twitter.com", pinterest: "pinterest.com",
-  medium: "medium.com", tiktok: "tiktok.com", youtube: "youtube.com", "4chan": "4chan.org",
-};
 const OFFICIAL_SOURCE_RE =
   /\bofficial\s+sources?\b|\bonly\s+official\b|\bstick\s+to\s+official\b|\bofficial\s+(?:documentation|docs)\b/i;
 // (BRAND_DOCS_RE / BRAND_DOCS_REV_RE / BRAND_STOPWORDS deleted by the
@@ -222,6 +159,11 @@ const LOCATION_PHRASE_RE =
 // Re-exported here — planner-law's public surface is unchanged.
 import { domainWithin, normalizeDomain } from "./domain-match";
 export { domainWithin, normalizeDomain };
+
+// F03 (2026-11-16): the typed domain-constraint model is a separate module so
+// its semantics and multilingual cue vocabulary are testable without dragging
+// the query-planner/metasearch/net (native impit) chain into a test process.
+import { deriveDomainConstraints, resolveDomainPolicy } from "./domain-constraints";
 
 function hostOf(url: string): string {
   try {
@@ -300,47 +242,16 @@ export function derivePlannerLaw(
   // evidence boundary (operate always IS enforceable — enforce_ladder).
   const mandatory: string[] = scope && isOperationalScope(scope) ? namedScope : [];
 
-  // §4b domain-policy law (2026-11-13 brief): instructions bind to their
-  // own CLAUSE, their own TARGET token, their own POLARITY, and their own
-  // PROVENANCE. Quoted/code spans are masked (space-filled, offsets
-  // preserved) BEFORE scanning — explaining a quoted restriction is not
-  // user policy. Every domain/platform token occurrence then takes its
-  // polarity from the cue law above; a cueless mention creates no policy.
-  const policyText = maskNonUserSpans(userPrompt);
-  for (const clause of policyText.split(SEGMENT_SPLIT_RE)) {
-    const cues: CuePos[] = [];
-    for (const m of clause.matchAll(ALLOW_CUE_RE)) cues.push({ start: m.index!, block: false });
-    for (const m of clause.matchAll(BLOCK_CUE_RE)) cues.push({ start: m.index!, block: true });
-    if (cues.length === 0) continue;
-    cues.sort((a, b) => a.start - b.start);
-
-    // Every token occurrence keeps its own start so per-occurrence
-    // polarity is exact ("only use X, never Y" has BOTH polarities).
-    const occurrences: { domain: string; start: number }[] = [];
-    for (const m of clause.matchAll(DOMAIN_TOKEN_RE)) {
-      occurrences.push({ domain: normalizeDomain(m[0]), start: m.index! });
-    }
-    // Plural-tolerant lookup: "don't use reddits" still blocks reddit.com.
-    for (const m of clause.matchAll(BLOCK_NAMES_RE)) {
-      const k = m[0].toLowerCase();
-      const d = NAME_TO_DOMAIN[k] ?? NAME_TO_DOMAIN[k.replace(/s$/, "")];
-      if (d) occurrences.push({ domain: d, start: m.index! });
-    }
-    for (const o of occurrences) {
-      if (!o.domain) continue;
-      const polarity = tokenPolarity(cues, o.start);
-      if (polarity === null) continue;
-      pushUnique(polarity ? blocked : allowed, o.domain);
-    }
-  }
-
-  // Explicit site: operators in the USER PROMPT are user-directed scoping
-  // (§11.17). Gate-emitted site: stays targeted-query guidance only.
-  SITE_OP_RE.lastIndex = 0;
-  let sm: RegExpExecArray | null;
-  while ((sm = SITE_OP_RE.exec(userPrompt)) !== null) {
-    pushUnique(allowed, sm[1]);
-  }
+  // §4b domain-policy law (F03 rewrite 2026-11-16): ./domain-constraints owns
+  // target / polarity / cue scope / exclusivity / authority, so this layer
+  // only SEEDS the three lists from the RESOLVED policy. The explicit site:
+  // operator rule (which needed the old raw scan to see one) moved there too,
+  // under the same masking law: an operator the user actually typed still scopes
+  // the plan, an operator that was merely being explained does not.
+  const f03Policy = resolveDomainPolicy(deriveDomainConstraints(userPrompt));
+  for (const d of f03Policy.allowed) pushUnique(allowed, d);
+  for (const d of f03Policy.blocked) pushUnique(blocked, d);
+  for (const d of f03Policy.preferred) pushUnique(preferred, d);
 
   // Preferred ≠ allowed: an "official sources" demand must never
   // fabricate an allow-list (§11.17) — it only steers the expected

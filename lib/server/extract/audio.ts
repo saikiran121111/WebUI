@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { childLogger } from "../logger";
 import { sharedUpstreamCompletion } from "../upstream-bridge";
 import { readPcmRange } from "./ffmpeg";
+import { OwnedResource, parseIdleTtl } from "@/lib/lifecycle/ownedResource";
 
 const execFileP = promisify(execFile);
 const log = childLogger("extract/audio");
@@ -37,7 +38,41 @@ const SR = 16000;
 const LLM_UNLOAD_URL = process.env.LLM_UNLOAD_URL ?? "";
 const LLM_RELOAD_URL = process.env.LLM_RELOAD_URL ?? "";
 
-let cpuAsrPromise: Promise<any> | null = null;
+/**
+ * F21: the CPU whisper session is an OWNED resource. The old `cpuAsrPromise`
+ * was cleared only when the LOAD failed, so a session that died mid-run stayed
+ * handed out forever, and a machine that transcribed one clip kept the whole
+ * q8 checkpoint resident for the rest of the process. The lease covers the
+ * transcription call itself, so the idle TTL can never destroy a running decode.
+ *
+ * WHISPER_CPU_IDLE_MS=<ms> tunes the TTL; 0 releases right after a clip;
+ * `never` keeps the previous always-resident behaviour.
+ */
+export const WHISPER_CPU_IDLE_MS = parseIdleTtl(process.env.WHISPER_CPU_IDLE_MS, 90_000);
+
+export const cpuAsrResource = new OwnedResource<any>({
+  name: "whisper-cpu",
+  idleTtlMs: WHISPER_CPU_IDLE_MS,
+  create: () => loadAsr("cpu", "q8"),
+  destroy: async (pipe) => {
+    await pipe?.dispose?.();
+  },
+});
+
+function withCpuAsr<R>(fn: (asr: any) => Promise<R> | R): Promise<R> {
+  return cpuAsrResource.use(fn);
+}
+
+/** Capability reporting without loading anything. */
+export function asrCpuState() {
+  return cpuAsrResource.state();
+}
+
+/** Reclaim the CPU checkpoint now, unless a transcription is in flight. */
+export function releaseAsrCpu(): Promise<boolean> {
+  return cpuAsrResource.releaseIdle({ force: true });
+}
+
 // One CUDA failure is enough for the whole process — don't re-pay the load
 // cost on every upload when this machine's ONNX runtime has no CUDA provider.
 let cudaBroken = false;
@@ -58,16 +93,6 @@ async function loadAsr(device?: "cuda" | "cpu", dtype?: "fp16" | "q8"): Promise<
     ...(device ? { device } : {}),
     ...(dtype ? { dtype } : {}),
   } as any);
-}
-
-function getAsrCpu(): Promise<any> {
-  if (!cpuAsrPromise) {
-    cpuAsrPromise = loadAsr("cpu", "q8").catch(err => {
-      cpuAsrPromise = null; // let a later request retry the download
-      throw err;
-    });
-  }
-  return cpuAsrPromise;
 }
 
 /** Free VRAM across NVIDIA GPUs (MB), or null when there is no NVIDIA GPU. */
@@ -328,8 +353,7 @@ async function withAsrStage<R>(
       }
     }
     // Stage 3: CPU — works on every machine, transcription never crashes.
-    const asr = await getAsrCpu();
-    return await task(asr, {});
+    return await withCpuAsr((asr) => task(asr, {}));
   } finally {
     // Whisper must never hold VRAM once the job is done, and the LLM always
     // comes back if we asked it to step aside — even on a failed attempt.
@@ -409,10 +433,11 @@ export function asrCapabilityNote(): string {
 
 /** Transcribe 16 kHz mono float PCM to text. */
 export async function transcribePcm(pcm: Float32Array): Promise<string> {
-  const asr = await getAsrCpu();
-  // I12: the chunk knobs ride on the CALL (the pipeline load silently drops
-  // them) — a bare call returned only the first 30 s of a long recording.
-  const out = await asr(pcm, { ...ASR_CHUNK_OPTS });
-  const text = typeof out === "string" ? out : out?.text ?? "";
-  return String(text).trim();
+  return withCpuAsr(async (asr) => {
+    // I12: the chunk knobs ride on the CALL (the pipeline load silently drops
+    // them) — a bare call returned only the first 30 s of a long recording.
+    const out = await asr(pcm, { ...ASR_CHUNK_OPTS });
+    const text = typeof out === "string" ? out : out?.text ?? "";
+    return String(text).trim();
+  });
 }

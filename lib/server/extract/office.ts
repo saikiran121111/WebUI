@@ -1,25 +1,49 @@
 import { readZipDetailed, ZipEntry, ZipLimits } from "./zip";
 
-/** Decode + strip XML tags down to readable text. */
+/**
+ * Entity decoder (F12). Numeric entities decode through code POINTS, not code
+ * units: `&#128512;` is U+1F600, a supplementary-plane character that
+ * `String.fromCharCode` turned into a garbled surrogate pair. Decimal, hex
+ * (`&#x1F600;`) and the common named entities share this one decoder so every
+ * call site behaves identically. Out-of-range / lone-surrogate / invalid
+ * numbers stay LITERAL instead of being silently mangled into a wrong glyph.
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  amp: "&",
+  nbsp: "\u00a0",
+};
+
+function codePointEntity(cp: number, literal: string): string {
+  if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) {
+    return literal;
+  }
+  return String.fromCodePoint(cp);
+}
+
+export function decodeEnt(s: string): string {
+  return s.replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z][a-zA-Z0-9]*));/g, (all, dec, hex, name) => {
+    if (dec !== undefined) return codePointEntity(Number(dec), all);
+    if (hex !== undefined) return codePointEntity(parseInt(hex, 16), all);
+    return NAMED_ENTITIES[name] ?? all;
+  });
+}
+
+/** Decode + strip XML tags down to readable text (entities decode last, so markup is not re-parsed). */
 function xmlToText(xml: string): string {
-  return xml
-    .replace(/<w:tab[^>]*\/>/g, "\t")
-    .replace(/<a:br\s*\/>|<w:br\s*\/>/g, "\n")
-    .replace(/<\/w:p>|<\/a:p>|<\/text:p>|<\/text:h>|<\/html:br>/g, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&")
+  return decodeEnt(
+    xml
+      .replace(/<w:tab[^>]*\/>/g, "\t")
+      .replace(/<a:br\s*\/>|<w:br\s*\/>/g, "\n")
+      .replace(/<\/w:p>|<\/a:p>|<\/text:p>|<\/text:h>|<\/html:br>/g, "\n")
+      .replace(/<[^>]+>/g, ""),
+  )
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function decodeEnt(s: string): string {
-  return s
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
-    .replace(/&amp;/g, "&");
 }
 
 function textsFromTags(xml: string, tag: RegExp): string {
@@ -70,11 +94,28 @@ function worksheetText(xml: string, shared: string[]): string {
       } else if (t === "inlineStr") {
         val = [...inner.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((x) => decodeEnt(x[1])).join("");
       } else {
+        // F12: a formula and its cached result are DIFFERENT facts. The old
+        // reader kept only <v> whenever a producer had cached one, so
+        // `=2+3` (displaying 5) arrived as "A1=5" and the formula — the actual
+        // editable content, and the only thing that reveals a stale or
+        // unrecalculated result — was gone. Both are kept, formula first.
+        const f = /<f\b([^>]*?)?(?:\/>|>([\s\S]*?)<\/f>)/.exec(inner);
+        const fAttrs = f?.[1] ?? "";
+        const fText = (f?.[2] ?? "").trim();
         const v = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1];
-        if (v !== undefined) val = decodeEnt(v.trim());
-        else {
-          const f = /<f[^>]*>([\s\S]*?)<\/f>/.exec(inner)?.[1];
-          if (f !== undefined) val = "=" + decodeEnt(f);
+        const cached = v !== undefined ? decodeEnt(v.trim()) : undefined;
+        if (fText) {
+          val = "=" + decodeEnt(fText);
+          if (cached !== undefined && cached !== "") val += ` (cached ${cached})`;
+          if (/t="(shared|array)"/.test(fAttrs)) val += " [shared/array formula]";
+        } else if (f) {
+          // shared-formula continuation with no text of its own, or an array
+          // anchor without a value: say so instead of inventing either half.
+          val = cached !== undefined
+            ? `${cached} [formula continuation; expression not stored in this cell]`
+            : "[formula present but neither expression nor cached value stored]";
+        } else if (cached !== undefined) {
+          val = cached;
         }
         if (t === "b") val = val === "1" ? "TRUE" : "FALSE";
       }
@@ -178,8 +219,42 @@ const XLSX_INCLUDE = (name: string) =>
   /^xl\/(sharedStrings|workbook)\.xml$/.test(name) ||
   /^xl\/_rels\/workbook\.xml\.rels$/.test(name) ||
   /^xl\/worksheets\/sheet\d+\.xml$/.test(name) ||
+  /^xl\/worksheets\/_rels\/sheet\d+\.xml\.rels$/.test(name) ||
   /^xl\/charts\/chart\d+\.xml$/.test(name);
 
+/**
+ * Merged ranges and hyperlinks are structure, not text (F12). A merged block
+ * reads as one visual value but lands as one cell plus silent blanks, so the
+ * ranges are named explicitly; hyperlink targets are shown because the display
+ * text alone hides the actual destination.
+ */
+function sheetStructure(xml: string, relsXml: string | undefined): string[] {
+  const notes: string[] = [];
+  const merged = [...xml.matchAll(/<mergeCell\b[^>]*ref="([^"]+)"/g)].map((m) => m[1]);
+  if (merged.length) {
+    notes.push(`### merged cells (${merged.length}): ${merged.slice(0, 40).join(", ")}` +
+      (merged.length > 40 ? ` +${merged.length - 40} more` : "") +
+      " - a merged block carries ONE value; the other cells in it are blank, not zero");
+  }
+  const links: string[] = [];
+  for (const m of xml.matchAll(/<hyperlink\b([^>]*?)\/?>/g)) {
+    const ref = /ref="([^"]+)"/.exec(m[1])?.[1];
+    const ext = /r:id="([^"]+)"/.exec(m[1])?.[1];
+    const loc = /location="([^"]+)"/.exec(m[1])?.[1];
+    if (!ref) continue;
+    if (ext && relsXml) {
+      const rel = new RegExp(`Id="${ext}"[^>]*Target="([^"]+)"`).exec(relsXml)?.[1];
+      if (rel) links.push(`${ref} -> ${decodeEnt(rel)}`);
+      continue;
+    }
+    if (loc) links.push(`${ref} -> internal ${loc}`);
+  }
+  if (links.length) {
+    notes.push(`### hyperlinks (${links.length}): ${links.slice(0, 25).join("; ")}` +
+      (links.length > 25 ? ` +${links.length - 25} more` : ""));
+  }
+  return notes;
+}
 /**
  * Extract readable text from Office Open XML, ODF, and EPUB containers.
  * All are ZIP files holding XML parts.
@@ -253,8 +328,12 @@ export function officeText(buf: Buffer, ext: string): string {
       }
       for (const { e, name } of sheets) {
         const body = worksheetText(str(e), shared);
-        if (name) out.push(`### worksheet: ${name}\n${body}`.trim());
-        else out.push(body); // no workbook.xml to name the sheet — bare rows keep the old exact output shape
+        const sheetRels = entries.find((x) => x.name === e.name.replace(/^(xl\/worksheets\/)/, "$1_rels/") + ".rels" && good(x));
+        const structure = sheetStructure(str(e), sheetRels ? str(sheetRels) : undefined);
+        const head = name ? `### worksheet: ${name}` : "";
+        const tail = [head, ...structure].filter(Boolean).join("\n");
+        if (name) out.push([tail, body].filter(Boolean).join("\n").trim());
+        else out.push([body, ...structure].filter(Boolean).join("\n")); // no workbook.xml to name the sheet - rows keep the old exact output shape
       }
       // P5B honest chart labeling: a spreadsheet can carry visuals that text
       // extraction cannot read — native chart parts (sometimes WITH cached

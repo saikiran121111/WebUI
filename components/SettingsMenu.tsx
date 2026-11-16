@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import type { EffortLevel } from "../lib/types";
 import { cn } from "../lib/utils";
+import CapabilityStatusPanel from "./CapabilityStatusPanel";
 import { fetchSettings, saveSettings, clearSettingsRemote, LlmSettings } from "../lib/settings/client";
 import {
   COMPACT_CUSTOM_MAX,
@@ -46,7 +47,7 @@ interface SettingsMenuProps {
  */
 export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"reasoning" | "context" | "endpoint">("reasoning");
+  const [tab, setTab] = useState<"reasoning" | "context" | "endpoint" | "capabilities">("reasoning");
   const [settings, setSettings] = useState<LlmSettings>({});
   const [url, setUrl] = useState("");
   const [key, setKey] = useState("");
@@ -279,7 +280,7 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
         <div className="absolute top-full right-0 mt-2 w-72 z-50 rounded-xl bg-[#1d1d1d] border border-[rgba(255,255,255,0.15)] shadow-2xl shadow-black/60 backdrop-blur-md">
           {/* Tabs */}
           <div className="flex border-b border-[rgba(255,255,255,0.09)]">
-            {(["reasoning", "context", "endpoint"] as const).map((t) => (
+            {(["reasoning", "context", "endpoint", "capabilities"] as const).map((t) => (
               <button key={t}
                 onClick={() => setTab(t)}
                 data-testid={`settings-tab-${t}`}
@@ -289,7 +290,8 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
                     ? "text-white/90 border-white/70 bg-white/[0.03]"
                     : "text-white/30 border-transparent hover:text-white/60",
                 )}>
-                {t === "reasoning" ? "Reasoning" : t === "context" ? "Context" : "Endpoint"}
+                {t === "reasoning" ? "Reasoning" : t === "context" ? "Context"
+                  : t === "endpoint" ? "Endpoint" : "Capabilities"}
               </button>
             ))}
           </div>
@@ -430,6 +432,8 @@ export default function SettingsMenu({ effort, onEffortChange, onCompactNow }: S
                 </button>
               ))}
             </div>
+          ) : tab === "capabilities" ? (
+            <CapabilityStatusPanel active={open && tab === "capabilities"} />
           ) : (
             <div className="p-3 space-y-2.5">
               {/* URL field */}

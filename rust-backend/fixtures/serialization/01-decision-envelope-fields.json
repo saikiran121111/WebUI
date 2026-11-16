@@ -40,7 +40,7 @@
     {
       "path": "decided_by",
       "comparison": "byte-exact",
-      "note": "\"in-process-deliverable-match\" | \"in-process-deliverable-ambiguous\" (§4a mixed deliverables) | \"in-process-fallback\" (internal-only) | (chat-internal-only: \"repair-passthrough\")"
+      "note": "F02 honest vocabulary: \"in-process-deliverable-none\" (no deliverable requested - a miss never claims a match) | \"in-process-deliverable-match\" (exactly one) | \"in-process-deliverable-multiple\" (two+ requested deliverables; the retired -ambiguous label conflated them with uncertainty and silently lost one output) | \"in-process-fallback\" (internal-only) | (chat-internal-only: \"repair-passthrough\")"
     },
     {
       "path": "stripped_prompt",
@@ -70,7 +70,7 @@
     {
       "path": "task_constraints",
       "comparison": "byte-exact",
-      "note": "always [] in the in-process engine"
+      "note": "F02: 'deliverable-request=<mode>' entries in first-appearance order; [] when nothing was requested. Provenance is the in-process scan, and the injection layer arms every recorded deliverable contract instead of inventing a single winner."
     },
     {
       "path": "extracted_entities",

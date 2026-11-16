@@ -133,6 +133,30 @@ async fn main() {
         browser: browser.clone(),
     };
 
+    // Capability backend (brief §6/§9): the dev supervisor starts the
+    // lightweight `ruke_ml` supervisor, waits for its /health, and exports the
+    // rendezvous here. Rust owns Python calls, so this process must resolve and
+    // report that endpoint rather than treat the env pair as decoration. Rule
+    // 17: log the endpoint and booleans, never the per-run token.
+    match ruke_server::ml_bridge::endpoint_from_env() {
+        Ok(endpoint) => tracing::info!(
+            endpoint = %endpoint.base,
+            source = endpoint.source,
+            supervisor_pid = ?endpoint.supervisor_pid,
+            "capability backend rendezvous resolved (python supervisor; status on \
+             GET /api/ruke/ml-status)"
+        ),
+        Err(ruke_server::ml_bridge::EndpointError::NotConfigured(_)) => tracing::info!(
+            "capability backend not configured: document/OCR/speech/video capabilities \
+             answer not_configured until python-backend is started"
+        ),
+        Err(ruke_server::ml_bridge::EndpointError::Invalid(detail)) => tracing::warn!(
+            detail = %detail,
+            "capability backend rendezvous is unusable: capabilities answer \
+             invalid_endpoint until the supervisor is restarted"
+        ),
+    }
+
     // Loopback bind: this parallel server has no auth, and the migration's
     // privileged RPC (Rule 9) must be loopback-only anyway. The cutover
     // (Part 8) decides the final bind address explicitly.

@@ -12,6 +12,12 @@ export interface SkillScenario {
   whenToUse: string;
   triggerKeywords: string[];
   blockedReason: string | null;
+  /**
+   * Application-owned capability declaration (F20). The ONLY supported way for
+   * a skill to state a hard capability requirement; the modality filter reads
+   * it before any text heuristics. Absent means "infer from protocol evidence".
+   */
+  requiredCapabilities?: string[];
 }
 
 /** GET /api/skills response row: scenario merged with install state. */

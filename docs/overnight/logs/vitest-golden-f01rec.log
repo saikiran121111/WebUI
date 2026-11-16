@@ -1,0 +1,349 @@
+﻿node.exe : npm notice run webui-chat@0.2.0 npx
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Ruku\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run webui-chat@0.2.0 npx:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run __tests__/rust-golden
+[33mThe CJS build of Vite's Node API is deprecated. See 
+https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/rust-golden/contract-manifest.test.ts (8 tests) 7ms
+ ✓ __tests__/rust-golden/store-fixture.test.ts (3 tests) 14ms
+ ✓ __tests__/rust-golden/decision-serialization.test.ts (6 tests) 109ms
+ ✓ __tests__/rust-golden/decision-parity.test.ts (2 tests) 32ms
+[16:04:09.267] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:04:09.270] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-9fk7jkfn","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:04:09.272] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:04:09.277] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"read_page"}[39m
+[16:04:09.297] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":3,"finish":"none","ms":27}[39m
+stdout | __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 01 model-directed research — web_search → read_page → answer (progress path)
+[golden-update] re-recorded web-search/01-search-success-progress.json: 758 line(s) changed, first at line 28
+
+[16:04:09.307] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:04:09.307] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"strata-mock","mode":"standard_chat","url":"http://127.0.0.1:9/v1/chat/completions"}[39m
+[16:04:09.308] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"strata-mock","mode":"standard_chat","ms":1,"sseChunks":2}[39m
+[16:04:09.311] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:04:09.312] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-jnvk0vzi","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:04:09.312] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:04:09.313] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":2,"finish":"none","ms":1}[39m
+[16:04:09.316] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:04:09.316] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-7x29pdoe","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:04:09.316] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[16:04:09.317] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"web_search"}[39m
+[16:04:09.317] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":1,"kept":4}[39m
+[16:04:09.318] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":3,"calls":"web_search"}[39m
+[16:04:09.318] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":2,"kept":3}[39m
+[16:04:09.319] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":4,"calls":"web_search"}[39m
+[16:04:09.319] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":5,"finish":"none","ms":3}[39m
+[16:04:09.322] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:04:09.322] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-hn07jlge","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:04:09.322] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":0}[39m
+[16:04:09.324] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-match","skill":null,"skillBytes":0,"model":"strata-mock"}[39m
+[16:04:09.324] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-96jjrx8p","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[16:04:09.324] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":0}[39m
+stdout | __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 02 legacy stream:false — plain forward (NO tools, NO evidence, NO citation/gate headers)
+[golden-update] re-recorded web-search/02-legacy-stream-false-plain-forward.json: 51 line(s) changed, first at line 27
+
+stdout | __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 03 starved engine pool — the loop reports ZERO honestly, the answer still streams
+[golden-update] re-recorded web-search/03-search-starved-progress.json: 450 line(s) changed, first at line 27
+
+stdout | __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 04 search budget exhausted — the harness refuses honestly (named target), turn completes
+[golden-update] re-recorded web-search/04-search-budget-exhausted-progress.json: 1422 line(s) changed, first at line 27
+
+stdout | __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 05 image attachment — parts passthrough, loop ARMED, model answers without tools
+[golden-update] re-recorded web-search/05-image-attachment-parts-passthrough-progress.json: 181 line(s) changed, first at line 28
+
+ ❯ __tests__/rust-golden/web.test.ts (7 tests | 5 failed) 106ms
+   × golden: model-directed web tool loop > 01 model-directed research — web_search → read_page → answer (progress path) 51ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+   × golden: model-directed web tool loop > 02 legacy stream:false — plain forward (NO tools, NO evidence, NO citation/gate headers) 5ms
+     → expected 'system' to be 'user' // Object.is equality
+   × golden: model-directed web tool loop > 03 starved engine pool — the loop reports ZERO honestly, the answer still streams 4ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+   × golden: model-directed web tool loop > 05 image attachment — parts passthrough, loop ARMED, model answers without tools 2ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+   × golden: pure clock turn (brief §5 — quiet clock, zero search traffic) > 06 clock question — no retrieval, no evidence, quiet-clock law in the live request 2ms
+     → expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+stdout | __tests__/rust-golden/skills.test.ts > golden: skills (two-tier) > 01 slash user skill — progress path
+[golden-update] re-recorded skills/01-slash-user-skill-progress.json: 83 line(s) changed, first at line 32
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 01 upstream 400 — legacy path
+[golden-update] re-recorded errors/01-upstream-400-legacy.json: 1 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 02 upstream 400 — progress path
+[golden-update] re-recorded errors/02-upstream-400-progress.json: 1 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 03 upstream 500 — legacy path (pins 200-char error truncation)
+[golden-update] re-recorded errors/03-upstream-500-legacy.json: 1 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 04 upstream 500 — progress path
+[golden-update] re-recorded errors/04-upstream-500-progress.json: 1 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 05 empty upstream body — legacy path
+[golden-update] re-recorded errors/05-no-body-legacy.json: 1 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 06 empty upstream body — progress path
+[golden-update] re-recorded errors/06-no-body-progress.json: 1 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 07 unreachable upstream — legacy path
+[golden-update] re-recorded errors/07-unreachable-legacy.json: 1 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/errors.test.ts > golden: upstream failures > 08 unreachable upstream — progress path
+[golden-update] re-recorded errors/08-unreachable-progress.json: 1 line(s) changed, first at line 25
+
+ ✓ __tests__/rust-golden/errors.test.ts (8 tests) 798ms
+stdout | __tests__/rust-golden/skills.test.ts > golden: skills (two-tier) > 02 slash user skill — legacy path
+[golden-update] re-recorded skills/02-slash-user-skill-legacy.json: 67 line(s) changed, first at line 32
+
+stdout | __tests__/rust-golden/chat-core.test.ts > golden: chat core > 01 normal streaming chat
+[golden-update] re-recorded chat/01-stream-normal.json: 75 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/chat-core.test.ts > golden: chat core > 02 legacy non-streaming path
+[golden-update] re-recorded chat/02-legacy-nonstream.json: 67 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/chat-core.test.ts > golden: chat core > 04 minimal / empty payloads
+[golden-update] re-recorded chat/04b-minimal-empty-user-turn.json: 75 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/chat-core.test.ts > golden: chat core > 06 decision_mode passthrough (both paths)
+[golden-update] re-recorded chat/06a-decision-mode-legacy.json: 77 line(s) changed, first at line 25
+[golden-update] re-recorded chat/06b-decision-mode-progress.json: 92 line(s) changed, first at line 25
+
+ ✓ __tests__/rust-golden/chat-core.test.ts (8 tests) 802ms
+stdout | __tests__/rust-golden/chat-core.test.ts > golden: chat core > 08 web-search disabled by env
+[golden-update] re-recorded chat/08-web-search-disabled.json: 75 line(s) changed, first at line 25
+
+stdout | __tests__/rust-golden/skills.test.ts > golden: skills (two-tier) > 03 unknown slash command passthrough
+[golden-update] re-recorded skills/03-unknown-slash-passthrough.json: 59 line(s) changed, first at line 26
+
+stdout | __tests__/rust-golden/skills.test.ts > golden: skills (two-tier) > 04 core-tier skill via decision routing
+[golden-update] re-recorded skills/04-core-skill-decision.json: 82 line(s) changed, first at line 32
+
+stdout | __tests__/rust-golden/skills.test.ts > golden: skills (two-tier) > 05 client-pinned decision_mode excel passthrough
+[golden-update] re-recorded skills/05-decision-mode-excel-passthrough.json: 67 line(s) changed, first at line 32
+
+ ✓ __tests__/rust-golden/skills.test.ts (5 tests) 810ms
+stdout | __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 01 retrieval success (point_qa, text doc)
+[golden-update] re-recorded attachments/01-retrieval-success.json: 86 line(s) changed, first at line 26
+
+stdout | __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 02 missing index -> honest block (non-fatal)
+[golden-update] re-recorded attachments/02-missing-index-honest-block.json: 86 line(s) changed, first at line 26
+
+stdout | __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 03 empty index -> zero evidence {0,0}
+[golden-update] re-recorded attachments/03-empty-index-zero-evidence.json: 82 line(s) changed, first at line 26
+
+stdout | __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 04 video time_range on standard_chat — keyframes DROPPED by the off-by-one (bug recorded)
+[golden-update] re-recorded attachments/04-video-time-range-keyframes-dropped.json: 87 line(s) changed, first at line 26
+
+ ✓ __tests__/rust-golden/sse-vectors.test.ts (3 tests) 846ms
+stdout | __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 05 excel-pinned video — skill block shifts the turn; keyframe lands (shift-correct path)
+[golden-update] re-recorded attachments/05-video-frames-with-skill-shift.json: 108 line(s) changed, first at line 26
+
+stdout | __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 06 legacy path runs the SAME retrieval (headers only)
+[golden-update] re-recorded attachments/06-legacy-parity.json: 64 line(s) changed, first at line 26
+
+ ❯ __tests__/rust-golden/attachments.test.ts (6 tests | 3 failed) 851ms
+   × golden: attachment retrieval > 04 video time_range on standard_chat — keyframes DROPPED by the off-by-one (bug recorded) 13ms
+     → expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+   × golden: attachment retrieval > 05 excel-pinned video — skill block shifts the turn; keyframe lands (shift-correct path) 11ms
+     → expected false to be true // Object.is equality
+   × golden: attachment retrieval > 06 legacy path runs the SAME retrieval (headers only) 12ms
+     → expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 04 video time_range on standard_chat 
+— keyframes DROPPED by the off-by-one (bug recorded)
+AssertionError: expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+-   "user",
+    "system",
+    "system",
++   "system",
++   "user",
+  ]
+
+ ❯ __tests__/rust-golden/attachments.test.ts:265:37
+    263|     // P1 (2026-11-01): the live-clock block sits between the user tur…
+    264|     // knowledge block; the off-by-one contract is unchanged.
+    265|     expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system…
+       |                                     ^
+    266|     expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe…
+    267|     const userParts = msgs[0].content as { type: string }[];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 05 excel-pinned video — skill block 
+shifts the turn; keyframe lands (shift-correct path)
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ __tests__/rust-golden/attachments.test.ts:299:67
+    297|     expect(upstreamCalls[0].anchors[0].kind).toBe("decision_skill");
+    298|     // P1 (2026-11-01): order is [decision_skill, runtime_clock, knowl…
+    299|     expect(String(msgs[1].content).startsWith("<runtime_clock>")).toBe…
+       |                                                                   ^
+    300|     expect(String(msgs[2].content)).toContain("<knowledge_index name=\…
+    301|     expect(String(msgs[2].content)).toContain("[01:45:00 - 01:46:00]\n…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  __tests__/rust-golden/attachments.test.ts > golden: attachment retrieval > 06 legacy path runs the SAME 
+retrieval (headers only)
+AssertionError: expected [ Array(4) ] to deeply equal [ 'user', 'system', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+-   "user",
+    "system",
+    "system",
++   "system",
++   "user",
+  ]
+
+ ❯ __tests__/rust-golden/attachments.test.ts:329:37
+    327|     const msgs = messagesOf(upstreamCalls[0].bodyJson);
+    328|     // P1 (2026-11-01): user, runtime_clock, knowledge — parity with t…
+    329|     expect(msgs.map((m) => m.role)).toEqual(["user", "system", "system…
+       |                                     ^
+    330|     expect(run.headers["x-decision-mode"]).toBe("standard_chat");
+    331|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 01 model-directed research — 
+web_search → read_page → answer (progress path)
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:472:44
+    470|     // Round 1 request: guidance → user → clock; tools armed; no evide…
+    471|     const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: strin…
+    472|     expect(p0.messages.map((m) => m.role)).toEqual(["system", "user", …
+       |                                            ^
+    473|     expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    474|     expect(p0.messages[1].content).toBe("what is the latest roadmap ne…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 02 legacy stream:false — plain 
+forward (NO tools, NO evidence, NO citation/gate headers)
+AssertionError: expected 'system' to be 'user' // Object.is equality
+
+Expected: "user"
+Received: "system"
+
+ ❯ __tests__/rust-golden/web.test.ts:530:38
+    528|     expect(upstreamCalls.length).toBe(1);
+    529|     const payload = upstreamCalls[0]!.bodyJson as { messages: { role: …
+    530|     expect(payload.messages[0].role).toBe("user");
+       |                                      ^
+    531|     expect(payload.messages[0].content).toBe("what is the latest roadm…
+    532|     expect(payload.messages.some((m) => m.content === WEB_TOOL_GUIDANC…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 03 starved engine pool — the loop 
+reports ZERO honestly, the answer still streams
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:574:44
+    572|     expect(upstreamCalls.length).toBe(2);
+    573|     const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: strin…
+    574|     expect(p0.messages.map((m) => m.role)).toEqual(["system", "user", …
+       |                                            ^
+    575|     expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    576|     // No sentinel block, no evidence block — the loop injects NOTHING…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: model-directed web tool loop > 05 image attachment — parts 
+passthrough, loop ARMED, model answers without tools
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:711:49
+    709|     const userTurn = payload.messages.find((m) => m.role === "user");
+    710|     expect(userTurn!.content).toEqual(content); // parts + data URL un…
+    711|     expect(payload.messages.map((m) => m.role)).toEqual(["system", "us…
+       |                                                 ^
+    712|     expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE); // AR…
+    713|     expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  __tests__/rust-golden/web.test.ts > golden: pure clock turn (brief §5 — quiet clock, zero search traffic) > 06 
+clock question — no retrieval, no evidence, quiet-clock law in the live request
+AssertionError: expected [ Array(4) ] to deeply equal [ 'system', 'user', 'system' ]
+
+- Expected
++ Received
+
+  Array [
+    "system",
++   "system",
++   "system",
+    "user",
+-   "system",
+  ]
+
+ ❯ __tests__/rust-golden/web.test.ts:796:49
+    794|     // user turn, payload.tools is present (capability, never an actio…
+    795|     // still NO evidence block and no retrieval happened.
+    796|     expect(payload.messages.map((m) => m.role)).toEqual(["system", "us…
+       |                                                 ^
+    797|     expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    798|     expect(payload.messages[1].content).toBe("What time is it?");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+ Test Files  2 failed | 8 passed (10)
+      Tests  8 failed | 48 passed (56)
+   Start at  16:04:07
+   Duration  1.20s (transform 867ms, setup 0ms, collect 1.63s, tests 4.38s, environment 1ms, prepare 827ms)
+

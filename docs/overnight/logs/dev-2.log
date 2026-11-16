@@ -1,0 +1,44 @@
+P8 Rust<->Python status leg + supervisor connection hardening (session 20)
+===========================================================================
+1) Python supervisor hardening (real defect from the live dev run in dev-1.log)
+   ruke_ml/supervisor.py: a probe that hangs up mid-request printed a full
+   ConnectionResetError traceback from socketserver. This process's stderr is the
+   operator's only diagnostic channel, so noise there is a real defect.
+   Mechanism: Handler.timeout = CONNECTION_IDLE_TIMEOUT_S (15 s) so HTTP/1.1
+   keep-alive cannot park a handler thread forever; Handler.handle_one_request and
+   QuietServer.handle_error classify ConnectionError/TimeoutError as client churn
+   (one log line) while every other exception still gets its traceback.
+   Tests: tests/test_supervisor_workers.py RpcRoundTrip.test_h (RST mid-header and
+   mid-body -> "connection closed by client", no "Traceback"), test_i (idle timeout
+   bound), ConnectionOwnership (abort filtered, ZeroDivisionError still reported).
+   Command: python -m unittest discover -s tests -t .   PY_EXIT=0
+   Result: Ran 89 tests in 12.32s OK   (86 before; +3 tests)
+   Also re-verified under the pinned uv venv (CPython 3.12.15).
+2) New Rust seam closing the one-sided env handoff (ruke-server/src/ml_bridge.rs,
+   route GET /api/ruke/ml-status, module registered in lib.rs, logged in main.rs).
+   Offline proof: cargo test -p ruke-server --target-dir D:\Projects\WebUI\target-ci
+   --lib ml_bridge -> 9 passed, 0 failed, CARGO_EXIT=0
+     a absent config = not_configured; b discovery record -> endpoint+token+pid;
+     c/d off-loopback URL and off-loopback record refused, token never in the error;
+     e env token wins, trailing slash normalized, corrupt record typed;
+     f secret file required and size-bounded; g capability cache honours TTL only;
+     h public_health strips secret path + audit lines; i dead supervisor -> typed
+     "unreachable" answer without hanging (bounded probe).
+3) LIVE integrated proof (no inference involved - capability status only):
+   python -m ruke_ml.supervisor --port 0 --discovery tmp-devcheck-data\python\mlstatus-test.json
+   then ruke-server (RUKE_ML_DISCOVERY set, RUKE_BACKEND_PORT=3953):
+     INFO ruke_server: capability backend rendezvous resolved
+          endpoint=http://127.0.0.1:58079 source="discovery" supervisor_pid=Some(20544)
+     GET /api/ruke/ml-status ->
+       {"configured":true,"live":true,"source":"discovery","supervisor_pid":20544,
+        "supervisor":{"state":"ready","active_jobs":0,"heavy_imports_at_startup":[],
+                      "limits":{"heavy_concurrency":1,"idle_ttl_s":60.0,"mem_budget_mib":4096}},
+        "capabilities":{... "status":"evaluation_required"|"not_configured" ...}}
+   No token, no secret path and no audit line appears in the response or the log.
+   Ownership fact learned: the venv python.exe re-execs the uv-managed interpreter,
+   so the discovery record's pid differs from the launched pid. Teardown therefore
+   uses THIS run's launched pid tree (taskkill /PID <launched> /T /F), never the
+   record pid and never an image-name kill. After teardown: 0 ruke_ml python,
+   0 ruke-server, port released.
+Remaining P8 gap (recorded, not passed): no user-facing capability panel consumes
+/api/ruke/ml-status yet, and no capability JOB runs through Rust yet.

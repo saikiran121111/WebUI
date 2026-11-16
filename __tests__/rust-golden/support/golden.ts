@@ -54,7 +54,17 @@ export function stableJson(value: unknown): string {
 /**
  * Write a JSON fixture with inline metadata. FAILS (determinism violation)
  * if the file exists and the new bytes differ — the corpus is the contract.
+ *
+ * RE-RECORD SEAM (the only sanctioned way to change golden bytes): run the
+ * suite with RUKE_GOLDEN_UPDATE=1. The harness then rewrites the file and
+ * prints the first differing line so the change is reviewable. NEVER hand-edit
+ * a fixture, and NEVER re-record to make a failing assertion go green — a
+ * re-record is only legitimate when a deliberate, documented contract change
+ * moved the bytes (see the corpus docstring + rust-backend/fixtures/README.md
+ * for the change log).
  */
+const GOLDEN_UPDATE = process.env.RUKE_GOLDEN_UPDATE === "1";
+
 export function writeJsonFixture(rel: string, data: unknown, meta: FixtureMeta): void {
   const file = path.join(FIXTURES_DIR, rel);
   ensureDir(path.dirname(file));
@@ -66,6 +76,18 @@ export function writeJsonFixture(rel: string, data: unknown, meta: FixtureMeta):
       const b = bytes.split("\n");
       let at = 0;
       while (at < Math.max(a.length, b.length) && a[at] === b[at]) at++;
+      if (GOLDEN_UPDATE) {
+        let diffs = 0;
+        for (let i = 0; i < Math.max(a.length, b.length); i++) {
+          if (a[i] !== b[i]) diffs++;
+        }
+        console.log(
+          `[golden-update] re-recorded ${rel}: ${diffs} line(s) changed, ` +
+          `first at line ${at + 1}`,
+        );
+        fs.writeFileSync(file, bytes, "utf8");
+        return;
+      }
       throw new Error(
         `Fixture drift detected in ${rel} (first difference at line ${at + 1}):\n` +
         `  existing: ${JSON.stringify(a[at] ?? "")}\n  recorded: ${JSON.stringify(b[at] ?? "")}`,

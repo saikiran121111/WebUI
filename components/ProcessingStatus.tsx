@@ -1,6 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Message } from "../lib/types";
+import {
+  resolveCurrentActivity,
+  statusLine,
+  activityLine,
+  sourcesHeader,
+  openActivities,
+} from "../lib/progress/currentActivity";
 
 /**
  * RUKE-branded processing line shown while a reply streams. Streaming
@@ -11,15 +18,22 @@ import type { Message } from "../lib/types";
  *     in-flight action (searching / reading <host>…) and, once done, its
  *     real counts. The old elapsed-seconds guess cascade is retired:
  *     time passing is not a signal of what the system is doing.
- *   - webCitations / searchGate meta → sources the loop actually minted;
- *     the line names the queries and the domains and is CLICKABLE — the
- *     popup carries queries, source links, and this turn's action trail
- *     (2026-10-22: the cyan gradient ResearchTrailCard bar was removed;
- *     this popup replaces it — click outside closes).
+ *   - webCitations / searchGate meta → sources the loop actually minted. They
+ *     make the line CLICKABLE and populate the popup trail (queries, source
+ *     links, this turn's action trail), but they are EVIDENCE HISTORY: they
+ *     never decide what the line claims the system is doing right now
+ *     (F18, 2026-11-15). 2026-10-22: the cyan gradient ResearchTrailCard bar
+ *     was removed; this popup replaces it — click outside closes.
  *   - toolCalls still open (research mode) → names the live tool call.
  *   - reasoning deltas arriving → "Thinking…" (delta presence is the
  *     signal; the seconds counter is gone).
  *   - nothing yet → the honest "Analyzing your prompt…".
+ *
+ * F18 (2026-11-15): the priority cascade lives in ONE pure, unit-tested
+ * authority (lib/progress/currentActivity). Current work comes only from
+ * something actually in flight; a minted citation or a COMPLETED action can no
+ * longer display as "Reading web sources" / "Page read complete" while the
+ * model is thinking or writing. Completed actions stay in the popup trail.
  *
  * Playwright contract: clickable line `web-search-toggle`; popup
  * `research-trail-card`, its badge `research-trail-gate-badge`, source rows
@@ -33,49 +47,6 @@ const GATE_BADGE: Record<string, string> = {
   lfm: "Search-gated", // historical source key — persisted turns still carry it
   rules: "Rule-gated",
 };
-
-function hostFrom(url: string): string {
-  try { return new URL(url).hostname.replace(/^www\./, ""); }
-  catch { return url.slice(0, 24); }
-}
-
-function toolCallLine(name: string, args: string): string {
-  if (name === "web_search") return "Searching the web…";
-  if (name === "web_open") {
-    let host = "";
-    try { host = hostFrom(JSON.parse(args)?.url ?? ""); } catch { /* partial args */ }
-    return host ? `Opening ${host}…` : "Opening a page…";
-  }
-  if (name === "browser_screenshot") return "Taking a screenshot…";
-  return `Running ${name}…`;
-}
-
-/**
- * One action entry from the web:activity event list → the honest line.
- * Live frames carry the parsed targets as detail (queries / hosts);
- * terminal frames carry the executor's real counts (retrieved of
- * requested) — nothing here is inferred from time. Turn-end closures the
- * client stamps itself ("cancelled" / "interrupted", §3 closure law) carry
- * no counts: the action genuinely never resolved.
- */
-function activityLine(
-  a: NonNullable<Message["webActivity"]>[number],
-  live: boolean,
-): string {
-  const what = a.kind === "search" ? "Web search" : a.kind === "read_page" ? "Page read" : a.kind;
-  if (live) {
-    if (a.kind === "read_page") return a.detail ? `Reading ${a.detail}…` : "Reading a page…";
-    if (a.kind === "search") return a.detail ? `Searching the web — ${a.detail}` : "Searching the web…";
-    return `Running ${a.kind}…`;
-  }
-  const counts = a.done != null && a.total != null ? ` — ${a.done} of ${a.total}` : "";
-  if (a.status === "completed") return `${what} complete${counts}`;
-  if (a.status === "cancelled") return `${what} cancelled`;
-  // Client-stamped turn-end closure (2026-11-13 brief §3): the action was
-  // still in flight when the stream ended without it resolving.
-  if (a.status === "interrupted") return `${what} interrupted`;
-  return `${what} failed`;
-}
 
 export default function ProcessingStatus({ message }: { message: Message }) {
   const [open, setOpen] = useState(false);
@@ -101,35 +72,19 @@ export default function ProcessingStatus({ message }: { message: Message }) {
   const entries = Object.values(message.webCitations ?? {})
     .filter(c => !!c && typeof c.url === "string")
     .sort((a, b) => a.sourceId.localeCompare(b.sourceId, undefined, { numeric: true }));
-  const domains = [...new Set(entries.map(c => c.domain || hostFrom(c.url)))].slice(0, 3);
-  const query = gate?.queries?.[0]?.query;
-  const liveCall = message.toolCalls?.find(tc =>
-    tc.status === "streaming" || tc.status === "pending"
-    || tc.status === "awaiting_approval" || tc.status === "running");
-
-  // ONE authoritative event-driven priority (§E law): live tool call →
-  // in-flight web:activity action → minted sources → honestly-aggregated
-  // finished action → reasoning-delta presence → the honest first-token
-  // wait. Elapsed time appears nowhere.
+  // F18: this component renders the line; it does NOT decide the priority.
+  // resolveCurrentActivity is the single authority (unit-pinned in
+  // __tests__/progress/current-activity.test.ts): only an action or tool call
+  // actually in flight, else writing/thinking, else the between-round wait.
+  // Citations and completed actions never appear here — see the module law.
   const acts = message.webActivity ?? [];
-  const liveAct = [...acts].reverse().find(a => a.status === "started");
-  const doneAct = [...acts].reverse().find(a => a.status !== "started");
-  let text: string;
-  if (liveCall) {
-    text = toolCallLine(liveCall.name, liveCall.args ?? "");
-  } else if (liveAct) {
-    text = activityLine(liveAct, true);
-  } else if (entries.length > 0) {
-    text = query
-      ? `Searching the web for “${query}” — reading ${domains.join(", ")}`
-      : `Reading web sources — ${domains.join(", ")}`;
-  } else if (doneAct) {
-    text = activityLine(doneAct, false);
-  } else if (message.reasoning) {
-    text = "Thinking…";
-  } else {
-    text = "Analyzing your prompt…";
-  }
+  const readingLive = openActivities(acts).some(a => a.kind === "read_page");
+  const text = statusLine(resolveCurrentActivity({
+    activity: acts,
+    toolCalls: message.toolCalls,
+    hasReasoning: !!message.reasoning,
+    hasContent: !!message.content,
+  }));
 
   const logo = (
     <svg
@@ -186,7 +141,7 @@ export default function ProcessingStatus({ message }: { message: Message }) {
         >
           <div className="flex items-center gap-2 px-1.5 py-1">
             <span className="text-[11px] font-medium text-white/60">
-              Reading {entries.length} source{entries.length !== 1 ? "s" : ""}
+              {sourcesHeader(entries.length, readingLive)}
             </span>
             {gate && (
               <span

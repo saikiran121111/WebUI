@@ -34,7 +34,9 @@ function seededIndex(attId: string, name: string, category: string, chunks: Inde
     attId, name, category: category as IndexMeta["category"], createdAt: 0,
     chunkCount: chunks.length, spine: "", spineBlocks: [], frames,
   };
-  writeIndex(attId, meta, chunks, chunks.map((c) => c.text).join("\n"));
+  // Production order (F09): keyframes are on disk BEFORE the build commits the
+  // generation, because the publisher validates that meta.frames and frames/
+  // agree before the switch makes them visible.
   if (frames.length) {
     // FrameEntry.file is index-dir-relative (see nearestFrames in turn.ts).
     for (const f of frames) {
@@ -43,6 +45,7 @@ function seededIndex(attId: string, name: string, category: string, chunks: Inde
       fs.writeFileSync(p, Buffer.from(TINY_JPEG_B64, "base64"));
     }
   }
+  writeIndex(attId, meta, chunks, chunks.map((c) => c.text).join("\n"));
 }
 
 /** Seed the whole golden corpus (call AFTER removeIndex of every ATT_ID). */

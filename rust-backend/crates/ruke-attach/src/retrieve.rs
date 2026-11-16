@@ -28,6 +28,7 @@ use ruke_skills::jsstr::js_len;
 use crate::bm25::{bm25_scores, tokenize};
 use crate::format::fmt_stamp;
 use crate::router::QueryMode;
+use crate::vectors::query_dimension_ok;
 use crate::types::{IndexChunk, LoadedIndex};
 
 const RRF_K: f64 = 60.0;
@@ -88,6 +89,13 @@ pub struct Evidence {
     /// list) left unserved. The turn layer turns that number into an
     /// honest marker instead of letting "more exists, count unknown" stand.
     pub dropped: usize,
+    /// F09b/F14: what ACTUALLY ranked this evidence. "lexical_only" means the
+    /// stored embeddings were unusable (no stamp match, ragged dimensions, no
+    /// vectors at all), so the turn layer can say so honestly instead of
+    /// implying semantic retrieval ran. Read off the index's own assessment,
+    /// never guessed.
+    pub vector_mode: String,
+    pub vector_reason: Option<String>,
 }
 
 /// `RetrieveOpts extends RoutedQuery { range? }` — turn.rs builds this
@@ -99,6 +107,12 @@ pub struct RetrieveOpts {
     pub from_sec: Option<f64>,
     pub to_sec: Option<f64>,
     pub range: Option<(i64, i64)>,
+    /// F07: SEPARATE cue windows for a comparative ask ("compare the intro at
+    /// 0:30 with the recap at 9:00"). When non-empty and the mode is
+    /// time_range, each chunk is matched against every window instead of the
+    /// single [from_sec, to_sec] hull, so the evidence stays anchored to the
+    /// cues rather than everything in between them.
+    pub windows: Vec<(f64, f64)>,
     /// Chunk ids already shown to this conversation (I20 demote).
     pub demote: Vec<i64>,
     /// Char budget override; defaults to ATTACH_RETRIEVE_CHARS (I05 turn
@@ -141,10 +155,17 @@ impl OrderMap {
     }
 }
 
+/// F09b: a partial dot product over the SHORTER of two vectors is not a
+/// similarity, it is a truncated projection of two unrelated bases, and it
+/// silently ranks evidence. A length mismatch contributes NOTHING (mirror of
+/// TS `dot`, which returns -Infinity so the candidate is filtered out of the
+/// cosine channel rather than sorted by a NaN).
 fn dot(a: &[f64], b: &[f64]) -> f64 {
-    let n = a.len().min(b.len());
+    if a.len() != b.len() {
+        return f64::NEG_INFINITY;
+    }
     let mut s = 0.0f64;
-    for i in 0..n {
+    for i in 0..a.len() {
         s += a[i] * b[i];
     }
     s
@@ -194,7 +215,14 @@ fn cmp_diff(d: f64) -> Ordering {
 /// instead of the same top hits. They are only used when nothing else was
 /// picked at all — an honest repeat beats an empty answer. Every unserved
 /// candidate is counted in `dropped` for the turn's honest marker.
-fn pack(index: &LoadedIndex, priority: &OrderMap, budget: f64, demote: &[i64]) -> Evidence {
+fn pack(
+    index: &LoadedIndex,
+    priority: &OrderMap,
+    budget: f64,
+    demote: &[i64],
+    vector_mode: &str,
+    vector_reason: Option<String>,
+) -> Evidence {
     let chunks = &index.chunks;
     let len = chunks.len() as i64;
     let mut ordered: Vec<(i64, f64)> = priority
@@ -286,6 +314,8 @@ fn pack(index: &LoadedIndex, priority: &OrderMap, budget: f64, demote: &[i64]) -
         frame_ats,
         truncated,
         dropped,
+        vector_mode: vector_mode.to_string(),
+        vector_reason,
     }
 }
 
@@ -299,6 +329,11 @@ pub fn retrieve_evidence(
     // `opts.budget ?? BUDGET` (I05): the turn's remaining budget overrides
     // the env default when the caller passes one.
     let budget = opts.budget.unwrap_or_else(char_budget);
+    // F09b: the index decides whether its own vectors may be scored at all.
+    // An unstamped legacy index is assessed from the shapes actually stored
+    // (TS stores this on `LoadedIndex.vectors`; Rust recomputes the same pure
+    // function here, which is equivalent because nothing else writes it).
+    let assess = crate::vectors::assess_vectors(&index.meta, chunks);
 
     if opts.mode == QueryMode::Sequential {
         if let Some((from, to)) = opts.range {
@@ -310,8 +345,42 @@ pub fn retrieve_evidence(
                 }
                 i += 1;
             }
-            return pack(index, &p, budget, &opts.demote);
+            return pack(
+                index,
+                &p,
+                budget,
+                &opts.demote,
+                &assess.mode,
+                assess.reason.clone(),
+            );
         }
+    }
+
+    // F07: comparative asks carry SEPARATE cue windows (retrieve.ts:169-185).
+    // Insertion order stays chronological, exactly like the single-window
+    // branch below.
+    if opts.mode == QueryMode::TimeRange && !opts.windows.is_empty() {
+        let mut p = OrderMap::default();
+        for c in chunks {
+            let s0 = match c.start_sec {
+                Some(s) => s,
+                None => continue,
+            };
+            for &(f, t) in &opts.windows {
+                if c.end_sec.unwrap_or(s0) >= f && s0 <= t {
+                    p.set(c.i, 1.0);
+                    break;
+                }
+            }
+        }
+        return pack(
+            index,
+            &p,
+            budget,
+            &opts.demote,
+            &assess.mode,
+            assess.reason.clone(),
+        );
     }
 
     if opts.mode == QueryMode::TimeRange {
@@ -327,7 +396,14 @@ pub fn retrieve_evidence(
                     p.set(c.i, 1.0);
                 }
             }
-            return pack(index, &p, budget, &opts.demote);
+            return pack(
+                index,
+                &p,
+                budget,
+                &opts.demote,
+                &assess.mode,
+                assess.reason.clone(),
+            );
         }
     }
 
@@ -347,9 +423,30 @@ pub fn retrieve_evidence(
     // I21: an unavailable embedder leaves queryVec empty, and an all-zero
     // cosine channel would vote arbitrary chunk order into the fusion.
     // With no vector there is NO cosine channel: BM25 ranks on its own.
-    let has_vec = !query_vec.is_empty();
+    // F09b: the same honest rule covers an index whose stored vectors cannot
+    // be compared with THIS query vector (ragged, unstamped, a different
+    // model/dimension, or a non-finite query).
+    let mut stored_dims: Vec<usize> = chunks
+        .iter()
+        .filter(|c| !c.vec.is_empty())
+        .map(|c| c.vec.len())
+        .collect();
+    stored_dims.sort_unstable();
+    stored_dims.dedup();
+    let scored = query_dimension_ok(&assess, query_vec)
+        && stored_dims.iter().any(|d| *d == query_vec.len());
+    let has_vec = assess.mode == crate::vectors::MODE_HYBRID && scored;
+    // Only comparable chunks enter the cosine channel: a NEGATIVE_INFINITY from
+    // a length mismatch must never reach the comparator (NaN/-inf order is
+    // arbitrary, and an arbitrary order voted into RRF fakes a semantic rank).
+    let comparable: Vec<i64> = ids
+        .iter()
+        .enumerate()
+        .filter(|(pos, _)| cos[*pos].is_finite())
+        .map(|(_, id)| *id)
+        .collect();
     let by_cos: Vec<i64> = if has_vec {
-        let mut v = ids.clone();
+        let mut v = comparable;
         v.sort_by(|a, b| cmp_diff(num_at(&cos, *b) - num_at(&cos, *a)));
         v.truncate(cap);
         v
@@ -385,13 +482,28 @@ pub fn retrieve_evidence(
             }
         }
     }
-    pack(index, &priority, budget, &opts.demote)
+    let (vector_mode, vector_reason) = if has_vec {
+        (crate::vectors::MODE_HYBRID.to_string(), None)
+    } else if assess.mode == crate::vectors::MODE_HYBRID {
+        (
+            crate::vectors::MODE_LEXICAL_ONLY.to_string(),
+            Some(if query_vec.is_empty() {
+                "no query embedding available".to_string()
+            } else {
+                "query vector could not be compared with the stored vectors".to_string()
+            }),
+        )
+    } else {
+        (assess.mode.clone(), assess.reason.clone())
+    };
+    pack(index, &priority, budget, &opts.demote, &vector_mode, vector_reason)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{IndexChunk, IndexMeta};
+    use crate::types::{EmbedStamp, IndexChunk, IndexMeta};
+    use crate::vectors::{MODE_HYBRID, MODE_LEXICAL_ONLY};
 
     fn idx(chunks: Vec<IndexChunk>) -> LoadedIndex {
         LoadedIndex {
@@ -460,6 +572,40 @@ mod tests {
     }
 
     #[test]
+    fn comparative_windows_select_the_cues_not_the_hull_f07() {
+        // Uneven starts, all with an endSec, so nothing is ambiguous: the cue
+        // windows [0,210] and [360,720] must select both cue neighbourhoods and
+        // SKIP the material between them, which the single hull window
+        // [0,720] (fromSec/toSec of the same routed query) would swallow.
+        let starts = [0.0, 100.0, 250.0, 400.0, 500.0, 600.0];
+        let index = idx(
+            starts
+                .iter()
+                .enumerate()
+                .map(|(i, st)| ch(i as i64, Some(*st), Some(*st + 90.0), "clip", vec![]))
+                .collect(),
+        );
+        let w = RetrieveOpts {
+            mode: QueryMode::TimeRange,
+            from_sec: Some(0.0),
+            to_sec: Some(720.0),
+            windows: vec![(0.0, 210.0), (360.0, 720.0)],
+            ..Default::default()
+        };
+        let ev = retrieve_evidence(&index, "compare the intro with the recap", &[], &w);
+        assert_eq!(ev.chunk_idxs, [0, 1, 3, 4, 5]);
+
+        // Positive control: without windows the same routed query takes the
+        // whole hull, chunk 2 included. This is exactly the defect F07 fixes.
+        let hull = RetrieveOpts {
+            windows: Vec::new(),
+            ..w.clone()
+        };
+        let hv = retrieve_evidence(&index, "compare the intro with the recap", &[], &hull);
+        assert_eq!(hv.chunk_idxs, [0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
     fn budget_truncation_flag_and_join_cost() {
         // Three 3-char chunks, headers off. budget: 3, then 3+2=5, then 3+2.
         let index = idx(vec![
@@ -473,7 +619,10 @@ mod tests {
             p.set(0, 1.0);
             p.set(1, 1.0);
             p.set(2, 1.0);
-            pack(&index, &p, 10.0, &[])
+            // F09b: the mode is DERIVED from the index, exactly as the
+            // production path does it -- a test must not fabricate it.
+            let a = crate::vectors::assess_vectors(&index.meta, &index.chunks);
+            pack(&index, &p, 10.0, &[], &a.mode, a.reason.clone())
         };
         assert_eq!(ev.chunk_idxs, [0, 1]);
         assert!(ev.truncated);
@@ -548,7 +697,7 @@ mod tests {
         // non-empty queryVec is required to keep the quirk observable.
         // cos = [1, 0] positionally; sort comparator indexes cos BY ID:
         // cos[0]=1, cos[7]=NaN ⇒ NaN comparators read Equal (stable) ⇒ [7, 0].
-        let ev = retrieve_evidence(&index, "beta", &[1.0], &opts(QueryMode::Exhaustive));
+        let ev = retrieve_evidence(&index, "beta", &[1.0, 0.0], &opts(QueryMode::Exhaustive));
         // bm is POSITION-indexed but filtered BY chunk ID: bm[7] is OOB
         // (undefined ⇒ not > 0) and bm[0] is position 0's score (0.0 ⇒
         // not > 0, the hit lives at position 1) ⇒ by_bm is EMPTY.
@@ -561,6 +710,95 @@ mod tests {
         assert_eq!(ev.chunk_idxs, [0]);
         assert_eq!(ev.text, "alpha term");
         assert!(ev.frame_ats.is_empty());
+        // F09b: the query dimension matches the stamped/stored shape, so the
+        // cosine channel is legitimately ON and the mode reports "hybrid".
+        assert_eq!(ev.vector_mode, MODE_HYBRID);
+        assert!(ev.vector_reason.is_none());
+    }
+
+    #[test]
+    fn mismatched_query_dimension_honestly_disables_cosine_f09b() {
+        // Same index, a 1-DIM query. Stored dims are {2}, so any product would
+        // be a partial projection over two unrelated bases: the cosine channel
+        // is OFF, the mode says why, and no evidence is invented from it.
+        // (No BM25 hit survives the id-vs-position filter either, so the
+        // evidence is empty in BOTH languages -- not a silent partial score.)
+        let index = idx(vec![
+            ch(7, None, None, "alpha term", vec![1.0, 0.0]),
+            ch(0, None, None, "beta", vec![0.0, 1.0]),
+        ]);
+        let ev = retrieve_evidence(&index, "beta", &[1.0], &opts(QueryMode::Exhaustive));
+        assert!(ev.text.is_empty());
+        assert!(ev.chunk_idxs.is_empty());
+        assert_eq!(ev.vector_mode, MODE_LEXICAL_ONLY);
+        assert_eq!(
+            ev.vector_reason.as_deref(),
+            Some("query vector could not be compared with the stored vectors")
+        );
+    }
+
+    #[test]
+    fn ragged_index_never_scores_vectors_f09b() {
+        // Mixed stored dims (2, 2, 3) => no single comparable base, so the
+        // lexical channel decides. A 3-dim query must not win through a 2-term
+        // partial product. The tight budget exposes the RANK (chunkIdxs itself
+        // is chronological, not rank order).
+        let index = idx(vec![
+            ch(0, None, None, "zebra apples banana", vec![1.0, 0.0]),
+            ch(1, None, None, "banana zebra cloud", vec![0.0, 1.0]),
+            ch(2, None, None, "apple apple apple", vec![0.0, 0.0, 1.0]),
+        ]);
+        let ev = retrieve_evidence(
+            &index,
+            "apple",
+            &[1.0, 0.0, 0.0],
+            &RetrieveOpts {
+                mode: QueryMode::PointQa,
+                budget: Some(25.0),
+                ..Default::default()
+            },
+        );
+        assert_eq!(ev.chunk_idxs, [2], "cosine must not fake a semantic rank here");
+        assert_eq!(ev.vector_mode, MODE_LEXICAL_ONLY);
+        assert_eq!(
+            ev.vector_reason.as_deref(),
+            Some("ragged vector dimensions (2, 3)")
+        );
+    }
+
+    #[test]
+    fn stamped_consistent_index_ranks_on_cosine_f09b() {
+        // A stamped, shape-consistent index with NO lexical hit: the cosine
+        // channel ranks on its own and the mode reports "hybrid" honestly.
+        let index = LoadedIndex {
+            meta: IndexMeta {
+                embed: Some(EmbedStamp {
+                    model: Some("test-model".to_string()),
+                    revision: Some("rev".to_string()),
+                    dim: Some(2),
+                    normalized: Some(true),
+                    fingerprint: Some("fp".to_string()),
+                }),
+                ..Default::default()
+            },
+            chunks: vec![
+                ch(0, None, None, "alpha beta gamma delta", vec![0.0, 1.0]),
+                ch(1, None, None, "zeta eta theta iota k", vec![1.0, 0.0]),
+            ],
+        };
+        let ev = retrieve_evidence(
+            &index,
+            "qqq",
+            &[1.0, 0.0],
+            &RetrieveOpts {
+                mode: QueryMode::Exhaustive,
+                budget: Some(30.0),
+                ..Default::default()
+            },
+        );
+        assert_eq!(ev.chunk_idxs, [1], "cosine-only ranking");
+        assert_eq!(ev.vector_mode, MODE_HYBRID);
+        assert!(ev.vector_reason.is_none());
     }
 
     #[test]
@@ -569,6 +807,9 @@ mod tests {
         assert!(ev.text.is_empty());
         assert!(ev.chunk_idxs.is_empty());
         assert!(!ev.truncated);
+        // F09b: "nothing stored" is a reportable quality mode, not a pass.
+        assert_eq!(ev.vector_mode, MODE_LEXICAL_ONLY);
+        assert_eq!(ev.vector_reason.as_deref(), Some("no vectors stored"));
     }
 
     #[test]

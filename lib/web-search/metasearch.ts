@@ -27,7 +27,7 @@ import pLimit from "p-limit";
 import { parseHTML } from "linkedom";
 import type { RawSearchResult, RankedResult } from "./types";
 import { FRAGMENT_ROUTE_RE } from "./types";
-import { splitCoreWords } from "./normalization";
+import { splitCoreWords, wordIdentityForms, foldIdentityToken } from "./normalization";
 export type { RankedResult, RawSearchResult } from "./types";
 import { fetchUrl, isSafeUrl } from "./net";
 import { scrubQuerySecrets } from "./ssrf";
@@ -236,7 +236,7 @@ export function queryCoreTokens(query: string): string[] {
  * "next.js" → "nextjs", "next-js" → "nextjs", "node.js" → "nodejs"
  */
 function normalizeToken(token: string): string {
-  return token.toLowerCase().replace(/[.\-_]/g, "");
+  return foldIdentityToken(token);
 }
 
 /**
@@ -257,17 +257,15 @@ function normalizeToken(token: string): string {
 // how well the query side normalized. The 2026-11-04 reranker audit caught
 // exactly this trap; ASCII bytes are byte-identical (\p{M} matches nothing
 // in ASCII).
-const WORD_SHAPE_RE = /[\p{L}\p{N}\p{M}]+(?:[._\-'+#][\p{L}\p{N}\p{M}]+)*/gu;
+// F05 (2026-11-15): the mention forms now come from the SHARED identity layer
+// (lib/web-search/normalization.ts), so the query side and the text side can
+// never drift apart. What changed: the "+"/"#" modifier run is part of the
+// identity and is never folded away, so a "C++" page can no longer answer a
+// "C" question (or the reverse) just because both used to reduce to "c".
 function mentionTokenSet(text: string): Set<string> {
-  const out = new Set<string>();
-  for (const m of text.matchAll(WORD_SHAPE_RE)) {
-    const raw = m[0].toLowerCase();
-    out.add(raw);
-    for (const part of raw.split(/[._\-'+#]+/)) if (part) out.add(part);
-    out.add(raw.replace(/[._\-'+#]/g, ""));
-  }
-  return out;
+  return wordIdentityForms(text);
 }
+
 
 /**
  * Return true when `text` contains at least 40% of the query's core
@@ -319,7 +317,7 @@ export function countLexicallyRelevant(
 ): number {
   const core = queryCoreTokens(anchorText);
   if (core.length === 0) return 0;
-  const normTokens = core.map((t) => t.toLowerCase().replace(/[.\-_]/g, ""));
+  const normTokens = core.map(foldIdentityToken);
   const pctFloor = Math.ceil(core.length * 0.4);
   const absFloor = core.length >= 3 ? 2 : 1;
   const minHits = Math.min(pctFloor, absFloor === 1 ? 1 : 2) || absFloor;

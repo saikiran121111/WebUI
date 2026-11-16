@@ -41,13 +41,55 @@ param(
     # lock record (0 disables the heartbeat child).
     [switch]$LockInfo,
     [switch]$BreakStaleLock,
-    [int]$HeartbeatSeconds = 30
+    [int]$HeartbeatSeconds = 30,
+    # Brief section 10 isolation seam: which conversation store the app under
+    # test uses. "" = the launcher's own e2e store (see below). An already
+    # exported WEBUI_DATA_DIR always wins.
+    [string]$DataDir = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 Import-Module (Join-Path $PSScriptRoot "playwright-lock.psm1")
+
+# ── Brief section 10: "Use isolated test data. Never modify real user
+# conversations/uploads during tests." ────────────────────────────────────
+# Both persistence resolvers - lib/persistence/dataRoot.ts (TS) and
+# rust-backend/crates/ruke-server/src/main.rs (Rust) - take the conversation
+# store from WEBUI_DATA_DIR and otherwise fall back to
+# <home>/.local-intelligence/conversations. A live-model e2e run drives the
+# REAL product, so with no override it writes into the user's actual chat
+# store: measured on 2026-11-16, the CRUD/recents specs seed, rename, pin,
+# archive, group and bulk-delete conversations there (14 store files touched
+# in one Stage-B run; no user chat was deleted, because every destructive
+# spec addresses only its own seeded unique title, but that is luck, not a
+# gate). Model configuration lives in project-root settings.json, NOT in the
+# store, so pointing the store somewhere else does not disable the live model.
+function Get-E2EDataStore {
+    param([string]$Explicit)
+    $override = (Get-Item Env:WEBUI_DATA_DIR -ErrorAction SilentlyContinue).Value
+    if ($override -and $override.Trim()) {
+        return [pscustomobject]@{ Source = "inherited WEBUI_DATA_DIR"; Path = $override.Trim() }
+    }
+    if ($Explicit -and $Explicit.Trim()) {
+        return [pscustomobject]@{ Source = "-DataDir"; Path = $Explicit.Trim() }
+    }
+    return [pscustomobject]@{ Source = "launcher default"; Path = (Join-Path $root ".data\e2e-store") }
+}
+
+$store = Get-E2EDataStore -Explicit $DataDir
+# PS 5.1 has no ?? operator, so resolve the home explicitly.
+$homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { "" }
+$realStore = if ($homeDir) { Join-Path $homeDir ".local-intelligence\conversations" } else { "" }
+if ($realStore -and ($store.Path -replace '\\', '/') -eq ($realStore -replace '\\', '/')) {
+    throw "refusing to run e2e against the real user conversation store: $($store.Path)"
+}
+# -LockInfo is a read-only inspection: it must not create anything.
+# Nothing is created or exported yet: -LockInfo can exit before any run starts,
+# and a read-only inspection must not create a store. The store is materialised
+# only after this script has actually acquired the lock (see below).
+
 
 function Test-TcpPort([string]$HostName, [int]$Port) {
     $client = New-Object System.Net.Sockets.TcpClient
@@ -111,6 +153,13 @@ try {
 }
 Write-Output ("Playwright lock acquired: $lockPath (runId " + $lock.RunId + ")")
 
+# From here this script is definitely going to run tests, so the isolated
+# conversation store becomes real. Done BEFORE any app child starts, so both the
+# Rust server and Next inherit the same WEBUI_DATA_DIR.
+New-Item -ItemType Directory -Force -Path $store.Path | Out-Null
+$env:WEBUI_DATA_DIR = $store.Path
+Write-Output "e2e conversation store isolated: $($store.Path) (source: $($store.Source))"
+
 # Heartbeat child: refreshes the lock's heartbeat while this script runs, so
 # §1.2 waiters can tell "alive and grinding" from "hung". Killed in finally.
 $hbProc = $null
@@ -153,6 +202,10 @@ try {
     # ── app: Next :3000 (supervisor also owns Rust :3101) ────────────────
     if (Test-HttpUp "http://localhost:3000") {
         Write-Output "Reusing dev app already answering on :3000"
+        # The reused server was started by someone else, so it may be using a
+        # different (possibly non-isolated) store. Say so instead of implying
+        # the isolation above applied to it.
+        Write-Warning "Reused app was NOT started by this script: its conversation store is whatever its own environment says. For a guaranteed-isolated live run, stop that app first (or pass -DataDir and start it yourself)."
     } else {
         # Supervisor stdout/err (ruke-server tracing rides stderr) are
         # captured so model-round rounds/latency census survives the run

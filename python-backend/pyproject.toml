@@ -1,0 +1,31 @@
+[project]
+name = "ruke-ml"
+version = "0.1.0"
+description = "Ruke capability backend: document/OCR/retrieval/speech/video workers behind a lightweight stdlib supervisor."
+requires-python = ">=3.11,<3.13"
+# The supervisor and every contract it speaks are stdlib-only by design:
+# startup must not import torch/paddle/transformers or download a model.
+dependencies = []
+
+[project.optional-dependencies]
+# Declared, NOT installed and NOT locked. Each family is installed only after the
+# quality gate in docs/overnight/SPEC.md section 7 selects it, because "multilingual"
+# on a model card is not evidence of quality on this machine (Telugu/Hindi in particular),
+# and CUDA support on this host is unproven. Pin + lock per family at install time.
+embeddings = ["sentence-transformers>=3,<4"]
+documents = ["docling>=2,<3"]
+speech = ["qwen-asr", "faster-whisper>=1,<2"]
+diarization = ["pyannote.audio>=3,<4"]
+dev = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ruke_ml*"]
+
+[tool.ruke]
+# Heavy families are gated on measured quality, never on a model card.
+# status values: not_installed | evaluation_required | pinned | license_acceptance_required
+evaluation_policy = "measure-before-pinning"

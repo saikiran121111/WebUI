@@ -66,6 +66,26 @@ pub struct IndexMeta {
     pub spine_blocks: Vec<SpineBlock>,
     #[serde(default)]
     pub frames: Vec<FrameEntry>,
+    /// Embedding provenance (F09b). Absent for indexes written before the
+    /// stamp existed, in which case the STORED shapes decide usability instead.
+    /// Read tolerantly (Option per field) exactly like every other field here.
+    #[serde(default)]
+    pub embed: Option<EmbedStamp>,
+}
+
+/// `EmbedStamp` - provenance of the vectors an index stores. Written by the
+/// Node builder (`lib/server/attachindex/build.ts`); a vector is comparable
+/// only with vectors from the same model/pooling/normalization pipeline, so
+/// the reader uses this to REFUSE a cross-pipeline dot product rather than
+/// silently scoring one.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EmbedStamp {
+    pub model: Option<String>,
+    pub revision: Option<String>,
+    pub dim: Option<i64>,
+    pub normalized: Option<bool>,
+    pub fingerprint: Option<String>,
 }
 
 /// `LoadedIndex` — meta + parsed chunks (assembled by the store, never a

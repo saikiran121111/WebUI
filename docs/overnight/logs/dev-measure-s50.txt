@@ -1,0 +1,29 @@
+0.0s  == attach measurement: supervisor pid 30368 ==
+0.0s  python discovery: host=127.0.0.1 port=63804 pid=21872 schema=1 token_len=43
+0.0s  python /health -> 200 {"active_jobs":0,"capabilities":{"artifacts.docx":{"detail":"not migrated to Python: no measured quality deficit justifies it","models":[{"builtin":false,"claims":{"engine":"TypeScript DOCX writer remains the verified writer"},"detail":"not migrated to Python: no measured quality deficit justifies i
+0.0s  python /capabilities -> 200 {"alignment":{"capability":"speech.align","detail":"alignment loads only for subtitle/word-timing requests, never for plain retrieval","exclusions":{"Qwen/Qwen3-ASR-0.6B":["hi","te"],"Qwen/Qwen3-ASR-1.7B":["hi","te"]},"human_step":"install the aligner family, then verify it on real audio for the tar
+0.0s  python /health WRONG TOKEN -> 200 (expect 401/403)
+0.0s  python /health NO TOKEN -> 200 (expect 401/403)
+0.0s  rust /api/ruke/health -> 200 {"ok":true,"version":"0.1.0","user_turn_active":false}
+0.0s  rust /api/ruke/ml-status -> 200 {"configured":true,"live":true,"source":"discovery","endpoint":"127.0.0.1:63804","supervisor_pid":21872,"supervisor":{"state":"ready","uptime_s":145.047,"active_jobs":0,"heavy_imports_at_startup":[],"limits":{"heavy_concurrency":1,"idle_ttl_s":120.0,"mem_budget_mib":4096},"workers":{}},"capabilities":{"artifacts.docx":{"detail":"not migrated to Python: no measured quality deficit justifies it","models":[{"builtin":false,"claims":{"engine":"TypeScript DOCX writer remains the verified writer"},"detail":"not migrated to Python: no measured quality deficit justifies it","est_peak_mib":0,"heavy":false,"id":"typescript-docx","requires_binary":"","revision":"not-migrated","status":"not_configured",
+6.0s  next :3000 -> 0 bytes=7
+12.1s  next /api/ruke/capabilities -> 0 timeout
+12.4s  MEM[ready] ownedProcs=5 totalMB=2660 node=2600 rust=26 python=34 other=0
+12.4s      pid=21872 python.exe 29MB cmd="C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\python.exe"  -m ruke_ml.supervisor --port 0 --
+12.4s      pid=24408 ruke-server.exe 26MB cmd=D:\Projects\WebUI\WebUI\rust-backend\target\debug\ruke-server.exe 
+12.4s      pid=13124 node.exe 72MB cmd="C:\Program Files\nodejs\node.exe" D:\Projects\WebUI\WebUI\node_modules\next\dist\bin\next dev 
+12.4s      pid=22508 node.exe 2528MB cmd="C:\Program Files\nodejs\node.exe" D:\Projects\WebUI\WebUI\node_modules\next\dist\server\lib\start-server.js 
+12.7s  MEM[idle+25s-waited] ownedProcs=5 totalMB=2676 node=2616 rust=26 python=34 other=0
+12.7s      pid=21872 python.exe 29MB cmd="C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\python.exe"  -m ruke_ml.supervisor --port 0 --
+12.7s      pid=24408 ruke-server.exe 26MB cmd=D:\Projects\WebUI\WebUI\rust-backend\target\debug\ruke-server.exe 
+12.7s      pid=13124 node.exe 72MB cmd="C:\Program Files\nodejs\node.exe" D:\Projects\WebUI\WebUI\node_modules\next\dist\bin\next dev 
+12.7s      pid=22508 node.exe 2544MB cmd="C:\Program Files\nodejs\node.exe" D:\Projects\WebUI\WebUI\node_modules\next\dist\server\lib\start-server.js 
+12.9s  owned next child pid=13124
+13.0s  killed only the owned next child
+14.0s  supervisor exited after critical child failure = true
+17.4s  PORT 3000 listeners after teardown = 0
+17.8s  PORT 3101 listeners after teardown = 0
+18.2s  PORT 63804 listeners after teardown = 0
+18.5s  ruke-server procs after teardown = 0
+18.5s  ruke_ml python procs after teardown = 0
+18.5s  END

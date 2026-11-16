@@ -1,0 +1,45 @@
+﻿F07 TS gate - session 31 (2026-11-15, local branch, HEAD 002b969 + uncommitted work)
+
+Cause of the one remaining F07 gate failure (attach-intent-f07.test.ts:215
+"rebuilding an index clears every conversation-scoped key for it"): the shown
+ledger is ONE root aggregate (.data/attach-index/.shown.json). writeShown and
+shownDelete did read-modify-write with no cross-process serialization, so a
+concurrent writer (vitest worker / Next worker) re-saved a map it had read
+BEFORE the delete, resurrecting deleted keys and silently dropping the other
+writer-scope keys. The defect was pre-existing (attach-turn-budget ledger pins
+had the same latent exposure); F07 v2 made it observable.
+
+Mechanism fix (lib/server/attachindex/store.ts): cross-process mutex for the
+ledger read-modify-write.
+  - SHOWN_LOCK = <file>.lock directory; mkdir is atomic across processes.
+  - owner token file inside the lock; only the owner releases (foreign locks are
+    never deleted by a non-owner).
+  - stale break only on proof: lock dir mtime older than SHOWN_LOCK_STALE_MS
+    (2000 ms) while every real critical section is a couple of sync fs calls;
+    wait bound SHOWN_LOCK_WAIT_MS = 500 ms.
+  - the map is re-read INSIDE the lock, so each mutation rebases on the latest
+    file (no lost updates from other writers).
+  - readers stay lock-free: durableWrite = unique temp file + rename, so a
+    reader sees the whole old map or the whole new map.
+  - lock contention/wedge falls back to a rebase-without-mutex merge and never
+    throws: the ledger stays an optimization, never a turn failure.
+  - writeShown/shownDelete now mutate through withShownLock(); no file added
+    inside any attachment dir, .shown.json stays a ROOT aggregate (store-fixture
+    golden file-set contract preserved).
+
+Commands + exit codes
+  npx tsc --noEmit --incremental false                         exit 0
+  npx vitest run __tests__/server/attach-intent-f07.test.ts    exit 0  22/22
+  9-file F07 gate (run 1)                                     exit 0  9 files, 86 tests
+  9-file F07 gate (run 2)                                     exit 0  9 files, 86 tests
+  9-file F07 gate (run 3, same as previous session record)    exit 0
+  gate file list: attach-index, attach-retrieval-integration,
+  attach-boundary-heldout, attach-router-phrase, attach-turn-budget,
+  attach-intent-f07, rust-golden/attachments, rust-golden/store-fixture,
+  hardening-payload
+Before the fix the same gate was 85 passed | 1 failed, exit 1 (single-file run
+passed 22/22, which is what isolated the concurrency cause).
+
+Status: F07 TS = implemented + offline verified (3x green, stable). Rust mirror
+still pending this session. Live/Strata validation = not_run (blocked until the
+Playwright-exclusive stage).

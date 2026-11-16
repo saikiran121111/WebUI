@@ -1,0 +1,435 @@
+{
+  "aggregate": {
+    "abstained_cases": 6,
+    "cases_scored": 38,
+    "denominator": "38 frozen cases across 7 families; the 7 gated capabilities are NOT part of this denominator",
+    "families_passed": 7,
+    "families_run": 7,
+    "gated_cases_not_run": 7,
+    "overall_pass": true
+  },
+  "corpus": {
+    "chunks": 29,
+    "documents": 29,
+    "unit_of_relevance": "document"
+  },
+  "families": [
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 2,
+        "mrr": 7,
+        "ndcg_at_5": 7,
+        "precision_at_5": 7,
+        "recall_at_5": 7
+      },
+      "description": "Symbol-bearing identifiers and versions must not collapse into shorter tokens.",
+      "failures": [],
+      "floor": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 0.6,
+        "recall_at_5": 0.9
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 7,
+      "name": "symbol_identifiers",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 4,
+        "mrr": 5,
+        "ndcg_at_5": 5,
+        "precision_at_5": 5,
+        "recall_at_5": 5
+      },
+      "description": "Same surface words, different subject: a lexical hit is not relevance.",
+      "failures": [],
+      "floor": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 0.6,
+        "recall_at_5": 0.9
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 5,
+      "name": "lexical_hard_negatives",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 1,
+        "mrr": 4,
+        "ndcg_at_5": 4,
+        "precision_at_5": 4,
+        "recall_at_5": 4
+      },
+      "description": "Rare names, numbers, URLs and codes survive verbatim.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.75,
+        "recall_at_5": 1.0
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 4,
+      "name": "exact_identifiers",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 1,
+        "mrr": 6,
+        "ndcg_at_5": 6,
+        "precision_at_5": 6,
+        "recall_at_5": 6
+      },
+      "description": "Han, kana and Indic scripts must be searchable at all, not one opaque run.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.6,
+        "recall_at_5": 0.8
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 6,
+      "name": "scripts_without_spaces",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "mrr": 5,
+        "ndcg_at_5": 5,
+        "precision_at_5": 5,
+        "recall_at_5": 5
+      },
+      "description": "A vowelled query must match a document typed without vowel marks.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.75,
+        "recall_at_5": 1.0
+      },
+      "floor_misses": [],
+      "measured": {
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 5,
+      "name": "vowels_and_diacritics",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "forbidden_top1_rate": 1,
+        "mrr": 5,
+        "ndcg_at_5": 5,
+        "precision_at_5": 5,
+        "recall_at_5": 5
+      },
+      "description": "Ordinary phrased questions, terse or polite, must still retrieve.",
+      "failures": [],
+      "floor": {
+        "mrr": 0.6,
+        "recall_at_5": 0.8
+      },
+      "floor_misses": [],
+      "measured": {
+        "forbidden_top1_rate": 0.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "precision_at_5": 0.2,
+        "recall_at_5": 1.0
+      },
+      "n": 5,
+      "name": "european_natural_questions",
+      "status": "passed"
+    },
+    {
+      "case_count_with_mean_denominators": {
+        "abstention_accuracy": 6
+      },
+      "description": "Nothing relevant exists: the run must abstain instead of presenting top-K as evidence.",
+      "failures": [],
+      "floor": {
+        "abstention_accuracy": 1.0
+      },
+      "floor_misses": [],
+      "measured": {
+        "abstention_accuracy": 1.0
+      },
+      "n": 6,
+      "name": "abstention_no_answer_in_corpus",
+      "status": "passed"
+    }
+  ],
+  "gated_not_run": [
+    {
+      "capability": "embeddings",
+      "counted_in_denominator": false,
+      "detail": {
+        "builtin": false,
+        "claims": {
+          "dim": 1024,
+          "languages": "documented multilingual",
+          "pooling": "documented last-token + normalize"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "Qwen/Qwen3-Embedding-0.6B",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "multilingual_quality_on_this_host": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "name": "neural_embedding",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "recall@k / nDCG against the same frozen families with a learned embedder"
+    },
+    {
+      "capability": "rerank",
+      "counted_in_denominator": false,
+      "detail": {
+        "builtin": false,
+        "claims": {
+          "protocol": "documented generative/instruct scoring"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "Qwen/Qwen3-Reranker-0.6B",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "quality_on_this_host": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "Qwen/Qwen3-Reranker-0.6B",
+      "name": "neural_reranking",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "answer-bearing passage recall after neural reordering of the same candidates"
+    },
+    {
+      "capability": "documents.ocr",
+      "counted_in_denominator": false,
+      "detail": {
+        "builtin": false,
+        "claims": {
+          "ocr": "documented"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "PaddleOCR-VL",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "hi": false,
+          "te": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "PaddleOCR-VL",
+      "name": "document_layout_ocr",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "per-page OCR CER, reading order and table structure on scanned/mixed PDFs"
+    },
+    {
+      "capability": "speech.asr",
+      "counted_in_denominator": false,
+      "detail": {
+        "builtin": false,
+        "claims": {
+          "languages": "registry multilingual, includes te and hi"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "openai/whisper-large-v3",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "en": false,
+          "hi": false,
+          "te": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "openai/whisper-large-v3",
+      "name": "asr_multilingual",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "WER/CER per language including Telugu and Hindi on real human recordings"
+    },
+    {
+      "capability": "speech.diarize",
+      "counted_in_denominator": false,
+      "detail": {
+        "builtin": false,
+        "claims": {
+          "speakers": "anonymous labels only"
+        },
+        "detail": "provider requires an access token and licence acceptance; startup must not fail",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "pyannote/speaker-diarization-community-1",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "license_acceptance_required",
+        "verified": {}
+      },
+      "install_status": "license_acceptance_required",
+      "model": "pyannote/speaker-diarization-community-1",
+      "name": "speaker_diarization",
+      "reason": "license_acceptance_required",
+      "status": "not_run",
+      "would_measure": "DER on overlapping speech (license acceptance also required)"
+    },
+    {
+      "capability": "speech.align",
+      "counted_in_denominator": false,
+      "detail": {
+        "builtin": false,
+        "claims": {
+          "languages": "as published",
+          "output": "word/character timing"
+        },
+        "detail": "candidate not installed; the quality gate selects it before pinning",
+        "est_peak_mib": 0,
+        "heavy": true,
+        "id": "Qwen/Qwen3-ForcedAligner-0.6B",
+        "requires_binary": "",
+        "revision": "unpinned",
+        "status": "evaluation_required",
+        "verified": {
+          "en": false,
+          "hi": false,
+          "te": false
+        }
+      },
+      "install_status": "evaluation_required",
+      "model": "Qwen/Qwen3-ForcedAligner-0.6B",
+      "name": "forced_alignment",
+      "reason": "evaluation_required",
+      "status": "not_run",
+      "would_measure": "word-level timestamp error against hand-marked intervals"
+    },
+    {
+      "capability": "video.timeline",
+      "counted_in_denominator": false,
+      "detail": {
+        "builtin": true,
+        "claims": {
+          "evidence": "atomic timeline record with per-stage coverage",
+          "timing": "source timestamps from the container, never frame_index/nominal_fps"
+        },
+        "detail": "implemented here but needs the external program 'ffmpeg', which is not on PATH on this host",
+        "est_peak_mib": 0,
+        "heavy": false,
+        "id": "ruke-video-timeline",
+        "requires_binary": "ffmpeg",
+        "revision": "builtin-v1",
+        "status": "not_installed",
+        "verified": {}
+      },
+      "install_status": "not_installed",
+      "model": "ruke-video-timeline",
+      "name": "temporal_video_localisation",
+      "reason": "not_installed",
+      "status": "not_run",
+      "would_measure": "interval hit rate and mean absolute error on a human-labelled long video"
+    }
+  ],
+  "generated_utc": "2026-11-15T23:13:51Z",
+  "languages": {
+    "ar": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 3,
+      "recall_at_5": 1.0
+    },
+    "en": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 22,
+      "recall_at_5": 1.0
+    },
+    "es": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "fr": {
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "hi": {
+      "mrr": 1.0,
+      "n": 1,
+      "recall_at_5": 1.0
+    },
+    "ja": {
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "te": {
+      "abstention_accuracy": 1.0,
+      "mrr": 1.0,
+      "n": 3,
+      "recall_at_5": 1.0
+    },
+    "vi": {
+      "mrr": 1.0,
+      "n": 2,
+      "recall_at_5": 1.0
+    },
+    "zh": {
+      "mrr": 1.0,
+      "n": 1,
+      "recall_at_5": 1.0
+    }
+  },
+  "method": "bm25 + hashed-lexical cosine, reciprocal-rank fusion, corpus-relative abstention",
+  "suite": "python-retrieval-holdout-v1 (frozen 2026-11-16, hand-authored)",
+  "top_k": 5
+}

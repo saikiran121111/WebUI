@@ -304,7 +304,13 @@ describe("store", () => {
   });
 
   it("round-trips meta, chunks and notes", () => {
+    // A published generation must be self-consistent: every keyframe meta
+    // declares has to be on disk (F09), and production writes frames BEFORE the
+    // build commits them, so the fixture does the same.
+    fs.mkdirSync(path.join(indexDir(attId), "frames"), { recursive: true });
+    fs.writeFileSync(path.join(indexDir(attId), "frames", "f_00001.jpg"), Buffer.from("jpeg-bytes"));
     writeIndex(attId, meta, chunks, "first chunksecond chunk");
+    expect(fs.existsSync(path.join(indexDir(attId), "frames", "f_00001.jpg"))).toBe(true);
     expect(hasIndex(attId)).toBe(true);
     const loaded = readIndex(attId)!;
     expect(loaded.meta.spine).toBe("spine text");
@@ -321,6 +327,36 @@ describe("store", () => {
     removeIndex(attId);
     expect(hasIndex(attId)).toBe(false);
     expect(readIndex(attId)).toBeNull();
+  });
+
+  it("refuses to publish a generation whose declared keyframe is missing (F09)", () => {
+    fs.mkdirSync(path.join(indexDir(attId), "frames"), { recursive: true });
+    fs.writeFileSync(path.join(indexDir(attId), "frames", "f_good.jpg"), Buffer.from("jpeg"));
+    writeIndex(attId, { ...meta, frames: [{ at: 120, file: "frames/f_good.jpg" }] }, chunks, "good generation");
+    const before = fs.readFileSync(path.join(indexDir(attId), "full.txt"), "utf8");
+    expect(readIndex(attId)!.chunks.length).toBe(2);
+
+    expect(() =>
+      writeIndex(attId, { ...meta, frames: [{ at: 1, file: "frames/never_written.jpg" }] }, chunks, "torn attempt"),
+    ).toThrow(/never_written.jpg is not on disk/);
+
+    // The failed attempt neither destroys nor mixes the published generation.
+    expect(hasIndex(attId)).toBe(true);
+    expect(fs.readFileSync(path.join(indexDir(attId), "full.txt"), "utf8")).toBe(before);
+    expect(fs.existsSync(path.join(indexDir(attId), "frames", "f_good.jpg"))).toBe(true);
+    expect(fs.existsSync(path.join(indexDir(attId), "full.txt.tmp"))).toBe(false);
+    // Nothing unpublished is left visible under the attachment id.
+    expect(fs.readdirSync(indexDir(attId)).sort()).toEqual(["chunks.jsonl", "frames", "full.txt", "meta.json"]);
+    expect(fs.readdirSync(path.join(indexDir(attId), "frames"))).toEqual(["f_good.jpg"]);
+  });
+
+  it("rejects a frame path that escapes the index dir", () => {
+    expect(() =>
+      writeIndex(attId, { ...meta, frames: [{ at: 1, file: "../escape.jpg" }] }, chunks, "text"),
+    ).toThrow(/escapes the index dir/);
+    expect(() =>
+      writeIndex(attId, { ...meta, frames: [{ at: 1, file: "C:\\Windows\\evil.jpg" }] }, chunks, "text"),
+    ).toThrow(/escapes the index dir/);
   });
 
   it("removeIndex tolerates unknown ids", () => {

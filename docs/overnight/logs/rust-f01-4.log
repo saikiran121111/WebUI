@@ -1,0 +1,33 @@
+﻿cargo :    Compiling ruke-attach v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-attach)
+At line:2 char:42
++ ... st-backend; cargo test -p ruke-server --target-dir D:\Projects\WebUI\ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling ru...es\ruke-attach):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling ruke-server v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.81s
+     Running tests\attachment_replay.rs (D:\Projects\WebUI\target-ci\debug\deps\attachment_replay-e98a7221a03a8427.exe)
+
+running 6 tests
+test attachment_05_video_frames_with_skill_shift ... ok
+test attachment_04_video_time_range_keyframes_land ... ok
+test attachment_02_missing_index_honest_block ... ok
+test attachment_03_empty_index_zero_evidence ... ok
+test attachment_01_retrieval_success ... ok
+test attachment_06_legacy_parity ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests\store_compat.rs (D:\Projects\WebUI\target-ci\debug\deps\store_compat-a46815927762f982.exe)
+
+running 6 tests
+test fixture_04_video_time_range_block_matches_ts ... ok
+test fixture_05_shift_correct_path_lands_block_and_keyframe ... ok
+test fixture_02_missing_index_honest_block_matches_ts ... ok
+test node_written_meta_and_chunks_parse_field_by_field ... ok
+test fixture_03_empty_index_injects_nothing ... ok
+test fixture_01_rust_block_is_ts_block_byte_exact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

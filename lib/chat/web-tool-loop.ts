@@ -62,6 +62,14 @@ import {
   type WebToolDepth,
 } from "../web-search/tools";
 import { retrievalModeForFreshness } from "../web-search/types";
+// F13/P7 (brief part 8): media evidence must be able to drive the ACTUAL
+// search-tool arguments, not only the attachment text block. Deriving the
+// clues HERE covers BOTH transports, because tool execution is this TS layer
+// (the Rust loop asks the same create-RPC) - one implementation, no forked law.
+import {
+  collectTurnAttachmentIds,
+  hintsForAttachments,
+} from "../server/attachindex/media-hints";
 // Repair (brief 2026-11-05 §5): follow-up turns rehydrate from the WS05
 // research journal INSIDE the loop — the loop is now the only research
 // entry for chat turns, so state retention lives here, not behind a gate.
@@ -104,7 +112,8 @@ export const WEB_TOOL_GUIDANCE =
   "- If the tool budget runs out, answer from the evidence you have and state plainly what is still missing. A budget_exhausted or failure envelope is not permission to guess.\n" +
   "- If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.\n" +
   "- A failed, blocked or empty lookup is NOT evidence that the fact does not exist: never tell the human it does not exist based on a lookup that failed — say what you searched and what you could not retrieve.\n" +
-  "- Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.";
+  "- Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.\n" +
+  "- Scope: these laws govern claims that genuinely need external or current evidence. They do not make this turn a research task, and they never require you to mention searching, sources, tools or capabilities in the answer.";
 
 // ⇔ Rust `WEB_TOOL_FINAL_DIRECTIVE`.
 export const WEB_TOOL_FINAL_DIRECTIVE =
@@ -558,6 +567,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       // replays the SQLite page cache. ⇔ web-tools-rpc create payload.
       retrievalModeForFreshness(opts.searchGateMeta?.freshness ?? "any") === "live_required",
       conversation,
+      // F13/P7: bounded, provenance-labelled clues from the stored indexes of
+      // the attachments THIS turn references - never from an attachment name,
+      // never from content without a timeline.
+      hintsForAttachments(collectTurnAttachmentIds(payload.messages), fullText),
     );
     // MHR-E: rehydrated prior-turn [S#] aliases seed the registry, so a
     // document this conversation already fetched keeps ONE alias across
@@ -620,7 +633,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
     // `String.length`/`slice` use (the ⇔ Rust law is `s.encode_utf16().count()`).
     // `web:content_revise.offsets` index the turn's displayed content by it.
     let streamedTotal = 0;
-    const releaseRound = (relay: ToolStreamRelay, held: Uint8Array[], roundStartLen: number): number => {
+    /** The audit half of the release point: correct the live text IN PLACE with
+     *  one `web:content_revise` frame and return the audited text. Never
+     *  touches the round's held terminal frames. */
+    const auditRoundContent = (relay: ToolStreamRelay, roundStartLen: number): string => {
       let audited = relay.content;
       if (audited !== "") {
         audited = auditResearchAnswer(audited, Object.keys(merged), retrieveHappened());
@@ -628,8 +644,20 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       if (audited !== relay.content) {
         ch.stage({ stage: "web:content_revise", contentCutTo: roundStartLen, contentText: audited });
       }
+      return audited;
+    };
+    /** The terminal half: release this round's held `finish_reason`/`[DONE]`
+     *  frames. F16 (2026-11-15) splits this out of the release point so the
+     *  turn's FINAL metadata can ride before its terminal frames — a `web_meta`
+     *  emitted after `[DONE]` only reached the client when the network
+     *  happened to coalesce it into the same read. */
+    const flushHeld = (held: Uint8Array[]): void => {
       for (const f of held) ch.raw(f);
       held.length = 0;
+    };
+    const releaseRound = (relay: ToolStreamRelay, held: Uint8Array[], roundStartLen: number): number => {
+      const audited = auditRoundContent(relay, roundStartLen);
+      flushHeld(held);
       // Offset law: after a released round the client's content is
       // prefix + audited — the revise replaced everything from the cut on.
       return roundStartLen + audited.length;
@@ -670,7 +698,11 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
             "web answer diagnosis flagged; released through the integrity audit (server telemetry only — never shown to the human, never sent to the model)",
           );
         }
-        releaseRound(relay, res.held, roundStartLen);
+        // F16 release order for the ENDING round: revise (if any) → the turn's
+        // final grounded metadata → exactly one `[DONE]`. The offset never
+        // advances again because the turn ends here, so the audited length is
+        // deliberately not fed back into `streamedTotal`.
+        auditRoundContent(relay, roundStartLen);
         log.info(
           { model, round: round + 1, finish: relay.finish ?? "none", ms: Date.now() - started },
           "web tool loop complete",
@@ -697,6 +729,7 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
             researchLedger: { toolRounds: session.roundsUsed, actions: [...session.actionLedger] },
           });
         }
+        flushHeld(res.held);
         ch.close();
         return;
       }

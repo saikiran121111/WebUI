@@ -1,5 +1,10 @@
 import type { Attachment, ChatRequest, ChatStreamCallback, ToolDef } from "./types";
-import { createStreamParser, StreamHandle, StreamOptions } from "../stream/parser";
+import {
+  createStreamParser,
+  StreamHandle,
+  StreamOptions,
+  type StreamSettlement,
+} from "../stream/parser";
 
 const DEFAULT_URL = "/api/chat";
 
@@ -22,7 +27,7 @@ export class ChatClient {
     onEvent: ChatStreamCallback,
     signal?: AbortSignal,
     onMeta?: (headers: Headers) => void,
-  ): Promise<void> {
+  ): Promise<StreamSettlement> {
     const body = this.buildBody(req);
     const handle = createStreamParser({
       url: this.url,
@@ -35,6 +40,11 @@ export class ChatClient {
     for await (const ev of iterate(handle)) {
       onEvent(ev);
     }
+    // F16 (2026-11-15): a resolved `chat()` is NOT proof the turn succeeded.
+    // The parser settles exactly once, after its single terminal, and carries
+    // the real outcome (success / error / cancelled / truncated / incomplete
+    // tool round) up to the caller that owns persistence and repair.
+    return handle.settled() ?? { outcome: "truncated", finishReason: null };
   }
 
   abort(handle: StreamHandle) {
@@ -221,7 +231,17 @@ export function attachmentParts(att: Attachment): any[] {
 
     case "audio":
       if (!att.transcript)
-        return [{ type: "text", text: `${label} (audio) — this recording contains no speech.` }];
+        return [
+          {
+            type: "text",
+            text:
+              `${label} (audio) — no spoken words could be read from this recording. ` +
+              `Do NOT state that it is silent or that it contains no speech: an unreadable ` +
+              `speech track and an absent one are different claims, and this one is unknown. ` +
+              `Answer from what the user says about it, or say plainly that its speech could ` +
+              `not be read.`,
+          },
+        ];
       return [
         {
           type: "text",

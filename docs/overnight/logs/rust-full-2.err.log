@@ -1,0 +1,13 @@
+   Compiling ruke-server v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.39s
+     Running unittests src\lib.rs (D:\Projects\WebUI\target-ci\debug\deps\ruke_core-e332b05904e1a303.exe)
+     Running unittests src\lib.rs (D:\Projects\WebUI\target-ci\debug\deps\ruke_server-3f746aa18cb4f52f.exe)
+     Running unittests src\main.rs (D:\Projects\WebUI\target-ci\debug\deps\ruke_server-bf75eef91142326e.exe)
+     Running tests\admission_exclusion.rs (D:\Projects\WebUI\target-ci\debug\deps\admission_exclusion-8024e87d41bbbeef.exe)
+     Running tests\attachment_replay.rs (D:\Projects\WebUI\target-ci\debug\deps\attachment_replay-e98a7221a03a8427.exe)
+     Running tests\browser_ui_routes.rs (D:\Projects\WebUI\target-ci\debug\deps\browser_ui_routes-97b4d55ed5b3deb5.exe)
+     Running tests\golden_replay.rs (D:\Projects\WebUI\target-ci\debug\deps\golden_replay-a7818c91f4a799f5.exe)
+     Running tests\scrubber_vectors.rs (D:\Projects\WebUI\target-ci\debug\deps\scrubber_vectors-760d90c1dbd07eec.exe)
+     Running tests\store_compat.rs (D:\Projects\WebUI\target-ci\debug\deps\store_compat-a46815927762f982.exe)
+   Doc-tests ruke_core
+   Doc-tests ruke_server

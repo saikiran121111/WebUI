@@ -17,7 +17,7 @@
     "headers": {
       "content-type": "application/json"
     },
-    "bodyBytes": "{\"active_mode\":\"excel\",\"confidence\":0.8,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"make a spreadsheet from these numbers\",\"skill_to_load\":\"xlsx\",\"allowed_code_fence\":null,\"disable_validators\":[\"docs\",\"pdf\",\"ppt\",\"chart\",\"html_render\",\"standard_chat\"],\"enable_validator\":\"excel\",\"task_constraints\":[],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
+    "bodyBytes": "{\"active_mode\":\"excel\",\"confidence\":0.8,\"decided_by\":\"in-process-deliverable-match\",\"stripped_prompt\":\"make a spreadsheet from these numbers\",\"skill_to_load\":\"xlsx\",\"allowed_code_fence\":null,\"disable_validators\":[\"docs\",\"pdf\",\"ppt\",\"chart\",\"html_render\",\"standard_chat\"],\"enable_validator\":\"excel\",\"task_constraints\":[\"deliverable-request=excel\"],\"extracted_entities\":[],\"lfm_latency_ms\":0}"
   },
   "envelope": {
     "active_mode": "excel",
@@ -35,7 +35,9 @@
       "standard_chat"
     ],
     "enable_validator": "excel",
-    "task_constraints": [],
+    "task_constraints": [
+      "deliverable-request=excel"
+    ],
     "extracted_entities": [],
     "lfm_latency_ms": 0
   },
