@@ -1,0 +1,20 @@
+OK   lease_conflict: 5/5 checks ok
+OK   live_holder_not_stolen: 6/6 checks ok
+MISS stale_holder_broken_with_proof: 4/5 checks ok -> ['child_pid_provably_gone']
+OK   fits_no_unload: 7/7 checks ok
+OK   resource_limit_without_unload: 5/5 checks ok
+OK   work_crash_typed_failure: 5/5 checks ok
+OK   journal_records_phase_during_work: 4/4 checks ok
+OK   journal_recovery_noop_when_not_loaded: 4/4 checks ok
+OK   playwright_lock_conflict: 1/1 checks ok
+OK   unload_process_restore: 1/1 checks ok
+OK   resource_limit_with_unload_and_restore: 1/1 checks ok
+OK   kill_mid_window_recovery: 1/1 checks ok
+OK   inference_gate_holds_during_window: 1/1 checks ok
+OK   no_overlapping_reload_peaks: 1/1 checks ok
+{
+  "misses": 1,
+  "scenarios": 14,
+  "attended_ran": false,
+  "out": "docs\\overnight\\logs\\j4-handoff-safe.json"
+}

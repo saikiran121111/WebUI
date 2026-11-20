@@ -1,0 +1,17 @@
+python-backend\.venv\Scripts\python.exe : Traceback (most recent call last):
+At line:2 char:29
++ ... ebUI\WebUI; python-backend\.venv\Scripts\python.exe docs\overnight\fi ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\ocr_docs.py", line 293, in <module>
+    key = build()
+          ^^^^^^^
+  File "D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\ocr_docs.py", line 198, in build
+    rasters = rasterize(native_pdf)
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\ocr_docs.py", line 177, in rasterize
+    w, h = bmp.get_size()
+           ^^^^^^^^^^^^
+AttributeError: 'PdfBitmap' object has no attribute 'get_size'

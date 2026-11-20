@@ -28,6 +28,7 @@ export const CAPABILITY_IDS: readonly string[] = [
   "documents.parse", "documents.ocr",
   "speech.asr", "speech.align", "speech.diarize",
   "video.scenes", "video.observations", "video.timeline", "video.search_hints",
+  "video.frame_ocr",
   "artifacts.xlsx", "artifacts.docx", "artifacts.pptx",
 ];
 
@@ -43,6 +44,7 @@ const CAPABILITY_LABEL: Record<string, string> = {
   "video.observations": "Video observations",
   "video.timeline": "Video timeline",
   "video.search_hints": "Search hints from media",
+  "video.frame_ocr": "Frame text reading (OCR)",
   "artifacts.xlsx": "Spreadsheet writer",
   "artifacts.docx": "Document writer",
   "artifacts.pptx": "Presentation writer",

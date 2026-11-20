@@ -1,0 +1,77 @@
+   Compiling ruke-core v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-core)
+warning: function `resolve_with` is never used
+   --> crates\ruke-core\src\settings.rs:256:4
+    |
+256 | fn resolve_with(
+    |    ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling ruke-decision v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-decision)
+warning: `ruke-core` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.10s
+     Running unittests src\lib.rs (target\debug\deps\ruke_decision-8e0ad16d03be3723.exe)
+
+running 38 tests
+test engine::tests::blank_message_uses_in_process_fallback_envelope ... ok
+test engine::tests::route_error_shapes_are_exact_ts_strings ... ok
+test skill_block::tests::envelope_round_trip_helper_shape ... ok
+test skill_block::tests::constraint_injection_is_bounded_and_type_validated ... ok
+test skill_block::tests::note_text_is_byte_identical_to_the_ts_constant ... ok
+test skill_block::tests::chart_mode_has_contract_but_no_core_skill ... ok
+test skill_block::tests::missing_core_skill_dir_still_emits_contract_only ... ok
+test skill_block::tests::standard_chat_with_no_skill_produces_no_block ... ok
+test skill_block::tests::multi_deliverable_turn_arms_every_requested_contract ... ok
+test skill_block::tests::single_deliverable_turn_is_unchanged_and_gets_no_note ... ok
+test skill_block::tests::excel_mode_includes_core_skill_then_contract_separated_by_blank_line ... ok
+test engine::tests::f02_bare_and_word_matchers_share_one_derived_body ... ok
+test engine::tests::match_envelope_field_construction ... ok
+test engine::tests::miss_envelope_keeps_no_skill_and_honest_confidence ... ok
+test engine::tests::casing_and_entity_rewording_invariance ... ok
+test engine::tests::mark_final_words_glue_like_latin_words ... ok
+test engine::tests::meta_phrases_mark_discussed_material_not_the_ask ... ok
+test engine::tests::f02_honest_uncertainty_vocabulary ... ok
+test engine::tests::negation_vetoes_a_cue_bound_artifact_word ... ok
+test engine::tests::held_out_non_latin_requests_fall_gracefully ... ok
+test engine::tests::transform_cue_direction_rule_binds_output_not_source ... ok
+test engine::tests::f02_multiple_deliverables_are_recorded_not_resolved ... ok
+test engine::tests::f02_quotation_role ... ok
+test engine::tests::retired_vocabulary_no_longer_routes ... ok
+test engine::tests::f02_negation_scope ... ok
+test engine::tests::f02_desire_cue_and_cognitive_frame ... ok
+test engine::tests::f02_didactic_and_past ... ok
+test engine::tests::f02_container_role ... ok
+test engine::tests::unicode_word_boundaries_replace_the_ascii_quirks ... ok
+test engine::tests::quoted_spans_never_create_a_request ... ok
+test engine::tests::brief_reproduction_mixed_deliverables_have_no_precedence ... ok
+test engine::tests::route_success_is_compact_json_with_full_envelope_shape ... ok
+test engine::tests::f02_controls_that_still_route ... ok
+test engine::tests::f02b_generalisation_frames ... ok
+test engine::tests::brief_reproduction_noun_mentions_are_not_requests ... ok
+test engine::tests::f02_source_vs_destination ... ok
+test engine::tests::f02_polysemy ... ok
+test engine::tests::verb_bound_artifact_requests_route ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests\fixture_replay.rs (target\debug\deps\fixture_replay-99aed9c6b4801a9a.exe)
+
+running 9 tests
+test generated_mode_contract_constants_hash_match_the_ts_oracle ... ok
+test unknown_slash_is_a_total_payload_noop_fixture_03 ... ok
+test slash_routing_preserves_other_payload_keys_fixture_02 ... ok
+test slash_routing_user_tier_block_and_header_fixture_01 ... ok
+test repair_passthrough_envelope_block_fixture_05 ... ok
+test envelope_confidence_and_key_order_bytes ... ok
+test core_skill_decision_block_fixture_04_string_equal ... ok
+test decision_route_fixtures_replay_byte_exact ... ok
+test intent_matcher_vectors_replay_full_envelope_fields ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+   Doc-tests ruke_decision
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

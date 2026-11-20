@@ -287,6 +287,16 @@ impl TitleCallModel for HttpTitleModel {
                                     );
                                 }
                                 ruke_core::admission::AdmissionError::Cancelled => {}
+                                ruke_core::admission::AdmissionError::HandoffHeld => {
+                                    // Titles are background work: during an
+                                    // exclusive processing window they must
+                                    // stay silent, not become the request
+                                    // that wakes a deliberately parked model.
+                                    tracing::warn!(
+                                        "title generation skipped: a document/media job holds \
+                                         the endpoint lease"
+                                    );
+                                }
                             }
                             return None;
                         }

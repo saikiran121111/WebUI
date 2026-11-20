@@ -103,8 +103,15 @@ describe("F02 - buildDecisionSkillBlock arms every requested contract", () => {
     expect(block).not.toContain(MULTI_DELIVERABLE_NOTE);
   });
 
-  it("standard_chat with no recorded deliverable injects NOTHING", async () => {
-    expect(await buildDecisionSkillBlock(env("standard_chat", [], "in-process-deliverable-none"), projectRoot())).toBeNull();
+  it("standard_chat with no recorded deliverable injects only the D-070 catalogue", async () => {
+    // Pre-D-070 this asserted null (standard_chat was contract-less). The
+    // catalogue now rides every chat turn; the injection law being tested —
+    // NO extra artifact contract from garbage-free constraints — still holds.
+    const block = (await buildDecisionSkillBlock(env("standard_chat", [], "in-process-deliverable-none"), projectRoot()))!;
+    expect(block).toContain(MODE_CONTRACTS.standard_chat!);
+    expect(block).not.toContain(MODE_CONTRACTS.pdf!);
+    expect(block).not.toContain(MODE_CONTRACTS.excel!);
+    expect(block).not.toContain(MULTI_DELIVERABLE_NOTE);
   });
 
   it("the cap also bounds the emitted block", async () => {

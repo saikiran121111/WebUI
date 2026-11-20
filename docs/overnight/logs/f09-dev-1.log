@@ -1,0 +1,80 @@
+npm notice run webui-chat@0.2.0 dev
+npm notice run node scripts/dev-supervisor.mjs
+[dev-supervisor] python: project venv reused (offline start, python 3.12.15)
+[dev-supervisor] Building Rust backend (cargo build)...
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+[dev-supervisor] Rust backend build OK.
+ruke-ml supervisor ready on 127.0.0.1:53851 pid=6620
+17:46:42 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[dev-supervisor] Python supervisor ready on 127.0.0.1:53851 (pid 14424, state ready, heavy imports at startup: 0, idle TTL 120s).
+[dev-supervisor] starting ruke-server rust-backend\target\debug\ruke-server.exe (pid 25552) on 127.0.0.1:3101...
+2026-11-16T12:16:42.777309Z  INFO ruke_server: attachment query-embedder configured (Node ONNX loopback RPC)
+2026-11-16T12:16:42.777442Z  INFO ruke_server: web-research bridge configured (Next-owned TS search via loopback RPC)
+2026-11-16T12:16:42.784485Z  INFO ruke_server: capability backend rendezvous resolved (python supervisor; status on GET /api/ruke/ml-status) endpoint=http://127.0.0.1:53851 source="discovery" supervisor_pid=Some(6620)
+2026-11-16T12:16:42.785630Z  INFO ruke_server: ruke-server listening (health + isolated /api/chat) — Next :3000 remains authoritative addr=127.0.0.1:3101 root=D:\Projects\WebUI\WebUI
+[dev-supervisor] Rust backend ready.
+[dev-supervisor] starting next dev (pid 1308) on 127.0.0.1:3000...
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+[dev-supervisor] Next.js ready (listening).
+[dev-supervisor] Ready
+  UI:      http://localhost:3000
+  Backend: http://127.0.0.1:3101
+  proxy delegation ON · bridge secret armed
+Press Ctrl+C to stop RUKE.
+ ✓ Compiled /instrumentation in 229ms (154 modules)
+ ✓ Ready in 1690ms
+ ✓ Compiled /api/files/extract in 204ms (231 modules)
+17:47:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=f06-review.pdf 200 in 465ms
+17:47:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=f06-sheet.xlsx 200 in 15ms
+17:47:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=f06-notes.docx 200 in 14ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2s (668 modules)
+ GET /api/ruke/ml-status 404 in 2065ms
+17:48:37 127.0.0.1 "GET /health HTTP/1.1" 200 -
+17:48:37 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+ ○ Compiling / ...
+ ✓ Compiled / in 11.9s (7899 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\Projects\WebUI\WebUI\.next\server\vendor-chunks\@swc.js'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving './vendor-chunks/@swc' in D:\Projects\WebUI\WebUI\.next\server for build dependencies doesn't lead to expected result 'D:\Projects\WebUI\WebUI\.next\server\vendor-chunks\@swc.js', but to 'Error: Can't resolve './vendor-chunks/@swc' in 'D:\Projects\WebUI\WebUI\.next\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ./vendor-chunks/@swc (expected D:\Projects\WebUI\WebUI\.next\server\vendor-chunks\@swc.js)
+<w>  at file dependencies D:\Projects\WebUI\WebUI\.next\server\webpack-runtime.js
+<w>  at file D:\Projects\WebUI\WebUI\.next\server\webpack-runtime.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\.next\server\app\_not-found\page.js
+<w>  at file D:\Projects\WebUI\WebUI\.next\server\app\_not-found\page.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\server\require.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\server\load-components.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\build\utils.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\build\webpack\loaders\next-app-loader.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\build\webpack\loaders\next-app-loader.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\loader-runner\LoaderRunner.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\loader-runner\LoaderRunner.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\webpack\bundle5.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\webpack\bundle5.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\webpack\webpack.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\compiled\webpack\webpack.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\build\webpack\plugins\define-env-plugin.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\build\webpack\plugins\define-env-plugin.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\build\swc\index.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\build\swc\index.js
+<w>  at file dependencies D:\Projects\WebUI\WebUI\node_modules\next\dist\build\webpack\loaders\next-barrel-loader.js
+<w>  at file D:\Projects\WebUI\WebUI\node_modules\next\dist\build\webpack\loaders\next-barrel-loader.js
+<w>  at resolve commonjs D:\Projects\WebUI\WebUI\node_modules\next\dist\build\webpack\loaders\next-barrel-loader.js
+ ✓ Compiled /api/files/extract in 163ms (231 modules)
+18:50:52 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=f06-review.pdf 200 in 437ms
+18:50:52 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=f06-sheet.xlsx 200 in 19ms
+18:50:52 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=f06-notes.docx 200 in 19ms

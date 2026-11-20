@@ -1,0 +1,25 @@
+# Index source and tests. Skip local data, tool caches, environment copies and generated evidence.
+node_modules/
+.next/
+.cache/
+.git/
+.data/
+.local-search/
+.ai-coordination/
+.playwright-cli/
+.playwright-mcp/
+.venv/
+.venv-ocr/
+target/
+graphify-out/
+downloads/
+reverse-engineering/
+mcp-out/
+test-results/
+docs/overnight/logs/
+docs/overnight/fixtures/
+.cskills/
+skills/
+.agents/
+__pycache__/
+.env*

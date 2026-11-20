@@ -1,0 +1,24 @@
+..........................................................................................................................................
+----------------------------------------------------------------------
+Ran 138 tests in 1.776s
+
+OK
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-1wub_cpv\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [3.0, 6.0, 9.0] truncated=False error=
+detection: 3/3 within 0.60s, mean_abs_err=0.0, spurious=0
+cut-time localisation: hit_rate=1.0 mean_abs_error_s=0.0 over n=3 (windows=5)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: Planned 5 sampling windows across 12.0s; a sampling plan does not establish inspected-content coverage.
+decode prefix: 11.9s of 12.0s (prefix_measured=True, progress_updates=2)
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-1wub_cpv\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [] truncated=False error=
+detection: 0/3 within 0.60s, mean_abs_err=None, spurious=0
+cut-time localisation: hit_rate=0.0 mean_abs_error_s=None over n=3 (windows=6)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: Planned 6 sampling windows across 12.0s; a sampling plan does not establish inspected-content coverage.
+decode prefix: 11.9s of 12.0s (prefix_measured=True, progress_updates=2)
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+probe blocked: ffmpeg_not_installed no validated ffmpeg copy (override, PATH or project-local)

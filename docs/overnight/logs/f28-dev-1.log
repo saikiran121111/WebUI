@@ -1,0 +1,50 @@
+npm notice run webui-chat@0.2.0 dev
+npm notice run node scripts/dev-supervisor.mjs
+[dev-supervisor] python: project venv reused (offline start, python 3.12.15)
+[dev-supervisor] Building Rust backend (cargo build)...
+   Compiling ruke-core v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-core)
+   Compiling ruke-attach v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-attach)
+   Compiling ruke-decision v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-decision)
+   Compiling ruke-server v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-server)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.80s
+[dev-supervisor] Rust backend build OK.
+ruke-ml commit ceiling enforced: 5000000000 bytes via windows-job-object (ruke-runtime)
+ruke-ml supervisor ready on 127.0.0.1:54610 pid=6760
+13:13:30 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[dev-supervisor] Python supervisor ready on 127.0.0.1:54610 (pid 2792, state ready, heavy imports at startup: 0, idle TTL 120s).
+[dev-supervisor] starting ruke-server rust-backend\target\debug\ruke-server.exe (pid 9868) on 127.0.0.1:3101...
+2026-11-17T07:43:30.413012Z  INFO ruke_server: shared-endpoint admission is lease-aware (handoff windows are refused, not woken) lease=D:\Projects\WebUI\WebUI\.ai-coordination\llm-handoff.lock wait_ms=2000
+2026-11-17T07:43:30.421824Z  INFO ruke_server: attachment query-embedder configured (Node ONNX loopback RPC)
+2026-11-17T07:43:30.422032Z  INFO ruke_server: web-research bridge configured (Next-owned TS search via loopback RPC)
+2026-11-17T07:43:30.435454Z  INFO ruke_server: capability backend rendezvous resolved (python supervisor; status on GET /api/ruke/ml-status) endpoint=http://127.0.0.1:54610 source="discovery" supervisor_pid=Some(6760)
+2026-11-17T07:43:30.437044Z  INFO ruke_server: ruke-server listening (health + isolated /api/chat) — Next :3000 remains authoritative addr=127.0.0.1:3101 root=D:\Projects\WebUI\WebUI
+[dev-supervisor] Rust backend ready.
+[dev-supervisor] starting next dev (pid 4368) on 127.0.0.1:3000...
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+[dev-supervisor] Next.js ready (listening).
+[dev-supervisor] Ready
+  UI:      http://localhost:3000
+  Backend: http://127.0.0.1:3101
+  proxy delegation ON · bridge secret armed
+Press Ctrl+C to stop RUKE.
+ ○ Compiling /instrumentation ...
+ ✓ Compiled /instrumentation in 686ms (154 modules)
+ ✓ Ready in 4.6s
+13:14:22 127.0.0.1 "GET /health HTTP/1.1" 200 -
+13:14:23 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+13:59:27 127.0.0.1 "POST /job HTTP/1.1" 552 -
+14:01:02 127.0.0.1 "POST /job HTTP/1.1" 552 -
+14:01:02 127.0.0.1 "POST /job HTTP/1.1" 200 -
+14:01:02 127.0.0.1 "POST /job HTTP/1.1" 552 -
+14:01:02 127.0.0.1 "GET /health HTTP/1.1" 200 -
+14:21:56 127.0.0.1 "POST /job HTTP/1.1" 200 -
+14:21:56 127.0.0.1 "POST /job HTTP/1.1" 200 -
+14:21:56 127.0.0.1 "POST /job HTTP/1.1" 200 -
+14:21:56 127.0.0.1 "POST /job HTTP/1.1" 552 -
+14:21:56 127.0.0.1 "GET /health HTTP/1.1" 200 -

@@ -1,0 +1,733 @@
+{
+  "probe": "e03_speech_roundtrip",
+  "started_utc": "2026-11-17T18:32:32.887774+00:00",
+  "finished_utc": "2026-11-17T18:32:43.871698+00:00",
+  "model": {
+    "id": "Systran/faster-whisper-base",
+    "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+    "package": "faster_whisper",
+    "adapter": "ruke_ml.speech.whisper_ct2",
+    "asset_present": true
+  },
+  "media_dir": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\e03",
+  "thresholds": {
+    "word_error_limit": 0.35
+  },
+  "cases": {
+    "c1_explicit_en": {
+      "seconds": 1.51,
+      "state": "ready",
+      "reason": "",
+      "detail": "",
+      "payload_state": "transcribed",
+      "asr_ran": true,
+      "device": "cpu",
+      "compute_type": "int8",
+      "model": "Systran/faster-whisper-base",
+      "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+      "language": "en",
+      "language_source": "explicit",
+      "segment_count": 1,
+      "text": "The Kestral Depot Inventory lists 11 crates of copper cable worth 2400 euros.",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 5.54,
+          "text": "The Kestral Depot Inventory lists 11 crates of copper cable worth 2400 euros.",
+          "words": [
+            {
+              "word": "The",
+              "start": 0.0,
+              "end": 0.2,
+              "probability": 0.8785860538482666
+            },
+            {
+              "word": "Kestral",
+              "start": 0.2,
+              "end": 0.58,
+              "probability": 0.7050549189249674
+            },
+            {
+              "word": "Depot",
+              "start": 0.58,
+              "end": 0.94,
+              "probability": 0.8432497382164001
+            },
+            {
+              "word": "Inventory",
+              "start": 0.94,
+              "end": 1.58,
+              "probability": 0.7724055846532186
+            },
+            {
+              "word": "lists",
+              "start": 1.58,
+              "end": 1.9,
+              "probability": 0.9058845639228821
+            },
+            {
+              "word": "11",
+              "start": 1.9,
+              "end": 2.3,
+              "probability": 0.8461057543754578
+            },
+            {
+              "word": "crates",
+              "start": 2.3,
+              "end": 2.72,
+              "probability": 0.9905162155628204
+            },
+            {
+              "word": "of",
+              "start": 2.72,
+              "end": 2.86,
+              "probability": 0.9905838966369629
+            },
+            {
+              "word": "copper",
+              "start": 2.86,
+              "end": 3.16,
+              "probability": 0.8224630951881409
+            },
+            {
+              "word": "cable",
+              "start": 3.16,
+              "end": 3.52,
+              "probability": 0.9785588979721069
+            },
+            {
+              "word": "worth",
+              "start": 3.52,
+              "end": 3.8,
+              "probability": 0.9964520931243896
+            },
+            {
+              "word": "2400",
+              "start": 3.8,
+              "end": 5.14,
+              "probability": 0.7320476174354553
+            },
+            {
+              "word": "euros.",
+              "start": 5.14,
+              "end": 5.54,
+              "probability": 0.6133735179901123
+            }
+          ]
+        }
+      ],
+      "audio_level": {
+        "ok": true,
+        "measured": true,
+        "mean_volume_db": -19.7,
+        "max_volume_db": -3.6,
+        "silence_intervals": [
+          [
+            5.807,
+            6.543
+          ]
+        ],
+        "silence_ratio": 0.1125,
+        "state": "audible",
+        "truncated": false,
+        "error": "",
+        "human_step": "",
+        "note": "max -3.6 dBFS, mean -19.7 dBFS, 0.7s at or below -60 dBFS over a reported 6.5s",
+        "engine": "D:\\Projects\\WebUI\\WebUI\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+        "noise_floor_db": -60.0
+      },
+      "coverage": {
+        "examined": [
+          [
+            0.0,
+            6.543
+          ]
+        ],
+        "skipped": [],
+        "units": "seconds",
+        "total_source": 6.543084,
+        "complete": true,
+        "note": "1 segment(s); decoded window(s) 6.543s of 6.543s; full track decoded (gaps under 1.06 ms are reporting rounding, not unexamined audio); speech-activity gating was applied to the decoded audio, so a decoded interval with no segment is a claim about speech presence, not a claim that the audio went unexamined"
+      },
+      "word_error": 0.0769,
+      "truth_words": 13,
+      "edits": 1
+    },
+    "c2_windowed_tail": {
+      "seconds": 4.67,
+      "state": "ready",
+      "reason": "",
+      "detail": "",
+      "payload_state": "transcribed",
+      "asr_ran": true,
+      "device": "cpu",
+      "compute_type": "int8",
+      "model": "Systran/faster-whisper-base",
+      "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+      "language": "en",
+      "language_source": "detected",
+      "segment_count": 3,
+      "text": "The Kestrel Depot Inventory lists 11 crates of copper cable worth 2400 euros. Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine. Embrose Finch Park, DeMarune Bicycle Behind",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 6.0,
+          "text": "The Kestrel Depot Inventory lists 11 crates of copper cable worth 2400 euros."
+        },
+        {
+          "start": 16.26,
+          "end": 21.26,
+          "text": "Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine."
+        },
+        {
+          "start": 16.3,
+          "end": 19.3,
+          "text": "Embrose Finch Park, DeMarune Bicycle Behind"
+        }
+      ],
+      "audio_level": {
+        "ok": true,
+        "measured": true,
+        "mean_volume_db": -22.4,
+        "max_volume_db": -2.5,
+        "silence_intervals": [
+          [
+            5.807,
+            16.639
+          ],
+          [
+            20.983,
+            21.717
+          ]
+        ],
+        "silence_ratio": 0.5326,
+        "state": "audible",
+        "truncated": false,
+        "error": "",
+        "human_step": "",
+        "note": "max -2.5 dBFS, mean -22.4 dBFS, 11.6s at or below -60 dBFS over a reported 21.7s",
+        "engine": "D:\\Projects\\WebUI\\WebUI\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+        "noise_floor_db": -60.0
+      },
+      "coverage": {
+        "examined": [
+          [
+            0.0,
+            12.0
+          ],
+          [
+            7.0,
+            19.3
+          ],
+          [
+            14.0,
+            21.716563
+          ]
+        ],
+        "skipped": [],
+        "units": "seconds",
+        "total_source": 21.716563,
+        "complete": true,
+        "note": "3 segment(s); decoded window(s) 32.017s of 21.717s; full track decoded (gaps under 1.06 ms are reporting rounding, not unexamined audio); speech-activity gating was applied to the decoded audio, so a decoded interval with no segment is a claim about speech presence, not a claim that the audio went unexamined"
+      },
+      "tail_word_error": 0.5385,
+      "tail_truth_words": 13
+    },
+    "c3_digital_silence": {
+      "seconds": 0.05,
+      "state": "ready",
+      "reason": "",
+      "detail": "",
+      "payload_state": "silence",
+      "asr_ran": false,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "",
+      "language_source": "none",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {
+        "ok": true,
+        "measured": true,
+        "mean_volume_db": -91.0,
+        "max_volume_db": -91.0,
+        "silence_intervals": [
+          [
+            0.0,
+            5.0
+          ]
+        ],
+        "silence_ratio": 1.0,
+        "state": "silence",
+        "truncated": false,
+        "error": "",
+        "human_step": "",
+        "note": "max -91.0 dBFS, mean -91.0 dBFS, 5.0s at or below -60 dBFS over a reported 5.0s",
+        "engine": "D:\\Projects\\WebUI\\WebUI\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+        "noise_floor_db": -60.0
+      },
+      "coverage": {
+        "examined": [
+          [
+            0.0,
+            5.0
+          ]
+        ],
+        "skipped": [],
+        "units": "seconds",
+        "total_source": 5.0,
+        "complete": true,
+        "note": "the loudness pass decoded the whole track; ASR was skipped because the measured peak is at/below the noise floor"
+      }
+    },
+    "c4_audible_tone": {
+      "seconds": 0.98,
+      "state": "ready",
+      "reason": "",
+      "detail": "",
+      "payload_state": "no_speech",
+      "asr_ran": true,
+      "device": "cpu",
+      "compute_type": "int8",
+      "model": "Systran/faster-whisper-base",
+      "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+      "language": "en",
+      "language_source": "detected",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {
+        "ok": true,
+        "measured": true,
+        "mean_volume_db": -21.1,
+        "max_volume_db": -18.1,
+        "silence_intervals": [],
+        "silence_ratio": 0.0,
+        "state": "audible",
+        "truncated": false,
+        "error": "",
+        "human_step": "",
+        "note": "max -18.1 dBFS, mean -21.1 dBFS, 0.0s at or below -60 dBFS over a reported 5.0s",
+        "engine": "D:\\Projects\\WebUI\\WebUI\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+        "noise_floor_db": -60.0
+      },
+      "coverage": {
+        "examined": [
+          [
+            0.0,
+            5.0
+          ]
+        ],
+        "skipped": [],
+        "units": "seconds",
+        "total_source": 5.0,
+        "complete": true,
+        "note": "the selected track decoded and the model ran, but no speech was transcribed; that is not the same as silence, a missing track, or a failed run; speech-activity gating was applied to the decoded audio, so a decoded interval with no segment is a claim about speech presence, not a claim that the audio went unexamined"
+      },
+      "non_speech_emitted_text": "",
+      "music_vs_speech_classified": false
+    },
+    "c5_no_audio_track": {
+      "seconds": 0.02,
+      "state": "failed",
+      "reason": "unsupported_input",
+      "detail": "the container carries no decodable audio track: ffprobe found 0 audio streams (probe state no_audio_track), so nothing could be decoded and no audio property was measured",
+      "payload_state": "",
+      "asr_ran": true,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "",
+      "language_source": "",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {},
+      "coverage": null
+    },
+    "c6_language_route": {
+      "decision": "unsupported",
+      "note": "no candidate lists this language; refusing to route it through an English-only model",
+      "language": "zz"
+    },
+    "c6_unsupported_language_job": {
+      "seconds": 0.05,
+      "state": "failed",
+      "reason": "unsupported_input",
+      "detail": "no ASR route for zz: no candidate lists this language; refusing to route it through an English-only model",
+      "payload_state": "",
+      "asr_ran": true,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "",
+      "language_source": "",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {},
+      "coverage": null
+    },
+    "c7_unavailable_model": {
+      "seconds": 0.05,
+      "state": "failed",
+      "reason": "model_unavailable",
+      "detail": "Xenova/whisper-base.en is not executable on this host (executable rows: Systran/faster-whisper-base)",
+      "payload_state": "",
+      "asr_ran": true,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "",
+      "language_source": "",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {},
+      "coverage": null
+    },
+    "c8_corrupt_input": {
+      "seconds": 0.03,
+      "state": "failed",
+      "reason": "corrupt_input",
+      "detail": "ffprobe exited 1: b'[mov,mp4,m4a,3gp,3g2,mj2 @ 000001671b11e700] moov atom not found\\r\\nD:\\\\Projects\\\\WebUI\\\\WebUI\\\\.data\\\\tmp\\\\e03\\\\corrupt.mp4: Invalid data found when processing input\\r\\n'",
+      "payload_state": "",
+      "asr_ran": true,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "",
+      "language_source": "",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {},
+      "coverage": null
+    },
+    "c9_container_with_audio": {
+      "seconds": 1.77,
+      "state": "ready",
+      "reason": "",
+      "detail": "",
+      "payload_state": "transcribed",
+      "asr_ran": true,
+      "device": "cpu",
+      "compute_type": "int8",
+      "model": "Systran/faster-whisper-base",
+      "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+      "language": "en",
+      "language_source": "detected",
+      "segment_count": 1,
+      "text": "The Kestrel Depot Inventory lists 11 crates of copper cable worth 2400 euros.",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 5.92,
+          "text": "The Kestrel Depot Inventory lists 11 crates of copper cable worth 2400 euros."
+        }
+      ],
+      "audio_level": {
+        "ok": true,
+        "measured": true,
+        "mean_volume_db": -19.4,
+        "max_volume_db": -3.6,
+        "silence_intervals": [],
+        "silence_ratio": 0.0,
+        "state": "audible",
+        "truncated": false,
+        "error": "",
+        "human_step": "",
+        "note": "max -3.6 dBFS, mean -19.4 dBFS, 0.0s at or below -60 dBFS over a reported 6.0s",
+        "engine": "D:\\Projects\\WebUI\\WebUI\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+        "noise_floor_db": -60.0
+      },
+      "coverage": {
+        "examined": [
+          [
+            0.0,
+            5.99075
+          ]
+        ],
+        "skipped": [
+          [
+            5.99075,
+            6.0
+          ]
+        ],
+        "units": "seconds",
+        "total_source": 6.0,
+        "complete": false,
+        "note": "1 segment(s); decoded window(s) 5.991s of 6.000s; partial: undecoded interval(s) [(5.991, 6.0)]; absence there is unproven, not established; speech-activity gating was applied to the decoded audio, so a decoded interval with no segment is a claim about speech presence, not a claim that the audio went unexamined"
+      },
+      "word_error": 0.0
+    },
+    "c10_align_word_timing": {
+      "seconds": 0.11,
+      "state": "ready",
+      "reason": "",
+      "detail": "",
+      "payload_state": "",
+      "asr_ran": true,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "en",
+      "language_source": "",
+      "segment_count": 0,
+      "text": "",
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 5.54,
+          "text": "The Kestral Depot Inventory lists 11 crates of copper cable worth 2400 euros.",
+          "words": [
+            {
+              "word": "The",
+              "start": 0.0,
+              "end": 0.2,
+              "probability": 0.8785860538482666
+            },
+            {
+              "word": "Kestral",
+              "start": 0.2,
+              "end": 0.58,
+              "probability": 0.7050549189249674
+            },
+            {
+              "word": "Depot",
+              "start": 0.58,
+              "end": 0.94,
+              "probability": 0.8432497382164001
+            },
+            {
+              "word": "Inventory",
+              "start": 0.94,
+              "end": 1.58,
+              "probability": 0.7724055846532186
+            },
+            {
+              "word": "lists",
+              "start": 1.58,
+              "end": 1.9,
+              "probability": 0.9058845639228821
+            },
+            {
+              "word": "11",
+              "start": 1.9,
+              "end": 2.3,
+              "probability": 0.8461057543754578
+            },
+            {
+              "word": "crates",
+              "start": 2.3,
+              "end": 2.72,
+              "probability": 0.9905162155628204
+            },
+            {
+              "word": "of",
+              "start": 2.72,
+              "end": 2.86,
+              "probability": 0.9905838966369629
+            },
+            {
+              "word": "copper",
+              "start": 2.86,
+              "end": 3.16,
+              "probability": 0.8224630951881409
+            },
+            {
+              "word": "cable",
+              "start": 3.16,
+              "end": 3.52,
+              "probability": 0.9785588979721069
+            },
+            {
+              "word": "worth",
+              "start": 3.52,
+              "end": 3.8,
+              "probability": 0.9964520931243896
+            },
+            {
+              "word": "2400",
+              "start": 3.8,
+              "end": 5.14,
+              "probability": 0.7320476174354553
+            },
+            {
+              "word": "euros.",
+              "start": 5.14,
+              "end": 5.54,
+              "probability": 0.6133735179901123
+            }
+          ],
+          "word_timestamps": "provider_supplied",
+          "accepted_words": [
+            {
+              "word": "The",
+              "start": 0.0,
+              "end": 0.2
+            },
+            {
+              "word": "Kestral",
+              "start": 0.2,
+              "end": 0.58
+            },
+            {
+              "word": "Depot",
+              "start": 0.58,
+              "end": 0.94
+            },
+            {
+              "word": "Inventory",
+              "start": 0.94,
+              "end": 1.58
+            },
+            {
+              "word": "lists",
+              "start": 1.58,
+              "end": 1.9
+            },
+            {
+              "word": "11",
+              "start": 1.9,
+              "end": 2.3
+            },
+            {
+              "word": "crates",
+              "start": 2.3,
+              "end": 2.72
+            },
+            {
+              "word": "of",
+              "start": 2.72,
+              "end": 2.86
+            },
+            {
+              "word": "copper",
+              "start": 2.86,
+              "end": 3.16
+            },
+            {
+              "word": "cable",
+              "start": 3.16,
+              "end": 3.52
+            },
+            {
+              "word": "worth",
+              "start": 3.52,
+              "end": 3.8
+            },
+            {
+              "word": "2400",
+              "start": 3.8,
+              "end": 5.14
+            },
+            {
+              "word": "euros.",
+              "start": 5.14,
+              "end": 5.54
+            }
+          ],
+          "rejected_words": [],
+          "note": ""
+        }
+      ],
+      "audio_level": {},
+      "coverage": {
+        "examined": [
+          [
+            0.0,
+            1.0
+          ]
+        ],
+        "skipped": [],
+        "units": "segments",
+        "total_source": 1.0,
+        "complete": true,
+        "note": "every supplied segment was validated; rejected word spans are reported, not repaired"
+      },
+      "verdict_counts": {
+        "provider_supplied": 1
+      }
+    },
+    "c11_align_unknown_language": {
+      "seconds": 0.0,
+      "state": "failed",
+      "reason": "unsupported_input",
+      "detail": "aligner Systran/faster-whisper-base publishes 100 language tag(s) and none of them covers qq; word timing would be an unverified guess",
+      "payload_state": "",
+      "asr_ran": true,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "",
+      "language_source": "",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {},
+      "coverage": null
+    },
+    "c12_diarize_gated": {
+      "seconds": 0.08,
+      "state": "failed",
+      "reason": "license_acceptance_required",
+      "detail": "speech.diarize is not executable on this host: no adapter code is registered for this model id; the pinned dependency (package or external program) is not present; the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare); provider access/licence acceptance is missing | candidates: pyannote/speaker-diarization-community-1 | pyannote/speaker-diarizat",
+      "payload_state": "",
+      "asr_ran": true,
+      "device": "",
+      "compute_type": "",
+      "model": "",
+      "revision": "",
+      "language": "",
+      "language_source": "",
+      "segment_count": 0,
+      "text": "",
+      "segments": [],
+      "audio_level": {},
+      "coverage": null
+    }
+  },
+  "memory_mib": {
+    "worker_peak_working_set": 406.0,
+    "worker_peak_commit": 1298.0,
+    "resident_working_set_after_jobs": 182.0,
+    "samples": 35,
+    "peak_pids": [
+      23348,
+      16844
+    ],
+    "simultaneous_peak_working_set": 333.0,
+    "tree_pids_at_job_end": [],
+    "definition": "K32GetProcessMemoryInfo over each owned worker AND its process children (the venv python.exe we spawn is a redirector; the interpreter holding the model weights is its child). simultaneous_peak_working_set = the largest summed live working set seen in one sample; worker_peak_working_set = the sum of the per-process peak counters, an upper bound. working set = resident RAM, commit = pagefile charge."
+  },
+  "gpu": {
+    "before": [
+      {
+        "pid": 9632,
+        "used_memory": "[N/A]"
+      }
+    ],
+    "after": [
+      {
+        "pid": 9632,
+        "used_memory": "[N/A]"
+      }
+    ],
+    "owned_worker_gpu_allocations": [],
+    "policy": "cpu/int8; this host's GPU belongs to the main LLM"
+  },
+  "failures": [
+    "C2 tail content accuracy: tail WER=0.538 over 13 words"
+  ],
+  "ok": false
+}

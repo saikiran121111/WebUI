@@ -1,0 +1,10 @@
+build: True built size: 105059
+frame extract rc 0 
+tesseract: D:\Projects\WebUI\WebUI\.data\tools\tesseract\tesseract.exe
+tess rc 0
+TEXT: MID-ROLL CARD B 14 s
+
+quarterly throughput rose 3.5 percent
+
+ERR: Estimating resolution as 360
+

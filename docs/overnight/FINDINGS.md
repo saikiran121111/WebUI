@@ -119,3 +119,138 @@ TypeScript engines), and every browser-level F18/F19 behaviour check until P11 r
 | Media hints pollution | **fixed + tested** | scene observations carry no text, so both the Python hint builder and the TS OBSERVATION_KIND_MAP drop them; a test asserts no coordinate, kind-name or threshold string reaches mediaHintQueries. |
 | Timeline publish durability | **fixed + tested** | per-attachment index write lock, staged copy + rename on EXDEV, symlink rejection, 4096-entry / depth-6 bounds, scratch discarded on every failure path. |
 | Still not tested (unchanged) | Qwen3-ASR/Embedding/Reranker, Docling, PaddleOCR, pyannote, real-media ASR/OCR/document/video quality, frozen temporal_video_localisation, F01 live A/B, F19 jitter | not_run / license_acceptance_required / not_installed, with the exact human step in FINAL-REPORT.md section 13. |
+
+## Session F12 - held-out HTTP score exposes five delivery defects (F12-1 .. F12-5)
+Source: `docs/overnight/probes/f09_heldout_http_probe.mjs` over the 8 held-out fixtures, evidence
+`docs/overnight/logs/f09-heldout-2026-11-16T132850712Z.json`. The reader-level score
+(`python-backend/tests/test_heldout_readers.py`) passes every one of these facts, so each miss is a
+**delivery-layer** defect: the fact is true inside the worker and is lost, contradicted or reversed on
+the way to the browser.
+
+| # | Defect (file) | Measured evidence | Why it matters | Fix, without weakening |
+|---|---|---|---|---|
+| F12-1 | The promotion law **rewards fabrication**: TS placeholder lines are protected as "content the capability reader loses" (`lib/server/extract/document-capability.ts`) | ho-corrupt.xlsx note: `ooxml-cellwise refused as the body: it loses 2 content item(s) the TS reader read (shared, missing)`; delivered body `A1=(shared string #99 missing) A2=only string A3=#REF!` | An honest reader that reports corruption by reference and reason loses to a reader that turns an out-of-range shared-string index into invented text and passes `#REF!` through as if readable. must_not `A3=#REF!` failed. | Placeholder/error-value lines must not count as protected content; capability-reported corruption is additional honest content, so the honest reader wins. Assert the delivered body names each unread cell and never presents `#REF!` as content. |
+| F12-2 | **Silently wrong coverage wording** for an empty document, and a hard 422 instead of an honest empty report (`lib/server/extract/pdf.ts` + `document-capability.ts`) | ho-empty.pdf -> HTTP 422: `has no text layer — all 2 page(s) are scanned images` and `the capability backend reported a successful document parse that carries no readable units, which is refused` | The fixture has **no image XObject at all**: "all 2 page(s) are scanned images" is an invented measurement, and a 422 contract-mismatch error tells the user nothing about the document. All three authored honest-refusal groups failed. | Wording must come from the reader's measured evidence (units_empty vs units_needing_ocr), and an empty-but-honest capability result must be delivered as an empty extraction with its coverage note, not as an internal contract error. |
+| F12-3 | For XLSX the **Python reader never wins**, so its fidelity never reaches the user (`document-capability.ts` "adds nothing" comparison) | ho-inventory.xlsx note: `ooxml-cellwise carries the same 54 content item(s) as the TS reader and adds nothing (317 vs 292 non-whitespace characters), so the merge kept the TS reader` | The Python reader adds explicit empty-cell declarations, per-cell corruption reports, merged geometry in both directions and sheet-part failure reasons; a comparison on item counts and character counts cannot see that, so the delivered body is the TS one and 3 authored must-strings fail. | Make the comparison structure-aware: honest failure/empty/merge/formula evidence counts as additional content, not as noise. Then re-score; do not lower the fixture expectation. |
+| F12-4 | A corrupt sheet part yields **unflagged data** from the TS fallback | ho-badxml.xlsx delivered `### worksheet: Torn A1=1 A2=2` with an **empty** coverageNote | The sheet part is not well-formed XML; the honest answer is "sheet 1 failed to parse". Instead the user gets two cells of unknown provenance and no coverage statement at all. | When the capability reports units_failed with a reason, that reason must survive in the delivered note even if another reader supplies partial text; and the TS fallback must not present partial reads of a malformed part as clean content. |
+| F12-5 | Renderer punctuation: a formula cell prints `E5==SUM(...)` | ho-inventory.xlsx delivered `E5==SUM(B5:C5) (cached 1234.5)` | A doubled `=` makes the formula text ambiguous in copy/export and in citations. | Emit the cell reference once, then the formula text; assert `E5=SUM(B5:C5) (cached 1234.5)` and the absence of `==` on a formula line. |
+
+Additionally recorded, **not** a product defect: two authored strings in the answer key guessed the
+delivery punctuation (`[merged A1:C1]` vs the delivered `### merged cells (2): A1:C1, B3:B4`, and the
+PDF `units: 6 of 7 read` phrasing). The underlying conditions were correctly delivered. Amending the
+key to assert the **condition** with an AND-group is a holdout change and is therefore reported
+separately in D-039, never counted as untouched.
+
+## F24-F26 findings
+
+### A safety failure of my own code: a stale-lease breaker killed an unrelated process
+The handoff lease breaker in `python-backend/ruke_ml/handoff.py` used to terminate whatever process the
+stale pid named, testing only pid liveness. Pids get reused: the number can belong to an unrelated live
+process. During the J4 probe, **pid 6088 - a VS Code helper - was terminated by that code.** Impact that
+was actually measured afterwards: the VS Code family is still alive (15080, 16644), the editor works,
+Strata (`strata.exe` 5272 and its pythons 3176/3180), node 12008 and this session were unaffected, and
+`127.0.0.1:8080/health` still returned 200. **If the editor misbehaves, restart VS Code; nothing else
+was touched.** The kill path has since been removed outright (no `ctypes`, no `OpenProcess`, no
+`TerminateProcess`, no `os.kill`, no `_terminate_holder`) and its absence is now enforced by a test.
+Breaking a provably stale lease unlinks the record only. See D-054.
+
+### A fixture that claimed to be a scan was rendering blank
+A PDF page that references an XObject but never draws it (`/XObject` in resources, no `Do` in the
+content stream) renders as an **empty page**. The d1 "scanned" fixtures initially had that shape, which
+would have made every scan-related pass meaningless - the OCR would have honestly reported nothing.
+`docs/overnight/fixtures/d1/ocr_docs.py` now emits `q W 0 0 H 0 0 cm /Im0 Do Q`. The probe's
+self-validation controls (an independent raster read of the fixture before any engine runs) are what
+caught it. Any future fixture generator needs the same self-check.
+
+### OCR language truth, not aspiration
+`--list-langs` of the project-local Tesseract reports **eng, osd only**. The code therefore refuses a
+requested language whose data is not installed instead of running `eng` and labelling the result with
+the requested language (`documents/ocr_tesseract.py:122-143`). Consequence for acceptance: only English
+D1 passes can be claimed today; any multilingual OCR claim would be false.
+
+### GPU OCR is not possible on this host right now, and the pinned build could not do it anyway
+Measured 2026-11-17: RTX 3060 `total 12288 MiB / used 9483 MiB / free 2633 MiB` (the main LLM holds the
+rest), and the pinned `paddlepaddle 3.2.1` CPU wheel reports `compiled_with_cuda False`
+(`logs/f19-paddle-device-1.log`). So the coordinator's policy is `allow_gpu = False` with a documented
+unblock path: prepare a CUDA-enabled pinned build in the isolated OCR runtime and set
+`RUKE_OCR_ALLOW_GPU=1`. GPU placement is never obtained by borrowing the main LLM's device.
+
+### Memory headroom is thin, and the 5 GB hard ceiling is not OS-enforced for children
+Measured 2026-11-17: 65299 MiB total, **7308 MiB free**, commit charge about 75774 of 100115 MiB. The
+provisional primary-OCR peak estimate is 3300 MiB RAM plus ~6000 MiB VRAM, both printed as "NOT yet
+measured". Admission control is cooperative (free-RAM check before admitting a heavy job) rather than a
+hard OS job-object limit; that is an **acceptance gap for the hard ceiling**, recorded as such rather
+than claimed as met.
+
+### Reproducibility gap closed for the fallback engine
+The project-local Tesseract had been installed by hand with no rebuild path. It now has
+`scripts/prepare-tesseract-runtime.ps1` (pins, staging, disk check, bounded retries, size + magic +
+digest gates, silent `/S /D=` install into the project, kept `tessdata_fast`, manifest rewrite) and a
+`-VerifyOnly` mode that runs the installed binary in place. Today's verification: exit 0, version
+`v5.5.3.20260724`, languages `eng, osd`, and a real image-to-text run reading 20/20 answer-key words
+(`logs/f26-tess-verify-5.log`); the pinned asset URLs were re-fetched and still match size and digest
+(`logs/f26-tess-pin-recheck-1.log`).
+
+### Load-sensitive tests are still load-sensitive
+`__tests__/hardening-audio.test.ts` > "GPU present but busy and no unload hook -> stays on CPU" failed
+in a full vitest run, passed 9/9 in isolation, and passed in the clean second full run. Same class as
+D-051 (`attach-turn-budget`). This is environment sensitivity, not a product fix; it needs isolation on
+a quiet machine before anyone calls it stable.
+
+### Legacy DOC/PPT: honest unsupported today, and the one converter this host could actually run
+`documents/parser.py:102` returns `kind = "unsupported"` and `workers/document_jobs.py:83-89` turns that
+into a typed `unsupported_input` failure - never "ready with zero blocks", which downstream used to read
+as "this document is empty". That satisfies the brief's "otherwise report unsupported honestly" branch.
+What this host *could* support: there is **no** LibreOffice anywhere (`soffice` missing, no
+`C:\Program Files\LibreOffice`), but Microsoft Office 16 **is** installed
+(`C:\Program Files\Microsoft Office\root\Office16\{WINWORD,EXCEL,POWERPNT}.EXE`). A COM-automation
+converter (hidden app, `AutomationSecurity = force-disable`, `DisplayAlerts = none`, hard timeout,
+killing only the pid it started) is technically feasible and would be CPU-only. It was **not** built
+tonight because it could not be tested without launching the user's own Office, a corrupt legacy file can
+make Office present a modal dialog, and an untested converter is worse than a truthful refusal. Smallest
+external action if the user wants DOC/PPT: authorise Office COM conversion (or install LibreOffice) and
+then it becomes a bounded implementation plus fixture tests.
+
+## F27 findings - one capability moved from "absent" to "executed", plus two measurement problems
+
+- **A cross-encoder was obtainable after all, at MiniLM size.** The earlier "cross-encoder weights
+  absent" blocker was a *preparation* gap, not an external one. `Xenova/ms-marco-MiniLM-L-6-v2` @ commit
+  `a09144355adeed5f58c8ed011d209bf8ee5a1fec` came down unauthenticated into the project cache, is
+  90,992,115 B (`sha256 c623d0bc...881870`), and runs in **0.29 s cold** at a 267.7 MiB whole-process
+  peak. Ledger lesson: "blocked" was the wrong label; the honest label was "not yet prepared".
+- **It ties the bi-encoder; it does not beat it, and the interesting failure survives it.** On the
+  frozen n=10 set the cross-encoder and the dense bi-encoder both score top-1 9/10 (MRR 0.950); lexical
+  BM25 is 7/10. The numeric-fact case - "how many crates arrived on Tuesday", with a "61 crates"
+  distractor and a "99 crates" truth - ranks **wrong for all three engines** (rank 2 each). The g04 case
+  that BM25 once got right had the number *in the query* ("Tuesday 99"), which is a different problem
+  from answering a question whose answer is a number the query never contains. Joint attention did not
+  fix that at this model size, so the hybrid RRF design that keeps the lexical channel is still
+  justified by measurement rather than taste. **This stays an open regression and is not counted as
+  fixed anywhere.**
+- **Two engines at 91 MB each is not free.** Both ONNX sessions in one process measured 267.7 MiB peak
+  working set. Under the 4 GB target with only ~7.3 GiB free RAM right now, a worker holding embedder
+  *and* cross-encoder *and* anything else is a real budget question, which is why the registry carries
+  `est_peak_mib 268` with a basis string that admits it is a two-session whole-process figure rather
+  than pretending it is an isolated engine cost.
+- **A measurement bug class, now found twice:** Windows memory probes written as
+  `ctypes.windll.kernel32.K32GetProcessMemoryInfo(...)` with **no `argtypes`** raise
+  `OverflowError: int too long to convert` (the pseudo-handle does not fit a C int), and because the
+  probes catch broad exceptions they printed `peak_memory_unavailable` and reported `0.0`. Some earlier
+  "memory not measured" entries were partly this bug, not a missing measurement. Fixed in `g05`;
+  `g04`'s variant additionally passes a `cb=0` struct with size 0 in a first call, which is pointless
+  but harmless. Any future probe must set `argtypes`/`restype`.
+- **Provenance was living only in source code.** The MiniLM embedder asset had no origin record on disk
+  - the pinned commit and digest existed only in `nn_embed.py`, so anyone inspecting
+  `.data/models/Xenova/all-MiniLM-L6-v2/` could not tell where the bytes came from. `asset-manifest.json`
+  written by `prepare_local()` fixes that for newly prepared assets and is the mechanism to reuse.
+- **Still unresolved, not glossed:** a node process seen at pid **5528** running
+  `@playwright/test/cli.js test-server --host 127.0.0.1` appeared during a full vitest run and was never
+  attributed (`git grep test-server` finds no project caller), and it is not one of the known
+  never-touch pids. Nothing was killed by image name, so it was left alone; whoever resumes should
+  confirm whether vitest/Playwright spawns it and whether the runner should reap it. An ownership gap in
+  the **test harness**, not a product bug.
+- **Retrieval ownership is the real blocker for G2/G3, and it is a decision, not a missing engine.**
+  Nothing in production calls the Python `rerank`/`embeddings` capabilities: the Rust ml-job allowlist
+  excludes them and `lib/server/attachindex/{retrieve,embed}.ts` owns retrieval. Writing more Python
+  engines will not change that. The next step on that line is the D-046 owner decision, taken with the
+  numeric-fact regression visible in front of it.

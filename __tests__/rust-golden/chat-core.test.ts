@@ -140,7 +140,9 @@ describe("golden: chat core", () => {
       scenario: "normal streaming chat (no attachments, no web)",
       semantics:
         "Progress path: early-open SSE 200, base streaming headers + x-decision-mode; first frame " +
-        "decision_done; raw upstream bytes forwarded scrubbed; route NEVER appends [DONE] itself. " +
+        "decision_done, then the UNNAMED 'skill' stage frame (D-070, 2026-11-20: standard_chat carries " +
+        "the fence-catalogue block, so block bytes > 0 on every turn; it names nothing — core-tier " +
+        "invisibility); raw upstream bytes forwarded scrubbed; route NEVER appends [DONE] itself. " +
         "Upstream data frames inside the body are byte-stable; only the stage frame's ms digits vary, " +
         "so the body is stored ms-normalized.",
       comparison: "structural",
@@ -205,8 +207,9 @@ describe("golden: chat core", () => {
       rel: "chat/04b-minimal-empty-user-turn.json",
       scenario: "single empty user turn",
       semantics:
-        "Empty last-user text -> getDecision('') -> in-process fallback envelope (standard_chat, no " +
-        "skill block) -> progress path (stream absent !== false) with decision_done frame.",
+        "Empty last-user text -> getDecision('') -> in-process fallback envelope (standard_chat; since " +
+        "D-070 the catalogue block rides EVERY turn, so this turn is no longer skill-block-less) -> " +
+        "progress path (stream absent !== false) with decision_done frame.",
       comparison: "structural",
       rawBody: JSON.stringify({ messages: [{ role: "user", content: "" }] }),
       upstream: [SSE_STD],
@@ -293,9 +296,21 @@ describe("golden: chat core", () => {
     const res = await POST(req);
     const reader = res.body!.getReader();
     const dec = new TextDecoder();
-    const first = await reader.read();
-    const second = await reader.read();
-    const collected = dec.decode(first.value) + dec.decode(second.value);
+    // D-070 (2026-11-20): a decision_skill block now rides EVERY turn, so the
+    // local progress frames no longer prove the upstream call started — with
+    // the old fixed 2 reads both were satisfied by decision_done + skill and
+    // ac.abort() landed BEFORE the upstream fetch. Read until the forwarded
+    // partial byte appears (the same law as the Rust golden replay, which
+    // reads to "data: partial"), so the abort genuinely fires mid-stream.
+    let collected = "";
+    for (let reads = 0; !collected.includes("data: partial") && reads < 16; reads++) {
+      const r = await reader.read();
+      if (r.done) break;
+      collected += dec.decode(r.value, { stream: true });
+    }
+    if (!collected.includes("data: partial")) {
+      throw new Error(`upstream partial byte never reached the client: ${JSON.stringify(collected)}`);
+    }
     ac.abort();
     let end: { done: boolean; value?: Uint8Array };
     do {
@@ -305,7 +320,7 @@ describe("golden: chat core", () => {
     const logical = parseLogical(collected);
     const upstreamAborted = calls[0].signal?.aborted === true;
     writeJsonFixture("chat/07-client-abort.json", {
-      request: { rawBody: "<messages: one user 'abort me', stream path>", note: "signal aborted by client after 2 reads" },
+      request: { rawBody: "<messages: one user 'abort me', stream path>", note: "signal aborted by client once the forwarded upstream partial byte had been received" },
       streamedBeforeAbort: normalizeBodyMs(collected),
       logicalFramesBeforeAbort: logical.frames,
       finalReadDone: end.done,

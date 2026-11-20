@@ -1,0 +1,43 @@
+test_a_bad_shared_string_index_is_corruption_never_an_empty_cell (tests.test_retrieval_documents.Extraction.test_a_bad_shared_string_index_is_corruption_never_an_empty_cell) ... ok
+test_archive_guard_runs_before_parsing (tests.test_retrieval_documents.Extraction.test_archive_guard_runs_before_parsing) ... ok
+test_cell_and_range_parsing_is_explicit (tests.test_retrieval_documents.Extraction.test_cell_and_range_parsing_is_explicit) ... ok
+test_docx_keeps_headings_and_table_rows (tests.test_retrieval_documents.Extraction.test_docx_keeps_headings_and_table_rows) ... ok
+test_merged_spans_are_geometry_and_not_string_equality (tests.test_retrieval_documents.Extraction.test_merged_spans_are_geometry_and_not_string_equality) ... ok
+test_ocr_escalation_is_driven_by_measured_quality (tests.test_retrieval_documents.Extraction.test_ocr_escalation_is_driven_by_measured_quality) ... ok
+test_pptx_keeps_notes_apart_from_slide_text (tests.test_retrieval_documents.Extraction.test_pptx_keeps_notes_apart_from_slide_text) ... ok
+test_pptx_notes_exclude_managed_placeholder_text (tests.test_retrieval_documents.Extraction.test_pptx_notes_exclude_managed_placeholder_text)
+A notesSlide also holds the slide-number/footer/date placeholders the template ... ok
+test_two_tables_never_share_row_identity (tests.test_retrieval_documents.Extraction.test_two_tables_never_share_row_identity) ... ok
+test_unsupported_format_is_honest_not_flattened (tests.test_retrieval_documents.Extraction.test_unsupported_format_is_honest_not_flattened) ... ok
+test_xlsx_keeps_formula_and_cached_value (tests.test_retrieval_documents.Extraction.test_xlsx_keeps_formula_and_cached_value) ... FAIL
+test_block_boundaries_win (tests.test_retrieval_documents.Identity.test_block_boundaries_win) ... ok
+test_case_and_script_folding_is_conservative (tests.test_retrieval_documents.Identity.test_case_and_script_folding_is_conservative) ... ok
+test_symbol_bearing_identifiers_survive (tests.test_retrieval_documents.Identity.test_symbol_bearing_identifiers_survive) ... ok
+test_a_hole_in_the_middle_is_two_spans_never_a_contiguous_prefix (tests.test_retrieval_documents.PdfReading.test_a_hole_in_the_middle_is_two_spans_never_a_contiguous_prefix) ... ok
+test_corrupt_bytes_never_produce_a_confident_empty_answer (tests.test_retrieval_documents.PdfReading.test_corrupt_bytes_never_produce_a_confident_empty_answer) ... EOF marker not found
+ok
+test_empty_text_layer_page_is_not_reported_as_read (tests.test_retrieval_documents.PdfReading.test_empty_text_layer_page_is_not_reported_as_read) ... ok
+test_encrypted_input_is_a_typed_refusal_not_an_empty_document (tests.test_retrieval_documents.PdfReading.test_encrypted_input_is_a_typed_refusal_not_an_empty_document) ... ok
+test_more_pages_than_the_bound_refuses_instead_of_dropping_the_tail (tests.test_retrieval_documents.PdfReading.test_more_pages_than_the_bound_refuses_instead_of_dropping_the_tail) ... ok
+test_native_pages_are_numbered_one_based_and_read_in_order (tests.test_retrieval_documents.PdfReading.test_native_pages_are_numbered_one_based_and_read_in_order) ... ok
+test_rotation_is_recorded_and_not_silently_normalised (tests.test_retrieval_documents.PdfReading.test_rotation_is_recorded_and_not_silently_normalised) ... ok
+test_crash_mid_publish_leaves_previous_generation_readable (tests.test_retrieval_documents.Publish.test_crash_mid_publish_leaves_previous_generation_readable) ... ok
+test_embeddings_reject_incompatible_vectors (tests.test_retrieval_documents.Publish.test_embeddings_reject_incompatible_vectors) ... ok
+test_publish_then_load (tests.test_retrieval_documents.Publish.test_publish_then_load) ... ok
+test_ragged_and_mismatched_vectors_refused (tests.test_retrieval_documents.Publish.test_ragged_and_mismatched_vectors_refused) ... ok
+test_reindex_keeps_reader_consistent (tests.test_retrieval_documents.Publish.test_reindex_keeps_reader_consistent) ... ok
+test_rerank_reports_the_mode_actually_used (tests.test_retrieval_documents.Publish.test_rerank_reports_the_mode_actually_used) ... ok
+test_unpinned_backends_refuse_and_the_pinned_one_executes (tests.test_retrieval_documents.Publish.test_unpinned_backends_refuse_and_the_pinned_one_executes) ... ok
+
+======================================================================
+FAIL: test_xlsx_keeps_formula_and_cached_value (tests.test_retrieval_documents.Extraction.test_xlsx_keeps_formula_and_cached_value)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_retrieval_documents.py", line 208, in test_xlsx_keeps_formula_and_cached_value
+    self.assertIn("grüß", cells["A2"].text)
+AssertionError: 'grüß' not found in 'gr�� \U0001f600'
+
+----------------------------------------------------------------------
+Ran 28 tests in 0.657s
+
+FAILED (failures=1)

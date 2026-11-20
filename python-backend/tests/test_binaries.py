@@ -9,6 +9,7 @@ status may not leak the user's absolute host layout to the browser.
 from __future__ import annotations
 
 import os
+import sys
 import shutil
 import tempfile
 import unittest
@@ -187,6 +188,57 @@ class SceneCommand(_Fixture):
     def test_command_falls_back_to_the_token_when_no_copy_is_valid(self):
         os.environ["RUKE_REPO_ROOT"] = str(self.tmp / "empty-repo")
         self.assertEqual(scenes.ffmpeg_scene_command("clip.mp4", 0.3)[0], "ffmpeg")
+
+
+class VersionProbeArgs(unittest.TestCase):
+    """The probe flag is program-specific, and a failed flag is not a broken program.
+
+    A single hard-coded `-version` made the project-local Tesseract 5.5.3 - which
+    rejects that flag with exit 1 and only accepts `--version` - resolve to "", i.e. a
+    real, working OCR engine was reported as not installed.
+    """
+
+    def setUp(self):
+        binaries.clear_cache()
+
+    def tearDown(self):
+        binaries.clear_cache()
+
+    def test_primary_flag_follows_the_program(self):
+        self.assertEqual(binaries._probe_variants("ffmpeg")[0], ("-version",))
+        self.assertEqual(binaries._probe_variants("ffprobe")[0], ("-version",))
+        self.assertEqual(binaries._probe_variants("tesseract")[0], ("--version",))
+        # every program gets a bounded set of alternatives before it is refused
+        for name in ("ffmpeg", "tesseract", "some-other-tool"):
+            self.assertEqual(len(binaries._probe_variants(name)), 2, name)
+
+    def test_a_program_that_rejects_dash_version_still_validates(self):
+        # CPython exits non-zero for `-version` and only accepts `--version`, which is
+        # exactly the shape of the Tesseract failure; the fallback variant must rescue it.
+        self.assertEqual(binaries.validate(sys.executable, "python"), "")
+
+    def test_a_spoofed_copy_is_still_refused(self):
+        spot = Path(tempfile.mkdtemp(prefix="ruke-ocr-stub-")) / "tesseract.exe"
+        spot.write_bytes(b"this is not a PE image")
+        try:
+            reason = binaries.validate(str(spot), "tesseract")
+        finally:
+            shutil.rmtree(str(spot.parent), ignore_errors=True)
+        self.assertTrue(reason, "a spoofed tesseract.exe must not satisfy the probe")
+        self.assertIn("executed", reason)
+
+    def test_the_project_local_ocr_copy_actually_resolves(self):
+        if os.environ.get("RUKE_TESSERACT") or shutil.which("tesseract") is None:
+            copies = [p for pat in binaries.PROJECT_LOCAL_PATTERNS["tesseract"]
+                      for p in binaries.repo_root().glob(pat) if p.is_file()]
+            if not copies:
+                self.skipTest("no project-local tesseract copy in this checkout")
+        res = binaries.resolve("tesseract")
+        self.assertTrue(res.found, res.detail)
+        self.assertIn("validated", res.detail)
+        self.assertEqual(Path(res.path).name.lower(), "tesseract.exe")
+        d = res.as_dict()
+        self.assertTrue(d["found"])
 
 
 if __name__ == "__main__":

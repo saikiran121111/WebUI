@@ -1,0 +1,12 @@
+stage 0: protobuf runtime
+   protobuf runtime: 7.36.2
+   free_phys_MiB, free_commit_MiB: (5345, 25176)
+   rss/peak_commit MiB: 0.0/0.0
+stage 1: the exact load that failed at F32
+   RESULT: imported ok - the VersionError is GONE for this module
+   rss/peak_commit MiB: 0.0/0.0
+stage 2: the pipeline import that F32 never reached
+   RESULT: PaddleOCRVL import ok
+   rss/peak_commit MiB: 0.0/0.0  elapsed 2.2s
+   free_phys_MiB, free_commit_MiB: (5114, 23480)
+after gc, rss MiB: 0.0

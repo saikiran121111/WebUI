@@ -22,8 +22,13 @@ ENV_SECRET_FILE = "RUKE_ML_SECRET_FILE"
 ENV_PARENT_PID = "RUKE_ML_PARENT_PID"
 ENV_JOB_ID = "RUKE_ML_JOB_ID"
 ENV_MEM_BUDGET = "RUKE_ML_MEM_BUDGET_MIB"
+ENV_MEM_CEILING = "RUKE_ML_MEM_CEILING_BYTES"
 
 DEFAULT_MEM_BUDGET_MIB = 4096
+# Hard maximum for the Ruke runtime tree plus its processing children, excluding the main
+# LLM and the coding agent. Enforced, not polled: see models/job_limits.py.
+DEFAULT_MEM_CEILING_BYTES = 5_000_000_000
+DEFAULT_LIGHT_WORKER_CEILING_MIB = 1536
 
 
 def repo_root() -> Path:
@@ -89,6 +94,21 @@ def child_env(job_id: str, extra: dict[str, str] | None = None) -> dict[str, str
     env[ENV_MODEL_DIR] = str(model_dir())
     env[ENV_ML_CACHE] = str(ml_cache_dir())
     env[ENV_JOB_ID] = job_id
+    # Line-delimited JSON on a pipe is a BYTE protocol. Left to the Windows locale, a child
+    # writing smart quotes emitted cp1252 bytes (0x92) into a stream the supervisor decodes as
+    # UTF-8, which killed the reader thread and lost a perfectly good parse result. Pin the
+    # child's stdio codecs instead of inheriting whatever the parent's console used to be.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    # CPU-only policy, bounded resources: heavy capability jobs are serialized by the
+    # pool, so a multi-threaded BLAS/OpenMP backend only oversubscribes the machine and
+    # allocates one scratch buffer set per core. Pinning the native thread pools to one
+    # thread keeps a worker's peak memory predictable under the runtime budget. Set
+    # before the child starts because these variables are read once, inside the
+    # extension's own init, and cannot be changed after numpy is imported.
+    for threads_var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+                        "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+        env.setdefault(threads_var, "1")
     if extra:
         env.update({k: str(v) for k, v in extra.items()})
     return env
@@ -122,6 +142,11 @@ class Limits:
     max_archive_uncompressed_bytes: int = 256 << 20
     max_archive_ratio: float = 200.0
     mem_budget_mib: int = field(default_factory=lambda: int(os.environ.get(ENV_MEM_BUDGET, DEFAULT_MEM_BUDGET_MIB)))
+    # Aggregate hard ceiling for the runtime tree (job object) and the ceiling applied to a
+    # worker whose capability has no measured peak yet. Both are enforced limits.
+    mem_ceiling_bytes: int = field(default_factory=lambda: int(
+        os.environ.get(ENV_MEM_CEILING, DEFAULT_MEM_CEILING_BYTES)))
+    light_worker_ceiling_mib: int = DEFAULT_LIGHT_WORKER_CEILING_MIB
 
 
 LIMITS = Limits()

@@ -13,7 +13,20 @@ import { rtfToText } from "./rtf";
 import { notebookText } from "./notebook";
 import { archiveText } from "./archives";
 import { extractStrings } from "./strings";
-import { pdfText } from "./pdf";
+import { pdfText, type PdfText } from "./pdf";
+// F05: the Python `documents.parse` capability job as a production caller of the
+// document path. The TS engines (unpdf/pdf.js, the OOXML reader) stay in charge of
+// every unit they already read; the capability engine only FILLS units they could
+// not read (plus the per-page OCR cascade the TS engines do not have). When this
+// deployment has no capability route (`state: "none"`), behaviour is byte-for-byte
+// the pre-F05 path, which is what __tests__/server/extract-pdf-coverage.test.ts locks.
+import {
+  readDocumentViaCapability,
+  mergePdfUnits,
+  mergeOfficeText,
+  capabilityBlockerLine,
+  type RunJob,
+} from "./document-capability";
 import { sniffMagic } from "./sniff";
 import { decodeText, type DecodedText } from "../../files/encoding";
 import {
@@ -30,6 +43,18 @@ import {
   transcribePcmSegments,
   type AsrSegment,
 } from "./audio";
+// E (migration): the Python speech backend gets the first attempt on an audio or
+// video upload, because it is the multilingual engine with a published language
+// table, a measured loudness probe and prepared CPU weights. The TypeScript
+// whisper owner below stays as the retained fallback for a RETRYABLE capability
+// failure only — never for a structural verdict about the file itself.
+import {
+  speechBlockerLine,
+  speechEngineNote,
+  transcribeViaCapability,
+  type AsrOutcome,
+  type CapabilityAsr,
+} from "./speech-capability";
 import { buildAttachmentIndex } from "../attachindex/build";
 import { framesDir, hasIndex, indexDir, publishPaths, removeIndex, withIndexWriteLock } from "../attachindex/store";
 import { discardStaged } from "../attachindex/publish";
@@ -172,6 +197,72 @@ export async function indexContent(
   }
 }
 
+/**
+ * Deliver a transcript produced by the Python speech backend (E migration).
+ *
+ * Two things are stated inside the text itself, because a transcript without its
+ * provenance is indistinguishable from a guess: WHICH engine answered (model,
+ * device, compute type, language verdict as the run reported it) and WHICH parts
+ * of the timeline were never decoded. Segments keep source-relative timestamps,
+ * so an attachment-index time citation stays valid for a chunked 3-hour recording.
+ */
+async function deliverSpoken(
+  name: string,
+  category: FileCategory,
+  att: string | undefined,
+  outcome: Extract<AsrOutcome, { state: "ready" | "silence" }>,
+  signal?: AbortSignal,
+): Promise<ExtractResult> {
+  const asr = outcome.asr;
+  if (!asr.text) {
+    // A pure audio upload with MEASURED silence is still a refusal — there is no
+    // visual content to fall back to — but the sentence now states the measurement
+    // instead of the model's opinion about nothing.
+    const level = asr.audioLevel as { max_volume_db?: number; noise_floor_db?: number };
+    const measured =
+      typeof level.max_volume_db === "number"
+        ? `the track was decoded and measured at ${level.max_volume_db.toFixed(1)} dBFS peak, at or below the ${
+            typeof level.noise_floor_db === "number" ? level.noise_floor_db.toFixed(0) : "configured"
+          } dBFS noise floor, so no speech could exist in it`
+        : (asr.note || "no audible speech was present");
+    throw new Error(`No speech detected in ${name}: ${measured}`);
+  }
+  const note = speechEngineNote(asr);
+  const coverage = asr.complete
+    ? ""
+    : `\n[speech coverage: ${asr.examined.length} decoded span(s) over ${
+        asr.durationSec.toFixed(1)
+      }s; ${asr.unexamined.length} interval(s) were never decoded, so the absence of speech there is unproven]`;
+  const transcript = `${note}\n${asr.text}${coverage}`;
+  const durationSec = asr.durationSec;
+  if (att && transcript.length > TEXT_CHAR_LIMIT) {
+    const indexed = await indexContent(
+      name,
+      category,
+      att,
+      transcript,
+      { segments: asSegments(asr.segments), ...(durationSec > 0 ? { durationSec } : {}) },
+      signal,
+    );
+    return {
+      name,
+      category,
+      ...indexed,
+      transcript: transcript.slice(0, PREVIEW_CHARS),
+      truncated: true,
+      ...(durationSec > 0 ? { durationSec } : {}),
+    };
+  }
+  const capped = cap(transcript);
+  return {
+    name,
+    category,
+    transcript: capped.text,
+    truncated: capped.truncated,
+    ...(durationSec > 0 ? { durationSec } : {}),
+  };
+}
+
 function cap(text: string, limit = TEXT_CHAR_LIMIT): { text: string; truncated: boolean } {
   const clean = (text ?? "").replace(/\r\n/g, "\n").trim();
   if (clean.length <= limit) return { text: clean, truncated: false };
@@ -259,6 +350,7 @@ export async function extractFileFromPath(
   attId?: string,
   mime?: string,
   signal?: AbortSignal,
+  opts?: { runJob?: RunJob },
 ): Promise<ExtractResult> {
   let category = classifyFile(name, mime);
   const ext = fileExtension(name).toLowerCase();
@@ -332,12 +424,50 @@ export async function extractFileFromPath(
         // stated up front, an all-scan PDF raises an honest error naming the
         // real option (send the page as an image), and partial coverage goes
         // INTO the indexed text so retrieved passages carry the caveat too.
-        const { text, pages, pagesWithoutText } = await pdfText(buf);
+        // F05: BOTH readers run. pdf.js owns the pages it already read; the
+        // capability reader only fills the pages it did not, and a second reader's
+        // materially larger text for a shared page is kept as a LABELED VARIANT
+        // (never a silent swap), because a page where two readers disagree carries
+        // evidence either engine alone would hide.
+        let ts: PdfText | null = null;
+        let tsFail: unknown = null;
+        try {
+          ts = await pdfText(buf);
+        } catch (err) {
+          tsFail = err;
+        }
+        const cap = await readDocumentViaCapability(srcPath, {
+          ...(opts?.runJob ? { runJob: opts.runJob } : {}),
+          ...(signal ? { signal } : {}),
+        });
+        if (cap.state === "ready") {
+          const merged = mergePdfUnits(ts ?? { pages: 0, perPage: [], pagesWithoutText: [] }, cap.doc);
+          if (merged.refusal) throw new Error(`${name}: ${merged.refusal}`);
+          const mergedResult = await cappedOrIndexed(name, category, att, merged.text, signal);
+          return { ...mergedResult, pages: merged.pages, coverageNote: merged.coverageNote };
+        }
+        if (!ts) {
+          // pdf.js could not open the file and the capability engine gave no usable
+          // document either: name both facts instead of only the TS one.
+          if (cap.state === "none") throw tsFail;
+          throw new Error(
+            `${name}: ${tsFail instanceof Error ? tsFail.message : String(tsFail)} ` +
+            capabilityBlockerLine(cap),
+          );
+        }
+        const { text, pages, pagesWithoutText } = ts;
         if (!text.trim()) {
           if (pages > 0) {
+            // F05: the sentence naming WHY the scanned pages stayed unread now comes
+            // from the capability backend when one exists, so the human step it
+            // reports (install/point RUKE_TESSERACT, set a document language, accept
+            // a licence) reaches the user instead of a stale "no OCR engine".
+            const capOcrSentence = cap.state === "unavailable"
+              ? `${capabilityBlockerLine(cap)} `
+              : "No OCR engine is installed, so their contents cannot be read as text; ";
             throw new Error(
               `${name} has no text layer — all ${pages} page(s) are scanned images. ` +
-              `No OCR engine is installed, so their contents cannot be read as text; ` +
+              capOcrSentence +
               `send the page you care about as an image and the vision model can read it.`,
             );
           }
@@ -354,12 +484,53 @@ export async function extractFileFromPath(
             text;
         }
         const r = await cappedOrIndexed(name, category, att, full, signal);
-        return { ...r, pages };
+        return {
+          ...r,
+          pages,
+          ...(cap.state === "unavailable" ? { coverageNote: capabilityBlockerLine(cap) } : {}),
+        };
       }
       if (category === "office") {
-        const text = officeText(buf, ext);
-        if (!text.trim()) throw new Error("No readable text found in this document");
-        return await cappedOrIndexed(name, category, att, text, signal);
+        // F05: same rule as PDF. The TS OOXML reader keeps the body unless the
+        // capability reader can be MEASURED to carry materially more content
+        // (mergeOfficeText's >=20% non-whitespace bar), and the note records both
+        // engines plus every unit id the capability reader failed. A Python engine
+        // is not better by default, and a TS engine is not protected by default.
+        let tsOffice = "";
+        let officeFail: unknown = null;
+        try {
+          tsOffice = officeText(buf, ext);
+        } catch (err) {
+          officeFail = err;
+        }
+        const cap = await readDocumentViaCapability(srcPath, {
+          ...(opts?.runJob ? { runJob: opts.runJob } : {}),
+          ...(signal ? { signal } : {}),
+        });
+        if (cap.state === "ready") {
+          const merged = mergeOfficeText(tsOffice, cap.doc);
+          if (merged.refusal) throw new Error(`${name}: ${merged.refusal}`);
+          // The merge always carries its coverage statement, so an Office read that produced
+          // nothing readable still reaches the user as an honest empty extraction with the
+          // per-unit reasons rather than a bare "no readable text" error (F12-2/F12-4).
+          const mergedResult = await cappedOrIndexed(name, category, att, merged.text, signal);
+          return { ...mergedResult, ...(merged.pages ? { pages: merged.pages } : {}), coverageNote: merged.coverageNote };
+        }
+        if (officeFail !== null) {
+          // cap.state is narrowed to "none" | "unavailable" here: the "ready" case returned above.
+          if (cap.state === "none") throw officeFail;
+          throw new Error(
+            `${name}: ${officeFail instanceof Error ? officeFail.message : String(officeFail)} ` +
+            capabilityBlockerLine(cap),
+          );
+        }
+        if (!tsOffice.trim()) {
+          throw new Error(
+            "No readable text found in this document" +
+            (cap.state === "unavailable" ? ` ${capabilityBlockerLine(cap)}` : ""),
+          );
+        }
+        return await cappedOrIndexed(name, category, att, tsOffice, signal);
       }
       if (category === "archive") {
         // The uploaded name is passed along because bare .bz2/.xz streams store
@@ -398,37 +569,77 @@ export async function extractFileFromPath(
       // windows from it — a 3 h recording used to be buffered whole in RAM
       // (~1.15 GB of float PCM), and neither the decode nor the grind could
       // be cancelled when the user removed the upload mid-way.
-      const dec = await decodeAudioPcmFile(srcPath, { signal });
+      const sp = await transcribeViaCapability(srcPath, {
+        ...(opts?.runJob ? { runJob: opts.runJob } : {}),
+        ...(signal ? { signal } : {}),
+      });
+      if (sp.state === "ready" || sp.state === "silence") {
+        return await deliverSpoken(name, category, att, sp, signal);
+      }
+      if (sp.state === "unavailable" && sp.structural) {
+        // The refusal is a measured fact about THIS file (ffprobe found zero audio
+        // streams, the container is corrupt, or the named language is outside the
+        // pinned backend's published table). A second engine cannot un-measure it,
+        // and re-decoding a silent track is how whisper invents words over nothing.
+        throw new Error(`${name}: ${sp.message}`);
+      }
+      if (sp.state === "unavailable" && sp.reason === "cancelled") {
+        throw new Error("The user aborted this request.");
+      }
+      // Retained TypeScript speech owner (NOT a completed Python migration): used
+      // when the capability backend is absent, unprepared or failed for a retryable
+      // reason. The blocker line is surfaced so the user knows which engine answered.
       try {
-        const durationSec = dec.samples / 16000;
-        // Short clips still go through in one call; only long recordings
-        // pay the windowed file-based path.
-        const { text, segments } = durationSec <= 90
-          ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
-          : await transcribePcmFile(dec.file, dec.samples, { signal });
-        // I14: the default whisper checkpoint is English-only — a Hindi
-        // recording used to read as "no speech" with no hint why. The note
-        // rides on the transcript AND on the no-speech error.
-        const note = asrCapabilityNote();
-        if (!text) {
-          throw new Error("No speech detected in this audio file" + (note ? ` ${note}` : ""));
+        const dec = await decodeAudioPcmFile(srcPath, { signal });
+        try {
+          const durationSec = dec.samples / 16000;
+          // Short clips still go through in one call; only long recordings
+          // pay the windowed file-based path.
+          const { text, segments } = durationSec <= 90
+            ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
+            : await transcribePcmFile(dec.file, dec.samples, { signal });
+          // I14: the default whisper checkpoint is English-only — a Hindi
+          // recording used to read as "no speech" with no hint why. The note
+          // rides on the transcript AND on the no-speech error.
+          const note = asrCapabilityNote();
+          const blocker =
+            sp.state === "unavailable" ? speechBlockerLine(sp) + " " : "";
+          if (!text) {
+            // The outer catch appends the primary backend's typed reason, so it is
+            // not repeated here.
+            throw new Error(
+              "No speech detected in this audio file" + (note ? ` ${note}` : ""),
+            );
+          }
+          const transcript = [blocker, note, text].filter(Boolean).join("\n");
+          if (att && transcript.length > TEXT_CHAR_LIMIT) {
+            const indexed = await indexContent(name, category, att, transcript, {
+              segments: asSegments(segments),
+              durationSec,
+            }, signal);
+            return {
+              name, category, ...indexed,
+              transcript: transcript.slice(0, PREVIEW_CHARS),
+              truncated: true,
+              durationSec,
+            };
+          }
+          return { name, category, transcript, ...cap(transcript), durationSec };
+        } finally {
+          try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
         }
-        const transcript = note ? `${note}\n${text}` : text;
-        if (att && transcript.length > TEXT_CHAR_LIMIT) {
-          const indexed = await indexContent(name, category, att, transcript, {
-            segments: asSegments(segments),
-            durationSec,
-          }, signal);
-          return {
-            name, category, ...indexed,
-            transcript: transcript.slice(0, PREVIEW_CHARS),
-            truncated: true,
-            durationSec,
-          };
+      } catch (err: unknown) {
+        if (signal?.aborted) throw err as Error; // cancellation is not a media defect
+        // The retained engine's own failure stays the headline, but the primary
+        // backend's typed reason is appended: "the fallback could not read it
+        // either" and "the multilingual engine refused because its weights were
+        // never prepared" are different sentences for the user.
+        if (sp.state === "unavailable") {
+          throw new Error(
+            `${err instanceof Error ? err.message : String(err)} ${speechBlockerLine(sp)}`,
+          );
         }
-        return { name, category, transcript, ...cap(transcript), durationSec };
-      } finally {
-        try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
+        throw err;
       }
     }
 
@@ -487,7 +698,43 @@ export async function extractFileFromPath(
       // already paid ffmpeg for. The failure reason is kept so the honest
       // outcome states exactly what could and could not be read.
       let speechIssue: string | null = null;
-      try {
+      // E (migration): the Python speech backend answers first when a capability
+      // route exists. Its verdicts about the FILE are final and are NOT re-run
+      // through the TypeScript whisper path: "ffprobe found 0 audio streams" and
+      // "the track was measured silent" are measurements, and a second engine gets
+      // the retryable failures only (no backend, unprepared weights, admission
+      // refusal, backend crash).
+      const sp = await transcribeViaCapability(srcPath, {
+        ...(opts?.runJob ? { runJob: opts.runJob } : {}),
+        ...(signal ? { signal } : {}),
+      });
+      let speechEngine: "python" | "typescript" | null = null;
+      let pythonAsr: CapabilityAsr | null = null;
+      if (sp.state === "ready") {
+        transcript = sp.asr.text || undefined;
+        segments = sp.asr.segments.map((s) => ({ text: s.text, start: s.start, end: s.end }));
+        pythonAsr = sp.asr;
+        speechEngine = "python";
+        if (!transcript) speechIssue = "the speech backend decoded its audio track and found no speech in it";
+      } else if (sp.state === "silence") {
+        const level = sp.asr.audioLevel as { max_volume_db?: number };
+        speechIssue =
+          `no speech was detected in its audio track, which was decoded and measured at ` +
+          `${typeof level.max_volume_db === "number" ? level.max_volume_db.toFixed(1) + " dBFS" : "the noise floor"} ` +
+          `(a measured verdict, not an inference)`;
+        speechEngine = "python";
+      } else if (sp.state === "unavailable" && sp.reason === "cancelled") {
+        throw new Error("The user aborted this request.");
+      } else if (sp.state === "unavailable" && sp.structural) {
+        // A zero-audio-stream probe is the same structural fact the TS path reports,
+        // just measured: keep the frozen wording and add the evidence behind it.
+        speechIssue = /0 audio streams/i.test(sp.message)
+          ? "it has no audio track (ffprobe found 0 audio streams)"
+          : sp.message;
+        speechEngine = "python";
+      } else try {
+        // Retained TypeScript speech owner for a retryable capability failure.
+        speechEngine = "typescript";
         const dec = await decodeAudioPcmFile(srcPath, { signal });
         try {
           const spokenDur = dec.samples / 16000;
@@ -510,8 +757,14 @@ export async function extractFileFromPath(
           : "it has no audio track";
       }
       const key = await kfPromise;
-      const note = asrCapabilityNote();
+      // The English-only warning describes the TypeScript checkpoint, so it is only
+      // allowed on a transcript that engine actually produced. Attaching it to a
+      // multilingual backend's transcript would be a false claim about the evidence.
+      const note = speechEngine === "typescript" ? asrCapabilityNote() : "";
       if (transcript && note) transcript = `${note}\n${transcript}`;
+      if (transcript && pythonAsr) {
+        transcript = `${speechEngineNote(pythonAsr)}\n${transcript}`;
+      }
 
       if (!transcript) {
         // I16: speech could not be read but the keyframes survived AND an

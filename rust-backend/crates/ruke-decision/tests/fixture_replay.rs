@@ -310,10 +310,11 @@ fn core_skill_decision_block_fixture_04_string_equal() {
         block, expected,
         "<decision_skill> block must be string-identical to the injected system content"
     );
-    // 11988 = JS content length (UTF-16 units) as of the 2026-11-16 F02
-    // re-record (the decision_skill block now carries the typed multi-deliverable
-    // note); the re-recorded block_bytes anchor below pins the UTF-8 length.
-    assert_eq!(js_len(&block), 11988, "UTF-16 units of the recorded block");
+    // 12077 = JS content length (UTF-16 units) as of the 2026-11-20 D-070
+    // re-record (the trailing sentence now permits catalogue fences instead of
+    // the old blanket "never emit other renderer fences"); the re-recorded
+    // block_bytes anchor below pins the UTF-8 length independently.
+    assert_eq!(js_len(&block), 12077, "UTF-16 units of the recorded block");
 
     let anchor = &fix["upstreamCalls"][0]["anchors"][0];
     assert_eq!(

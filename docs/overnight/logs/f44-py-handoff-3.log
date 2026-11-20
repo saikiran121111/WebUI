@@ -1,0 +1,12 @@
+﻿.\.venv\Scripts\python.exe : 
+...............................................................................................
+At line:2 char:44
++ ... on-backend; .\.venv\Scripts\python.exe -X utf8 -m unittest tests.test ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (.................................:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+----------------------------------------------------------------------
+Ran 95 tests in 23.120s
+
+OK

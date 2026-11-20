@@ -1,0 +1,103 @@
+{
+  "capability": "rerank",
+  "endpoint": "http://127.0.0.1:54610",
+  "supervisor_pid": 6760,
+  "mode_requested": "neural_cross_encoder_minilm",
+  "model": {
+    "id": "Xenova/ms-marco-MiniLM-L-6-v2",
+    "revision": "sha256:c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870",
+    "provider": "onnxruntime-cpu"
+  },
+  "cold_call_ms": 95283,
+  "warm_call_ms": 95163,
+  "order_cold": [],
+  "order_warm": [],
+  "expected": "c1",
+  "scores_cold": [],
+  "lexical_reported": "lexical",
+  "bad_mode": {
+    "status": 552,
+    "error": {
+      "capability": "rerank",
+      "human_step": "run the retrieval quality gate, then pin the reranker",
+      "message": "reranker 'neural_gpt4_all_pro' is not a mode this process runs (installed modes: lexical, neural (dense bi-encoder), neural_cross_encoder (pinned cross-encoder); any other ranker would need its own pinned asset, adapter and protocol, and none is registered)",
+      "reason": "evaluation_required",
+      "retryable": false
+    }
+  },
+  "memory": {
+    "samples": 1786,
+    "baseline_tree_working_set_mib": 15.0,
+    "peak_tree_working_set_mib": 51.0,
+    "peak_tree_commit_mib": 36.0,
+    "peak_bytes": 53477376,
+    "commit_bytes": 37748736,
+    "pids_at_peak": [
+      6760,
+      12648,
+      3140
+    ],
+    "after_job_working_set_mib": 44.0,
+    "after_idle_release_working_set_mib": 19.0,
+    "definition": "K32GetProcessMemoryInfo summed over the supervisor pid and its owned worker children; working set = resident RAM, commit = pagefile charge; the 5,000,000,000 B ceiling is a COMMIT ceiling"
+  },
+  "limits": {
+    "mem_ceiling_bytes": 5000000000,
+    "target_bytes": 4000000000
+  },
+  "health": {
+    "error": "'HTTPResponse' object has no attribute 'json'"
+  },
+  "checks": [
+    {
+      "name": "cold call reaches a real worker (HTTP 200 + ready)",
+      "ok": false,
+      "detail": "status=552 state=failed err=deadline_exceeded"
+    },
+    {
+      "name": "the engine says it ran the PINNED cross-encoder, not lexical",
+      "ok": false,
+      "detail": null
+    },
+    {
+      "name": "engine identity matches the pinned model/revision",
+      "ok": false,
+      "detail": "None @ None provider=None"
+    },
+    {
+      "name": "provider is CPU ONNX (no GPU compute for processing jobs)",
+      "ok": false,
+      "detail": null
+    },
+    {
+      "name": "one finite probability per candidate, ranked 1..n",
+      "ok": false,
+      "detail": []
+    },
+    {
+      "name": "coverage says the whole candidate field was examined",
+      "ok": false,
+      "detail": ""
+    },
+    {
+      "name": "a warm repeat call reproduces the order",
+      "ok": false,
+      "detail": "[] -> [] in 95163 ms"
+    },
+    {
+      "name": "the expected passage ranks first on this item",
+      "ok": false,
+      "detail": "expected c1, got "
+    },
+    {
+      "name": "a lexical request is served AND reported as lexical",
+      "ok": true,
+      "detail": "state=ready mode=lexical"
+    },
+    {
+      "name": "an unknown mode is a typed failure, not a substitution",
+      "ok": true,
+      "detail": "status=552 reason=evaluation_required"
+    }
+  ]
+}

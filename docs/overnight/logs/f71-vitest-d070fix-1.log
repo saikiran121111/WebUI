@@ -1,0 +1,45 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__\documents\lazyLoad.test.ts __tests__\skills\chatEngine.test.ts __tests__\decision\multi-deliverable-injection.test.ts __tests__\rust-golden\skills.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/Projects/WebUI/WebUI[39m
+
+ [32m✓[39m __tests__/documents/lazyLoad.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m __tests__/decision/multi-deliverable-injection.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+[00:03:53.112] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"hey please can you build me a 500-row transaction tracker in"}[39m
+[00:03:53.114] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"excel","by":"in-process-deliverable-match","skill":null,"skillBytes":4801,"model":"test"}[39m
+[00:03:53.115] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"excel","url":"http://127.0.0.1:56898/v1/chat/completions"}[39m
+[00:03:53.126] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"excel","ms":11,"sseChunks":1}[39m
+ [32m✓[39m __tests__/rust-golden/skills.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 920[2mms[22m[39m
+[00:03:53.186] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"why is my useEffect firing twice"}[39m
+[00:03:53.186] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:03:53.187] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:56898/v1/chat/completions"}[39m
+[00:03:53.189] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[00:03:53.244] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"hello there"}[39m
+[00:03:53.244] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:03:53.245] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:56898/v1/chat/completions"}[39m
+[00:03:53.246] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[00:03:53.296] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"Your previous ```xlsx fence failed validation: #REF!"}[39m
+[00:03:53.297] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"excel","by":"repair-passthrough","skill":null,"skillBytes":4791,"model":"test"}[39m
+[00:03:53.297] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"excel","url":"http://127.0.0.1:56898/v1/chat/completions"}[39m
+[00:03:53.298] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"excel","ms":1,"sseChunks":1}[39m
+[00:03:53.352] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"explain recursion"}[39m
+[00:03:53.352] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":"test-skill","skillBytes":0,"model":"test"}[39m
+[00:03:53.352] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:56898/v1/chat/completions"}[39m
+[00:03:53.354] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[00:03:53.400] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"/disabled-skill hello"}[39m
+[00:03:53.400] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:03:53.401] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:56898/v1/chat/completions"}[39m
+[00:03:53.402] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[00:03:53.448] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"please summarize this report for me"}[39m
+[00:03:53.448] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:03:53.448] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:56898/v1/chat/completions"}[39m
+[00:03:53.450] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+ [32m✓[39m __tests__/skills/chatEngine.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 1253[2mms[22m[39m
+   [33m[2m✓[22m[39m POST /api/chat — Decision Engine pipeline[2m > [22mspreads deliverable-intent word → injects the matched core-skill block + studio fence [33m922[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m4 passed[39m[22m[90m (4)[39m
+[2m      Tests [22m [1m[32m29 passed[39m[22m[90m (29)[39m
+[2m   Start at [22m 00:03:51
+[2m   Duration [22m 1.56s[2m (transform 360ms, setup 111ms, collect 233ms, tests 2.19s, environment 1ms, prepare 279ms)[22m
+

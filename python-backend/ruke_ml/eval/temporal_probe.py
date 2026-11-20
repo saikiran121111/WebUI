@@ -21,6 +21,7 @@ import subprocess
 import time
 from typing import Any
 
+from .. import processes
 from ..models.binaries import path_for
 from ..video import scenes
 from .metrics import temporal_localization
@@ -50,9 +51,7 @@ def _ffmpeg(ffmpeg: str | None = None) -> str:
 
 
 def _run(cmd: list[str], timeout_s: float) -> subprocess.CompletedProcess:
-    flags = 0x08000000 if os.name == "nt" else 0
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s,
-                          creationflags=flags)
+    return processes.run_captured(cmd, timeout=timeout_s, text=True)
 
 
 def build_synthetic_clip(dest_dir: str, ffmpeg: str | None = None) -> dict[str, Any]:
@@ -111,13 +110,19 @@ def probe(dest_dir: str, threshold: float = 0.3, budget: int = 12,
                     "uncovered_declared_events": [TRUTH_CUTS[i] for i, x in enumerate(covered)
                                                   if not x]}
     # The honesty invariant: a bounded sample must never claim completeness.
-    note = plan.honest_note
-    covered = sum(max(0.0, min(clip["duration"], w.end) - max(0.0, w.start)) for w in plan.windows)
-    honesty = {"note": note,
-               "claims_completeness": "unexamined" not in note,
-               "covered_seconds": round(covered, 3),
+    # Read the machine flag, not a sentence: a probe that greps for the word
+    # "unexamined" only proves the note still contains that word, which is why the
+    # wording used to be load-bearing. Plan seconds are PLANNED, never inspected, and
+    # the decode prefix is a separate measured number.
+    honesty = {"note": plan.honest_note,
+               "claims_completeness": plan.claims_inspected_coverage,
+               "planned_seconds": round(plan.planned_seconds, 3),
+               "planned_windows": len(plan.windows),
+               "planning_is_never_inspection": True,
                "total_seconds": clip["duration"],
-               "coverage_is_partial": covered < clip["duration"] - 1e-6}
+               "coverage_is_partial": (plan.planned_seconds < clip["duration"] - 1e-6),
+               "measured_decode_prefix_s": scan.scanned_seconds,
+               "prefix_measured": scan.prefix_measured}
     cut_err: list[float] = []
     for truth in TRUTH_CUTS:
         if scan.cuts:
@@ -135,6 +140,9 @@ def probe(dest_dir: str, threshold: float = 0.3, budget: int = 12,
     return {"ok": ok, "clip": clip, "scope_note": SCOPE_NOTE,
             "scan": {"cuts": scan.cuts, "ok": scan.ok, "error": scan.error, "detail": scan.detail,
                      "truncated": scan.truncated, "scanned_seconds": scan.scanned_seconds,
+                     "prefix_measured": scan.prefix_measured,
+                     "progress_updates": scan.progress_updates,
+                     "log_chars": scan.log_chars, "log_capped": scan.log_capped,
                      "threshold": scan.threshold, "elapsed_ms": scan.elapsed_ms,
                      "detected_within_tolerance": detect["found_within_tolerance"],
                      "detection_mean_abs_error_s": detect["mean_abs_error_s"],
@@ -179,6 +187,9 @@ def main(argv: list[str] | None = None) -> int:
     print("declared events inside a sampled window: %s/%s uncovered=%s"
           % (wc["covered"], wc["n_truth"], wc["uncovered_declared_events"]))
     print("honesty: %s" % report["honesty"]["note"])
+    print("decode prefix: %.1fs of %.1fs (prefix_measured=%s, progress_updates=%s)"
+          % (report["scan"]["scanned_seconds"], report["clip"]["duration"],
+             report["scan"]["prefix_measured"], report["scan"]["progress_updates"]))
     print("SCOPE: %s" % report["scope_note"])
     return 0 if report["ok"] else 1
 

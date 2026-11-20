@@ -1,0 +1,10 @@
+ffmpeg D:\Projects\WebUI\WebUI\node_modules\ffmpeg-static\ffmpeg.exe ffprobe D:\Projects\WebUI\WebUI\node_modules\@ffprobe-installer\win32-x64\ffprobe.exe
+free physical 4630 source GlobalMemoryStatusEx
+CEILING speech.asr heavy= True mib= 776 {"measured_load_peak_mib": 388, "estimate": "measured"}
+state failed secs 1.66
+reason model_unavailable retryable True
+detail load_failed: RuntimeError: mkl_malloc: failed to allocate memory
+human_step retry; if it repeats, report this line
+payload state None device None compute None
+text 
+status failed 'P' object has no attribute 'status'

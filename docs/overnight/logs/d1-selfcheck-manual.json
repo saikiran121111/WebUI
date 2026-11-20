@@ -1,0 +1,197 @@
+{
+  "key_version": "d1-ocr-1",
+  "mode": "self_check",
+  "label": "MECHANICS ONLY (synthetic, no engine ran, no upload happened)",
+  "run_at": "2026-11-17T05:12:44",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails",
+    "hard_max_mib": 4768
+  },
+  "controls": [
+    {
+      "pass": "content",
+      "fixture": "d1_native.pdf",
+      "control": "positive",
+      "expect": "zero misses",
+      "misses": [],
+      "checks_total": 8,
+      "ok": true,
+      "sample": {
+        "text": "[document capability documents.parse (pypdf-selfcheck); OCR did not run: the assessment routed this document to the native text layer] [page 1 | read by: pdf.js text layer] Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to [page 2 | read by: pdf.js text layer] measured across eleven observation wells. Extraction permits were capped at 62% of the recharge estimate for 2019. reduced dry-season flow rather than tidal intrusion alone. [page 3 | read by: pdf.js text layer] Station Flow m3/s Turbidity NTU Kandla 18.4 12.7 Gandhi Dham 44.0 3.9 Aranjes 12.6 51.2 [page 4 | read by: pdf.js text layer] def recharge(precip_mm, area_km2): runoff = precip_mm * 0.18 * area_km2 return round(runoff * 1000, 1) # m3 print(recharge(740, 12.5)) [page 5 | read by: pdf.js text layer] Q = W x b x sqrt(2 g h) T = 25 degC, pH = 7.4, EC = 0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook. [page 6 | read by: pdf.js text layer] Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+      }
+    },
+    {
+      "pass": "content",
+      "fixture": "d1_native.pdf",
+      "control": "negative",
+      "expect": "at least one miss",
+      "misses": [
+        "page6_phrase_in_body",
+        "late_evidence_page6"
+      ],
+      "checks_total": 8,
+      "ok": true
+    },
+    {
+      "pass": "content",
+      "fixture": "d1_scanned.pdf",
+      "control": "positive",
+      "expect": "zero misses",
+      "misses": [],
+      "checks_total": 16,
+      "ok": true,
+      "sample": {
+        "text": "[document capability documents.parse (pypdf-selfcheck); 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised; engines consulted: paddleocr-vl-1.6; recognised by paddleocr-vl-1.6: 6] [page 1 | read by: paddleocr-vl-1.6 OCR (eng, confidence 0.95)] Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to [page 2 | read by: paddleocr-vl-1.6 OCR (eng, confidence 0.95)] measured across eleven observation wells. Extraction permits were capped at 62% of the recharge estimate for 2019. reduced dry-season flow rather than tidal intrusion alone. [page 3 | read by: paddleocr-vl-1.6 OCR (eng, confidence 0.95)] Station Flow m3/s Turbidity NTU Kandla 18.4 12.7 Gandhi Dham 44.0 3.9 Aranjes 12.6 51.2 [page 4 | read by: paddleocr-vl-1.6 OCR (eng, confidence 0.95)] def recharge(precip_mm, area_km2): runoff = precip_mm * 0.18 * area_km2 return round(runoff * 1000, 1) # m3 print(recharge(740, 12.5)) [page 5 | read by: paddleocr-vl-1.6 OCR (eng, confidence 0.95)] Q = W x b x sqrt(2 g h) T = 25 degC, pH = 7.4, EC = 0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook. [page 6 | read by: paddleocr-vl-1.6 OCR (eng, confidence 0.95)] Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+      }
+    },
+    {
+      "pass": "content",
+      "fixture": "d1_scanned.pdf",
+      "control": "negative",
+      "expect": "at least one miss",
+      "misses": [
+        "page1_wer<=limit",
+        "page6_phrase_in_body",
+        "page6_wer<=limit",
+        "late_evidence_page6",
+        "no_fabricated_content",
+        "coverage_units_read"
+      ],
+      "checks_total": 16,
+      "ok": true
+    },
+    {
+      "pass": "content",
+      "fixture": "d1_mixed.pdf",
+      "control": "positive",
+      "expect": "zero misses",
+      "misses": [],
+      "checks_total": 8,
+      "ok": true,
+      "sample": {
+        "text": "[document capability documents.parse (pypdf-selfcheck); text layer: 3 of 3 page(s) via pdf.js; 2 page(s) recognised by OCR (eng): 2/2 page(s) recognised] [page 1 | read by: pdf.js text layer] Exhibit C - native heading carried by the text layer, not by recognition. [page 1 | second reader paddleocr-vl-1.6 OCR (eng): 26 non-whitespace characters vs the pdf.js text layer's 74; kept as a variant, the text layer above was NOT replaced] Section 4.2 Ground Water [page 2 | read by: pdf.js text layer] Section 4.2 Ground Water native layer on the mixed page [page 3 | read by: pdf.js text layer] Appendix note 4,18,25,000 ends the document"
+      }
+    },
+    {
+      "pass": "content",
+      "fixture": "d1_mixed.pdf",
+      "control": "negative",
+      "expect": "at least one miss",
+      "misses": [
+        "late_evidence_page3",
+        "page3_has_delivered_content",
+        "page3_read_by_a_native_reader",
+        "coverage_units_read"
+      ],
+      "checks_total": 8,
+      "ok": true
+    },
+    {
+      "pass": "content",
+      "fixture": "d1_rotated_scan.pdf",
+      "control": "positive",
+      "expect": "zero misses",
+      "misses": [],
+      "checks_total": 5,
+      "ok": true,
+      "sample": {
+        "text": "[document capability documents.parse (pypdf-selfcheck); 1 page(s) recognised by OCR (eng): 1/1 page(s) recognised; raster rotation applied: page 1 90\u00b0] [page 1 | read by: paddleocr-vl-1.6 OCR (eng, confidence 0.9)] measured across eleven observation wells."
+      }
+    },
+    {
+      "pass": "content",
+      "fixture": "d1_rotated_scan.pdf",
+      "control": "negative",
+      "expect": "at least one miss",
+      "misses": [
+        "rotated_recognised",
+        "rotated_page_reference",
+        "rotated_marker_says_ocr_reader",
+        "coverage_units_read"
+      ],
+      "checks_total": 5,
+      "ok": true
+    },
+    {
+      "pass": "fallback_crash",
+      "fixture": "d1_scanned.pdf",
+      "control": "positive",
+      "expect": "zero misses",
+      "misses": [],
+      "checks_total": 17,
+      "ok": true,
+      "sample": {
+        "text": "[document capability documents.parse (pypdf-selfcheck); 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised; engines consulted: tesseract; recognised by tesseract: 6] [page 1 | read by: tesseract OCR (eng, confidence 0.95)] Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to [page 2 | read by: tesseract OCR (eng, confidence 0.95)] measured across eleven observation wells. Extraction permits were capped at 62% of the recharge estimate for 2019. reduced dry-season flow rather than tidal intrusion alone. [page 3 | read by: tesseract OCR (eng, confidence 0.95)] Station Flow m3/s Turbidity NTU Kandla 18.4 12.7 Gandhi Dham 44.0 3.9 Aranjes 12.6 51.2 [page 4 | read by: tesseract OCR (eng, confidence 0.95)] def recharge(precip_mm, area_km2): runoff = precip_mm * 0.18 * area_km2 return round(runoff * 1000, 1) # m3 print(recharge(740, 12.5)) [page 5 | read by: tesseract OCR (eng, confidence 0.95)] Q = W x b x sqrt(2 g h) T = 25 degC, pH = 7.4, EC = 0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook. [page 6 | read by: tesseract OCR (eng, confidence 0.95)] Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+      }
+    },
+    {
+      "pass": "fallback_crash",
+      "fixture": "d1_scanned.pdf",
+      "control": "negative",
+      "expect": "at least one miss",
+      "misses": [
+        "page6_phrase_in_body",
+        "page6_wer<=limit",
+        "late_evidence_page6",
+        "no_fabricated_content",
+        "coverage_units_read"
+      ],
+      "checks_total": 17,
+      "ok": true
+    },
+    {
+      "pass": "fallback_primary",
+      "fixture": "d1_scanned.pdf",
+      "control": "positive",
+      "expect": "zero misses",
+      "misses": [],
+      "checks_total": 17,
+      "ok": true,
+      "sample": {
+        "text": "[document capability documents.parse (pypdf-selfcheck); 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised; engines consulted: tesseract; recognised by tesseract: 6] [page 1 | read by: tesseract OCR (eng, confidence 0.95)] Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to [page 2 | read by: tesseract OCR (eng, confidence 0.95)] measured across eleven observation wells. Extraction permits were capped at 62% of the recharge estimate for 2019. reduced dry-season flow rather than tidal intrusion alone. [page 3 | read by: tesseract OCR (eng, confidence 0.95)] Station Flow m3/s Turbidity NTU Kandla 18.4 12.7 Gandhi Dham 44.0 3.9 Aranjes 12.6 51.2 [page 4 | read by: tesseract OCR (eng, confidence 0.95)] def recharge(precip_mm, area_km2): runoff = precip_mm * 0.18 * area_km2 return round(runoff * 1000, 1) # m3 print(recharge(740, 12.5)) [page 5 | read by: tesseract OCR (eng, confidence 0.95)] Q = W x b x sqrt(2 g h) T = 25 degC, pH = 7.4, EC = 0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook. [page 6 | read by: tesseract OCR (eng, confidence 0.95)] Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+      }
+    },
+    {
+      "pass": "fallback_primary",
+      "fixture": "d1_scanned.pdf",
+      "control": "negative",
+      "expect": "at least one miss",
+      "misses": [
+        "page6_phrase_in_body",
+        "page6_wer<=limit",
+        "late_evidence_page6",
+        "no_fabricated_content",
+        "coverage_units_read"
+      ],
+      "checks_total": 17,
+      "ok": true
+    },
+    {
+      "pass": "no_language",
+      "fixture": "d1_scan_nolang.pdf",
+      "control": "positive",
+      "expect": "zero misses",
+      "misses": [],
+      "checks_total": 4,
+      "ok": true,
+      "sample": {
+        "text": "[document capability documents.parse (pypdf-selfcheck); OCR needs an explicit language (set RUKE_DOCUMENT_OCR_LANGUAGE); no document language was given or declared]"
+      }
+    },
+    {
+      "pass": "no_language",
+      "fixture": "d1_scan_nolang.pdf",
+      "control": "negative",
+      "expect": "not applicable (refusal payload has no page blocks)",
+      "misses": [],
+      "checks_total": 0,
+      "ok": true,
+      "note": "the positive control for this fixture is the check"
+    }
+  ],
+  "broken": 0,
+  "note": "a positive control built FROM the answer key must score zero misses and a sabotaged delivery must score at least one; that is what makes the attended run's passes meaningful. This file is not OCR evidence."
+}

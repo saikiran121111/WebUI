@@ -391,6 +391,11 @@ export interface PptxSlide {
   stats: { label: string; value: string; suffix?: string }[];
   chart?: ChartSpecLite; table?: { headers: string[]; rows: string[][] };
   morphGroup?: string;
+  /** Speaker notes for this slide. There used to be NO way to carry them: every
+   * generated notesSlide part held only the slide-number placeholder, so
+   * "generated decks keep notes separate" was true while "generated decks carry
+   * authored notes" was not (D-071). */
+  notes?: string;
   /** PHASE 5A (additive): per-slide overrides for the ONE motion plan —
    * `transition` is how the slide enters, `reveal` whether its objects
    * animate in at all (so "no motion" is expressible without lying about
@@ -406,6 +411,11 @@ export interface PptxSpec {
 }
 
 const LAYOUTS = new Set<PptxLayout>(["title", "hero", "stats", "split", "spotlight", "chart", "table", "bullets"]);
+
+/** Upper bound on one slide's speaker notes, enforced in normalizePptx (truncate)
+ * and reported by pptxSpecIssues (refuse at the route) so an over-long note is
+ * visible instead of silently shortened. */
+export const PPTX_NOTES_MAX_CHARS = 4000;
 
 /** Per-slide motion overrides: an unknown token is dropped (the tier default
  * stands) rather than crashing the export; validation reports it at the route. */
@@ -432,6 +442,8 @@ export function normalizePptx(raw: any): PptxSpec | null {
       chart: s?.chart ? normalizeChartLite(s.chart) ?? undefined : undefined,
       table: s?.table ? { headers: arr(s.table.headers ?? s.table.columns).map((x: any) => (typeof x === "object" ? str(x.name ?? x.label) : str(x))), rows: arr(s.table.rows).map((r: any) => arr(r).map((c) => str(c ?? ""))) } : undefined,
       morphGroup: str(s?.morphGroup ?? s?.morph) || undefined,
+      // The spellings an author or model actually uses for a slide's presenter notes.
+      notes: str(s?.notes ?? s?.speakerNotes ?? s?.speaker_notes ?? s?.presenterNotes).slice(0, PPTX_NOTES_MAX_CHARS) || undefined,
       motion: normalizeSlideMotion(s?.motion),
     };
   });
@@ -488,6 +500,8 @@ export function pptxSpecIssues(raw: unknown): string[] {
     }
     if (Array.isArray(sl.bullets) && sl.bullets.length > PPTX_LIMITS.bullets) issues.push(`slide ${i + 1}: too many bullets (> ${PPTX_LIMITS.bullets})`);
     if (Array.isArray(sl.stats) && sl.stats.length > PPTX_LIMITS.stats) issues.push(`slide ${i + 1}: too many stats (> ${PPTX_LIMITS.stats})`);
+    if (sl.notes !== undefined && typeof sl.notes !== "string") issues.push(`slide ${i + 1}: notes must be a string`);
+    else if (typeof sl.notes === "string" && sl.notes.length > PPTX_NOTES_MAX_CHARS) issues.push(`slide ${i + 1}: speaker notes longer than ${PPTX_NOTES_MAX_CHARS} characters`);
     if (sl.table != null && typeof sl.table === "object") {
       const t = sl.table as Record<string, unknown>;
       if (Array.isArray(t.rows)) {

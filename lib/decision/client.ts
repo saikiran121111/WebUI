@@ -142,10 +142,15 @@ const CREATE_CUE_RE = wordRe(
     "send me|sending me|sent me|need|needs|needed|want|wants|wanted|put together|" +
     "would like|d like",
 );
+/** Transform verbs are SINGLE words: the source itself can sit between the
+ *  verb and its direction particle ("turn this PDF into a DOCX"), so a bigram
+ *  cue would miss the destination entirely. Whether the verb governs a SOURCE
+ *  or produces the OUTPUT is decided by rule 2 (a DIRECTION word in between),
+ *  never by adjacency. */
 const TRANSFORM_CUE_RE = wordRe(
-  "convert|converts|converted|converting|turn into|turns into|turned into|" +
-    "change into|changes into|changed into|translate into|translates into|translated into|" +
-    "export|exports|exported|exporting|save|saves|saved|saving|put into|puts into|putting into",
+  "convert|converts|converted|converting|turn|turns|turned|turning|" +
+    "change|changes|changed|changing|translate|translates|translated|translating|" +
+    "export|exports|exported|exporting|save|saves|saved|saving|put|puts|putting",
 );
 const DIRECTION_RE = wordRe("to|into|as");
 const NEGATION_RE = wordRe(
@@ -179,6 +184,7 @@ const DIDACTIC_RE = wordRe(
   "explain|explains|explained|explaining|teach|teaches|teaching|taught|" +
     "tutorial|tutorials|lesson|lessons|walkthrough|walk me through|learn how|" +
     "how to|how do|how does|how can|how could|how would|how should|steps to|" +
+    "steps for|steps of|the steps|steps involved|procedure for|process for|" +
     "step-by-step|guide to|introduction to|demonstrate|demonstrates|demonstrating|" +
     "understand|understands|understood|understanding|comprehend|comprehends|comprehended|comprehending|" +
     "know|knows|knowing|realize|realizes|realized|realizing",
@@ -203,7 +209,13 @@ const DESIRE_MODAL_RE = wordRe(
 /** Source-role markers: the artifact word after one is the MATERIAL, not the ask. */
 const SOURCE_ROLE_RE = wordRe(
   "from|based on|out of|starting from|extracted from|derived from|imported from|" +
-    "scanned from|copied from|copy of|instead of|taken from|read from",
+    "scanned from|copied from|copy of|instead of|taken from|read from|" +
+    // Material/topic relation: "a PDF USING the Excel data" and "a presentation
+    // ON the history of Excel" each have ONE deliverable; the format word inside
+    // this phrase is the material or the subject, never a second output. The
+    // container particles (in/as/into/to) stay OUT of this set on purpose -
+    // rule 5 reads those as naming the deliverable itself.
+    "of|on|for|using|use",
 );
 /** Container markers naming the FORMAT as the container of the deliverable
  *  ("summary IN PDF", "output AS a pptx"). Longest-first alternation: the
@@ -220,6 +232,10 @@ const META_LINGUISTIC_RE = wordRe(
 );
 /** Partitive complement right after a polysemous lexeme ("deck OF cards"). */
 const PARTITIVE_RE = /^\s*of\s+(?:the\s+|a\s+|an\s+)?([\p{L}][\p{L}']*)/iu;
+/** Conditional antecedents: the ask is inside a hypothetical clause. */
+const CONDITIONAL_RE = wordRe(
+  "if|suppose|supposing|imagine|assuming|provided that|in case|what if|hypothetically",
+);
 
 interface WeakSense {
   /** The lexeme whose sense is ambiguous. */
@@ -360,6 +376,9 @@ function detectDeliverableIntent(message: string): IntentScan {
   );
   const found: Array<{ mode: ArtifactMode; clause: number; start: number }> = [];
   const clauseSpans = spans(masked, CLAUSE_SPAN_RE);
+  // A turn-level didactic frame (offsets never mix with the clause-local
+  // matchers below: only its presence/absence is read at this scope).
+  const turnDidactic = positions(DIDACTIC_RE, masked).length > 0;
 
   for (let ci = 0; ci < clauseSpans.length; ci++) {
     const cs = clauseSpans[ci];
@@ -375,6 +394,7 @@ function detectDeliverableIntent(message: string): IntentScan {
     const pasts = positions(PAST_PRODUCTION_RE, clause);
     const subjects = positions(SUBJECT_RE, clause);
     const modals = positions(DESIRE_MODAL_RE, clause);
+    const conditionals = positions(CONDITIONAL_RE, clause);
     const cues = [...creates, ...transforms];
     const segs = spans(clause, SEGMENT_SPLIT_RE);
     const inSeg = (ps: At[], seg: Span) =>
@@ -393,7 +413,13 @@ function detectDeliverableIntent(message: string): IntentScan {
         // 2. TRANSFORM DIRECTION: convert/export governs the word directly as
         //    the SOURCE format; the word after a to/into/as direction is the output.
         const governedSource = transforms.some(
-          (t) => t.start < a.start && !dirs.some((d) => d.start > t.start && d.start < a.start),
+          (t) =>
+            t.start < a.start &&
+            !dirs.some((d) => d.start > t.start && d.start < a.start) &&
+            // A production cue in the gap means the bare transform verb never
+            // reached this word ("turn the figures, create a chart"): it is an
+            // unfinished transform, never a source role for the later ask.
+            !cues.some((c) => c.start > t.start && c.start < a.start),
         );
         if (governedSource) continue;
         // 3. SOURCE ROLE: "from / based on / out of <format>" marks the word as
@@ -417,6 +443,21 @@ function detectDeliverableIntent(message: string): IntentScan {
           )
         )
           continue;
+        // 4b. HYPOTHETICAL FRAME: the ask sits inside a conditional antecedent
+        //     whose own production cue governs it, AND the turn carries an
+        //     explicit didactic/interrogative frame ("how would I make it?",
+        //     "what would the steps be?"). Both halves are required: an
+        //     affirmative conditional without a didactic frame ("If the data is
+        //     ready, make the workbook") keeps its deliverable.
+        const hypothetical =
+          turnDidactic &&
+          conditionals.some(
+            (k) =>
+              k.start < a.start &&
+              cues.some((c) => c.start > k.start && c.start < a.start) &&
+              !didactics.some((d) => d.start < k.start),
+          );
+        if (hypothetical) continue;
         // 5. REPORTED PAST ACTION: an explicit agent plus a past-tense
         //    production verb inside one phrase describes an EXISTING file.
         //    Desire/politeness ("I wanted a PDF") is exempt.

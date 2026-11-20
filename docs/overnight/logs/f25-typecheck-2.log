@@ -1,0 +1,2 @@
+npm notice run webui-chat@0.2.0 typecheck
+npm notice run tsc --noEmit

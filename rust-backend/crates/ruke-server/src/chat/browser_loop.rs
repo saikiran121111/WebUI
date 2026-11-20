@@ -809,6 +809,16 @@ pub async fn run_tool_loop(
                 Err(ruke_core::admission::AdmissionError::Cancelled) => {
                     break 'outer Outcome::Aborted;
                 }
+                Err(ruke_core::admission::AdmissionError::HandoffHeld) => {
+                    tracing::warn!(
+                        parent: span,
+                        "browser round refused: a document/media job holds the endpoint lease"
+                    );
+                    break 'outer Outcome::Failed(
+                        "A document or media job has the model parked; retry in a moment."
+                            .to_string(),
+                    );
+                }
             };
 
             let sent = tokio::select! {

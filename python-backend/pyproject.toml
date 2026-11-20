@@ -2,21 +2,61 @@
 name = "ruke-ml"
 version = "0.1.0"
 description = "Ruke capability backend: document/OCR/retrieval/speech/video workers behind a lightweight stdlib supervisor."
-requires-python = ">=3.11,<3.13"
+# This range is a claim about installability, not an aspiration: `uv lock` resolves one
+# dependency graph per supported interpreter, and av==19.0.2 (the media extra actually
+# running on this host) requires CPython>=3.12, which made a 3.11 split unsatisfiable.
+# python-backend/.python-version pins 3.12 and the project venv runs 3.12.15, so the
+# honest range starts at the interpreter that is really supported.
+requires-python = ">=3.12,<3.13"
 # The supervisor and every contract it speaks are stdlib-only by design:
 # startup must not import torch/paddle/transformers or download a model.
 dependencies = []
 
 [project.optional-dependencies]
-# Declared, NOT installed and NOT locked. Each family is installed only after the
-# quality gate in docs/overnight/SPEC.md section 7 selects it, because "multilingual"
-# on a model card is not evidence of quality on this machine (Telugu/Hindi in particular),
-# and CUDA support on this host is unproven. Pin + lock per family at install time.
+# Two kinds of extra live here, and the difference is a claim about this host, so every
+# block says which kind it is. INSTALLED extras name the exact versions present in
+# python-backend/.venv, checked with importlib.metadata so the pin matches the code that
+# was actually executed: an adapter validated against faster-whisper validates
+# faster-whisper, not transformers. DECLARED-ONLY extras are what a future quality gate
+# would install; they are NOT present here, and any registry row naming one of them must
+# answer "not_configured: pinned dependency ...", never "available".
+#
+# INSTALLED on this host, CPU execution only (no CUDA provider is present):
+documents = ["pypdf==7.1.0", "pypdfium2==5.6.0"]
+speech = ["faster-whisper==1.2.1", "ctranslate2==4.9.0"]
+media = ["av==19.0.2", "numpy==2.5.5"]
+onnx = ["onnxruntime==1.32.0"]
+hub = ["huggingface-hub==2.4.0", "tokenizers==0.23.3"]
+#
+# DECLARED-ONLY, deliberately not installed:
+#   embeddings  - sentence-transformers/torch are absent, so the neural embedding and
+#                 reranking rows stay non-executable and hybrid retrieval stays lexical.
+#                 Relabelling the lexical baseline as neural retrieval is forbidden.
+#   diarization - pyannote community-1 needs a licence acceptance plus an HF token; a
+#                 human has to accept those terms, and this project will not do it for them.
+#   qwen        - the Qwen3 ASR/aligner rows never had a published language table
+#                 captured, so they claim no language and route nothing through them.
 embeddings = ["sentence-transformers>=3,<4"]
-documents = ["docling>=2,<3"]
-speech = ["qwen-asr", "faster-whisper>=1,<2"]
+qwen = ["qwen-asr"]
 diarization = ["pyannote.audio>=3,<4"]
 dev = []
+
+[tool.uv]
+# Why this table exists, measured on this host with uv 0.13.0:
+#   * without it, `uv lock` fails outright - the universal lock resolves every extra, and
+#     sentence-transformers only ever pulls a transformers that needs tokenizers<0.20,
+#     while the INSTALLED hub extra pins tokenizers==0.23.3;
+#   * qwen-asr (every published version) needs huggingface-hub>=0.34,<1.0, which cannot
+#     coexist with the pinned huggingface-hub==2.4.0.
+# Declaring the pairs mutually exclusive records what is already true operationally: the
+# DECLARED-ONLY families are alternatives a future quality gate would evaluate one at a
+# time, never components of the pinned CPU stack this host runs, and `npm run dev` syncs
+# only the capability_extras listed under [tool.ruke] below. Removing either pair makes
+# the lock unresolvable again (verified: uv exit 1 for each of those two pair sets).
+conflicts = [
+  [ { extra = "embeddings" }, { extra = "hub" } ],
+  [ { extra = "qwen" }, { extra = "hub" } ],
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -29,3 +69,9 @@ include = ["ruke_ml*"]
 # Heavy families are gated on measured quality, never on a model card.
 # status values: not_installed | evaluation_required | pinned | license_acceptance_required
 evaluation_policy = "measure-before-pinning"
+# The extras whose pins name code this backend can actually execute. scripts/dev-supervisor
+# .mjs reads this exact list and passes each name to `uv sync --inexact --extra <name>`, so
+# a fresh machine gets the pinned adapter stack instead of a stdlib-only venv. It never
+# appears at the uv command line for the DECLARED-ONLY families above, which stay
+# uninstalled and therefore report not_configured rather than "available".
+capability_extras = ["documents", "speech", "media", "onnx", "hub"]

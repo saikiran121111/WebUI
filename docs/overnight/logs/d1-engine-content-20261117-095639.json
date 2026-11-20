@@ -1,0 +1,116 @@
+{
+  "ok": false,
+  "capability": "documents.ocr",
+  "phases": [],
+  "original_main_model": {
+    "provider": "strata",
+    "endpoint": "http://127.0.0.1:8080",
+    "loaded": true,
+    "model": "qwen3.8-flash-next-iq3_s",
+    "busy": null,
+    "queued": null,
+    "auto_load": null,
+    "detail": "ok",
+    "reachable": true,
+    "checked_at": 1794909403.2242532,
+    "lifecycle_supported": true,
+    "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+  },
+  "measure_before": {
+    "free_physical_mib": 2596,
+    "commit_available_mib": 25882,
+    "free_vram_mib": 2563,
+    "vram_available": true
+  },
+  "plan": {
+    "capability": "documents.ocr",
+    "device": "none",
+    "fits": false,
+    "needs_handoff": true,
+    "reason": "neither device fits: free physical RAM is 2596 MiB, under the 3556 MiB this load needs (measured load peak 3300 MiB + 256 MiB margin); GPU: GPU execution is disabled for this run; the main model is resident and would have to be released first",
+    "evidence": {
+      "ram": {
+        "measured": true,
+        "fits": false,
+        "free_physical_mib": 2596,
+        "total_physical_mib": 65299,
+        "commit_available_mib": 25882,
+        "est_peak_mib": 3300,
+        "required_mib": 3556,
+        "reasons": [
+          "free physical RAM is 2596 MiB, under the 3556 MiB this load needs (measured load peak 3300 MiB + 256 MiB margin)"
+        ],
+        "estimate": "measured",
+        "floor_free_physical_mib": 1024,
+        "policy": "free-physical-plus-commit",
+        "sampled_at": 1794909403.259253
+      },
+      "vram": {
+        "available": true,
+        "free_mib": 2563,
+        "devices": [
+          {
+            "name": "NVIDIA GeForce RTX 3060",
+            "total_mib": 12288,
+            "used_mib": 9725,
+            "free_mib": 2563
+          }
+        ],
+        "detail": "1 GPU(s); most free: NVIDIA GeForce RTX 3060 2563 MiB of 12288 MiB",
+        "source": "nvidia-smi",
+        "sampled_at": 1794909403.224754
+      },
+      "est_peak_mib": 3300,
+      "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+      "est_peak_vram_mib": 6000,
+      "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+      "margin_mib": 256,
+      "main_model": {
+        "provider": "strata",
+        "endpoint": "http://127.0.0.1:8080",
+        "loaded": true,
+        "model": "qwen3.8-flash-next-iq3_s",
+        "busy": null,
+        "queued": null,
+        "auto_load": null,
+        "detail": "ok",
+        "reachable": true,
+        "checked_at": 1794909403.2242532,
+        "lifecycle_supported": true,
+        "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+      }
+    }
+  },
+  "reason": "resource_limit",
+  "detail": "neither device fits: free physical RAM is 2596 MiB, under the 3556 MiB this load needs (measured load peak 3300 MiB + 256 MiB margin); GPU: GPU execution is disabled for this run; the main model is resident and would have to be released first",
+  "final_status": "resource_limit",
+  "lease_release": {
+    "released": true,
+    "detail": "own lease removed"
+  },
+  "work_detail": {},
+  "watchdog": {
+    "free_min": 2607,
+    "tripped": 0
+  },
+  "pages_requested": [
+    1
+  ],
+  "arguments": {
+    "pdf": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\fixtures\\d1\\pdfs\\d1_scanned.pdf",
+    "language": "eng",
+    "device": "auto",
+    "allow_unload": false,
+    "allow_gpu": false,
+    "pages": "",
+    "dpi": 200,
+    "load_timeout": 420.0,
+    "page_timeout": 240.0,
+    "unload_wait": 60.0,
+    "ready_timeout": 300.0,
+    "max_free_mib": 2048,
+    "inject_primary_failure_page": 0,
+    "recover": false,
+    "lease_owner": "d1-content"
+  }
+}

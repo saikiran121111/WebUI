@@ -32,9 +32,9 @@
     {
       "mode": "ppt",
       "present": true,
-      "sha256": "7e7f4dd3a2c0011926cf21af5e3b4cf2b873fa73781ef94c676d80b283875226",
-      "bytes": 3023,
-      "utf16Length": 3017
+      "sha256": "6c8601f65d3b84e8be974cb48eb6bcd471e83b7c4260167d6833d5f9d4ec7d3d",
+      "bytes": 3437,
+      "utf16Length": 3429
     },
     {
       "mode": "chart",
@@ -52,7 +52,10 @@
     },
     {
       "mode": "standard_chat",
-      "present": false
+      "present": true,
+      "sha256": "d4f2910b833ecf05081a8a1f89e6ef0c0aca9a2bceb47d35b25e6812996b5186",
+      "bytes": 1309,
+      "utf16Length": 1309
     }
   ]
 }

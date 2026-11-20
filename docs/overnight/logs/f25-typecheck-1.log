@@ -1,0 +1,8 @@
+npm notice run webui-chat@0.2.0 typecheck
+npm notice run tsc --noEmit
+__tests__/server/extract-document-capability.test.ts(333,19): error TS2741: Property 'rotation' is missing in type '{ unit: number; state: string; engine: string; detail: string; confidence: number; languageCode: string; }' but required in type 'CapabilityOcrPage'.
+__tests__/server/extract-document-capability.test.ts(378,19): error TS2741: Property 'rotation' is missing in type '{ unit: number; state: string; engine: string; detail: string; confidence: number; languageCode: string; }' but required in type 'CapabilityOcrPage'.
+__tests__/server/extract-document-capability.test.ts(403,13): error TS2741: Property 'rotation' is missing in type '{ unit: number; state: string; engine: string; detail: string; confidence: number; languageCode: string; }' but required in type 'CapabilityOcrPage'.
+__tests__/server/extract-document-capability.test.ts(404,13): error TS2741: Property 'rotation' is missing in type '{ unit: number; state: string; engine: string; detail: string; confidence: number; languageCode: string; }' but required in type 'CapabilityOcrPage'.
+__tests__/server/extract-document-capability.test.ts(405,13): error TS2741: Property 'rotation' is missing in type '{ unit: number; state: string; engine: string; detail: string; confidence: null; languageCode: string; }' but required in type 'CapabilityOcrPage'.
+__tests__/server/extract-document-capability.test.ts(430,19): error TS2741: Property 'rotation' is missing in type '{ unit: number; state: string; engine: string; detail: string; confidence: number; languageCode: string; }' but required in type 'CapabilityOcrPage'.

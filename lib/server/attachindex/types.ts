@@ -127,8 +127,44 @@ export interface TimelineSummary {
   /** Capability + job state that produced the record, for honest reporting. */
   capability: string;
   jobState: string;
-  /** Result of the scene-cut scan, or why it did not run. */
-  sceneScan: { state: string; reason: string; scannedSec: number; truncated: boolean };
+  /**
+   * Result of the scene-cut scan, or why it did not run.
+   * `scannedSec` is a MEASURED decoded prefix (0 = unknown, never the clip
+   * duration); `prefixMeasured` says whether that number is a measurement at
+   * all, mirroring the producer's `cut_scan.prefix_measured` field of
+   * ruke-measured-prefix/v1.
+   */
+  sceneScan: {
+    state: string;
+    reason: string;
+    scannedSec: number;
+    truncated: boolean;
+    prefixMeasured: boolean;
+  };
+  /**
+   * F17: what the FRAME-OCR stage (`video.frame_ocr`) actually read on screen, or
+   * why it did not run. The four counts are kept apart on purpose - a planned
+   * instant, a decoded frame, a frame the recogniser actually put glyphs on and a
+   * frame that stayed unresolved are four different facts, and merging them is how
+   * "we sampled 12 frames" becomes a claim that the video was read.
+   * `readAt` are the instants where text (or a measured no-glyph verdict) exists.
+   * Records written before this stage existed have no such field, so every reader
+   * must treat a missing value as "never attempted".
+   */
+  frameRead: {
+    /** not_attempted | no_language | not_configured | failed | no_times | ok | ok_recorded */
+    state: string;
+    reason: string;
+    language: string;
+    planned: number;
+    decoded: number;
+    recognised: number;
+    glyphFree: number;
+    unresolved: number;
+    /** Recogniser version that ran, as reported by the worker. */
+    engine: string;
+    readAt: number[];
+  };
   /** Relative dir holding timeline.json inside this index dir. */
   recordDir: string;
   updatedAt: number;

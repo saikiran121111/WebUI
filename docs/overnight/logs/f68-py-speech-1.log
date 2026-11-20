@@ -1,0 +1,23 @@
+......................................C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\subprocess.py:1127: ResourceWarning: subprocess 14472 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\case.py:589: ResourceWarning: unclosed file <_io.TextIOWrapper name=3 encoding='utf-8'>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.23:33:48 127.0.0.1 "GET /health HTTP/1.1" 200 -
+.23:33:48 127.0.0.1 "POST /job HTTP/1.1" 401 -
+.23:33:48 127.0.0.1 "POST /job HTTP/1.1" 200 -
+.23:33:48 127.0.0.1 "POST /job HTTP/1.1" 552 -
+.23:33:48 127.0.0.1 "POST /job HTTP/1.1" 413 -
+.23:33:48 127.0.0.1 "POST /job HTTP/1.1" 400 -
+.23:33:49 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+...connection closed by client: ConnectionResetError
+23:33:49 127.0.0.1 "GET /health HTTP/1.1" 200 -
+.23:33:49 127.0.0.1 "POST /shutdown HTTP/1.1" 401 -
+23:33:49 127.0.0.1 "POST /shutdown HTTP/1.1" 200 -
+....FATAL: the supervisor may bind only to loopback
+.................
+----------------------------------------------------------------------
+Ran 70 tests in 21.744s
+
+OK

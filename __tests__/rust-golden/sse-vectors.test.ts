@@ -137,6 +137,14 @@ describe("golden: sse transport vectors", () => {
       "pre\n```html\n<think>literal</think>\n```\npost",
       "<think>\n```\n</think>lit\n```\n</think>tail",
       "````\nx\n`````\n<think>t</think>y",
+      // F05 (2026-11-16 brief section 6) literal-code vectors: an INLINE code
+      // span, an indented code chunk, a blockquoted fence, and a code span
+      // INSIDE a reasoning block. In all four the tag spelling written in code
+      // survives verbatim, and a LIVE delimiter outside the code still routes.
+      "code `<think>` end <think>hid</think>out",
+      "intro\n\n    code <think>lit1</think>\nafter <think>real</think>end",
+      "para\n\n> ```py\n> <think>lit</think>\n> ```\n\nafter <think>real</think>end",
+      "<think>see `<b/>` and `</think>` tail",
     ];
 
     function feedPieces(pieces: string[]): { content: string; reasoning: string } {
@@ -151,6 +159,17 @@ describe("golden: sse transport vectors", () => {
       return { content: content + f.content, reasoning: reasoning + f.reasoning };
     }
 
+    // Classification for the cross-engine leak guard: a SUPERSET of every
+    // form the splitter treats as literal code (inline span / fence -> any
+    // backtick or tilde run; indented code -> 4+ leading spaces or a tab).
+    // Over-approximating is the safe direction: it can only widen the
+    // exemption for texts that really contain code, and never masks a leak
+    // in code-free text (the guard there stays strict).
+    function hasLiteralCode(text: string): boolean {
+      if (text.includes("`") || text.includes("~~~")) return true;
+      return text.split("\n").some((line) => /^ {4,}\S/.test(line) || /^\t\S/.test(line));
+    }
+
     const cases: Record<string, unknown>[] = [];
     const mismatchSplitChars: number[] = [];
     for (const text of TEXTS) {
@@ -160,7 +179,15 @@ describe("golden: sse transport vectors", () => {
         const got = feedPieces(pieces);
         const match = got.content === atomic.content && got.reasoning === atomic.reasoning;
         if (!match) mismatchSplitChars.push(i);
-        cases.push({ text, splitAtChar: i, pieces, expected: atomic, replayMatchesAtomic: match });
+        // "literalTagText" is the cross-engine contract the Rust replay reads
+        // instead of sniffing the text: a text carrying ANY code-spelling
+        // construct (fence, inline span or indented code line) may keep a delimiter
+        // spellings in a channel, so the leak guard is scoped to the texts that
+        // have no code construct at all.
+        cases.push({
+          text, splitAtChar: i, pieces, expected: atomic, replayMatchesAtomic: match,
+          literalTagText: hasLiteralCode(text),
+        });
       }
     }
     // Multi-piece framings that cut the delimiters themselves across pieces.
@@ -170,6 +197,7 @@ describe("golden: sse transport vectors", () => {
     cases.push({
       text: multi.join(""), splitAtChar: -1, pieces: multi, expected: multiExpected,
       replayMatchesAtomic: multiGot.content === multiExpected.content && multiGot.reasoning === multiExpected.reasoning,
+      literalTagText: false,
     });
 
     writeJsonFixture("sse/02-think-split-matrix.json", {
@@ -190,9 +218,12 @@ describe("golden: sse transport vectors", () => {
       env: ENV_PRE,
       normalization: "none",
       notes:
-        "Fence texts (added 2026-11-15 F17): a `<think>` inside a fenced code block is LITERAL text of " +
+        "Fence texts (added 2026-11-15 F17) plus literal-code texts (added 2026-11-16 F05: inline code " +
+        "spans, indented code chunks, blockquoted fences): a `<think>` written inside code is LITERAL text of " +
         "the current channel, so for THOSE texts the channels legitimately contain delimiter spellings — " +
-        "the Rust replay's leak assertion is therefore scoped to fence-free texts. " +
+        "the leak assertion is therefore scoped by the per-case `literalTagText` boolean that the Rust " +
+        "replay reads (a text with NO code construct must never leak a delimiter spelling into either " +
+        "channel). " +
         "Shape changed 2026-11-13 (brief §2): the old byte-level upstreamStream/expectedRust scrub " +
         "matrices are gone with ThinkScrubber. Rust replays each case through ThinkFieldSplitter " +
         "(crates/ruke-server/tests/scrubber_vectors.rs). Texts are BMP-only: char-index slices must " +
@@ -214,6 +245,22 @@ describe("golden: sse transport vectors", () => {
     // The OPEN marker itself is consumed, so reasoning begins at the "\n".
     expect(aFenceInThink.reasoning).toBe("\n```\n</think>lit\n```\n");
     expect(aFenceInThink.content).toBe("tail");
+    // F05 atomic routings recorded into the matrix (the Rust replay replays the
+    // same pieces). These are the SAME behaviour keys as the frozen
+    // __tests__/think-splitter.test.ts block: code keeps its tag spelling and
+    // the live delimiter after the code still cuts.
+    const aSpan = feedPieces([TEXTS[5]]);
+    expect(aSpan.content).toBe("code `<think>` end out");
+    expect(aSpan.reasoning).toBe("hid");
+    const aIndented = feedPieces([TEXTS[6]]);
+    expect(aIndented.content).toBe("intro\n\n    code <think>lit1</think>\nafter end");
+    expect(aIndented.reasoning).toBe("real");
+    const aQuotedFence = feedPieces([TEXTS[7]]);
+    expect(aQuotedFence.content).toBe("para\n\n> ```py\n> <think>lit</think>\n> ```\n\nafter end");
+    expect(aQuotedFence.reasoning).toBe("real");
+    const aSpanInThink = feedPieces([TEXTS[8]]);
+    expect(aSpanInThink.reasoning).toBe("see `<b/>` and `</think>` tail");
+    expect(aSpanInThink.content).toBe("");
   });
 
   it("03 UTF-8 code points split across chunks (raw transport, byte identity)", async () => {

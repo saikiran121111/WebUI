@@ -224,6 +224,12 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
             // Liveness of the coordination primitives only — no settings
             // contents (may hold an API key), per Rule 17.
             "user_turn_active": state.slot.user_turn_active(),
+            // Resource-aware handoff (2026-11-17 amendment, section 5): is a
+            // heavyweight job holding the cross-process endpoint lease RIGHT NOW?
+            // This is monitoring only — the admission decision re-reads the file
+            // itself — and it is what lets an external acceptance runner verify
+            // the gate is live without needing the bridge secret.
+            "handoff_held": state.admission.handoff_held(),
         })),
     )
 }
@@ -361,6 +367,10 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], json!(true));
         assert_eq!(v["user_turn_active"], json!(false));
+        // The lease gate is OFF in this test state, so "no live holder" is the
+        // honest answer; the live-holder refusal path is covered in
+        // ruke-core/src/admission.rs (a fresh heartbeat refuses admission).
+        assert_eq!(v["handoff_held"], json!(false));
         assert!(v.get("version").is_some());
         // Rule 17 sanity: the payload must never carry settings material.
         assert!(v.get("llm_api_key").is_none());

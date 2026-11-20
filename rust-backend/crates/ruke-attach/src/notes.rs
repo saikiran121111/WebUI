@@ -98,6 +98,16 @@ async fn note_for_block(
             return Ok(None);
         }
         Err(ruke_core::admission::AdmissionError::Cancelled) => return Err(Cancelled),
+        Err(ruke_core::admission::AdmissionError::HandoffHeld) => {
+            // A heavyweight document/media job owns the endpoint and the
+            // main model is parked. A background note block must never be
+            // the thing that wakes it back up mid-window.
+            tracing::warn!(
+                target: "attachindex/notes",
+                "note block skipped: a document/media job holds the endpoint lease"
+            );
+            return Ok(None);
+        }
     };
 
     let sent = tokio::select! {

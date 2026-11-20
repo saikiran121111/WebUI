@@ -30,6 +30,32 @@
 //!   [`crate::slot::UserTurnGuard`] lease while its helper requests run).
 //!   Call sites enforce this by acquiring immediately before each upstream
 //!   POST and moving the permit into whatever pumps the response.
+//!
+//! HANDOFF LEASE (2026-11-17 resource-aware handoff amendment): the shared
+//! endpoint is capacity 1 for a reason: the
+//! model weights live ONCE. A heavyweight document/media job (Python
+//! `ruke_ml.handoff`) therefore takes an EXCLUSIVE cross-process lease and
+//! parks the main model while it runs. An in-process semaphore cannot bound
+//! an independent client (a coding CLI, a title job, another Ruke route),
+//! so admission ALSO consults that lease FILE before touching the semaphore:
+//! while a live lease is held, Ruke's own generation paths (chat forward,
+//! web/browser rounds, titles, attachment notes, the TS helpers'
+//! internal-completion route) are refused instead of auto-waking the model
+//! into a window that the processing worker owns.
+//!   * Refusal is BOUNDED: poll briefly ([`DEFAULT_LEASE_WAIT`]) in case the
+//!     window is ending, then return [`AdmissionError::HandoffHeld`].
+//!   * Fail-OPEN only on PROOF. A record that is ABSENT, or whose newest
+//!     evidence (the heartbeat field OR the file mtime) is older than
+//!     [`DEFAULT_LEASE_STALE`], is provably not held. A record that merely
+//!     CANNOT BE READ (permission, sharing violation, a directory in its
+//!     place) or CANNOT BE PARSED (blank, truncated, wrong shape) is NOT free:
+//!     we cannot prove nobody owns the parked model, so admission waits behind
+//!     it exactly as behind a live holder. Its own file age is the only thing
+//!     that can age it out, and an age that cannot be read is UNKNOWN, never
+//!     zero — never treated as "infinitely old" (which would silently admit)
+//!     nor "infinitely fresh" (which would park the endpoint forever).
+//!   * The lease is never created, deleted or overwritten here. Ruke does
+//!     not steal a foreign lock, it declines to enter.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -52,12 +78,160 @@ pub const DEFAULT_MAX_WAITERS: usize = 4;
 /// open there, i.e. the shared-endpoint generation high-water hit 2.
 pub const DEFAULT_TEARDOWN_HOLD: Duration = Duration::from_millis(350);
 
+/// How stale a handoff lease heartbeat must be before that is PROOF the
+/// holder is gone. The holder refreshes every ~5 s, so 60 s is ~12 missed
+/// refreshes: conservative enough that a minutes-long OCR page cannot be
+/// mistaken for a dead holder, and still bounded so a crashed supervisor
+/// cannot park the endpoint forever.
+pub const DEFAULT_LEASE_STALE: Duration = Duration::from_secs(60);
+
+/// How long admission waits for a handoff window to end before answering
+/// "busy" (bounded-wait law, never an unbounded block).
+pub const DEFAULT_LEASE_WAIT: Duration = Duration::from_millis(2_000);
+
+/// Lease re-read interval. Cheap: a fixed-width local file read.
+const LEASE_POLL: Duration = Duration::from_millis(250);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdmissionError {
     /// The bounded wait queue is full — fail fast, never pile up.
     QueueFull,
     /// The caller's cancellation fired while queued.
     Cancelled,
+    /// A live heavyweight processing job holds the exclusive endpoint lease,
+    /// so the main model is deliberately parked. Distinct from QueueFull so
+    /// the caller can report WHY and retry later rather than looking like
+    /// generic overload.
+    HandoffHeld,
+}
+
+/// Cross-process lease probe (see the module rule above).
+#[derive(Debug, Clone)]
+struct LeaseProbe {
+    path: std::path::PathBuf,
+    max_wait: Duration,
+    stale_after: Duration,
+}
+
+#[derive(Debug)]
+enum LeaseReading {
+    /// Nothing to honour: the record genuinely is not there.
+    Free(&'static str),
+    /// A record exists but its newest evidence predates the stale window,
+    /// i.e. it is provably abandoned.
+    Stale(u64),
+    /// A live holder owns the endpoint right now.
+    Held { age_secs: u64, owner: String, phase: String },
+    /// A record exists but this reader cannot read or parse it. NOT free: an
+    /// unreadable record is not evidence that the model is unowned. It is held
+    /// until its own age proves it was abandoned (`abandoned: true`), which is
+    /// bounded so a broken record can never park the endpoint forever.
+    Uncertain {
+        age_secs: Option<u64>,
+        abandoned: bool,
+        why: String,
+    },
+}
+
+/// Age of a coordination record in whole seconds, or `None` when its age
+/// CANNOT be established. Never a fabricated zero.
+fn record_age_secs(path: &std::path::Path) -> Option<u64> {
+    let modified = path.metadata().and_then(|m| m.modified()).ok()?;
+    let since_epoch = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(now.as_secs().saturating_sub(since_epoch.as_secs()))
+}
+
+/// The single way a record we cannot use becomes an `Uncertain` reading.
+fn uncertain(path: &std::path::Path, stale_after: Duration, why: &str) -> LeaseReading {
+    let age_secs = record_age_secs(path);
+    LeaseReading::Uncertain {
+        abandoned: age_secs.map(|age| age >= stale_after.as_secs()).unwrap_or(false),
+        age_secs,
+        why: format!("{why} (at {})", path.display()),
+    }
+}
+
+fn lease_reading(path: &std::path::Path, stale_after: Duration) -> LeaseReading {
+    // Small LOCAL read. Deliberately synchronous: routing a stat + a 512-byte
+    // read of a project-local file through tokio::fs would only add a
+    // blocking-pool hop, and every caller is already off the hot path.
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return LeaseReading::Free("no lease file")
+        }
+        Err(err) => {
+            // The record exists as far as this reader can tell and it simply
+            // could not read it. Reporting that as "free" is the defect this
+            // replaces: it let a second generation wake a model that a live
+            // processing job had deliberately parked.
+            return uncertain(path, stale_after, &format!("the lease record could not be read: {err}"));
+        }
+    };
+    // The record is fixed-width and NUL-padded: everything after the first
+    // NUL is padding, never a second record.
+    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+    let text = String::from_utf8_lossy(&bytes[..end]);
+    let text = text.trim();
+    if text.is_empty() {
+        // A writer created the file and never got a record into it. That says
+        // nothing about whether the model is parked.
+        return uncertain(path, stale_after, "the lease record is blank/unwritten");
+    }
+    let value: serde_json::Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(err) => {
+            return uncertain(path, stale_after, &format!("the lease record is not parseable: {err}"))
+        }
+    };
+    if !value.is_object() {
+        return uncertain(path, stale_after, "the lease record is not an object");
+    }
+    if value.get("token").is_none() && value.get("owner").is_none() {
+        // Nothing identifies a holder, so nothing can rule one out either.
+        return uncertain(
+            path,
+            stale_after,
+            "the lease record carries neither a token nor an owner",
+        );
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or_default();
+    let written = value.get("heartbeat").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+    let mtime_age = record_age_secs(path);
+    let mtime = now - mtime_age.unwrap_or(0) as f64;
+    // Heartbeat OR mtime: whichever is fresher. A holder that refreshed 1 s
+    // ago is live even if the file was created an hour ago.
+    let newest = written.max(mtime);
+    if newest <= 0.0 {
+        // A parseable record with NO timestamp: we cannot age it out, and we
+        // cannot confirm a live heartbeat. Fail-safe = treat it as claimed,
+        // bounded by the file's own age when that is readable at all.
+        return uncertain(path, stale_after, "the lease record carries no timestamp evidence");
+    }
+    let age_secs = (now - newest).max(0.0) as u64;
+    if age_secs >= stale_after.as_secs() {
+        return LeaseReading::Stale(age_secs);
+    }
+    LeaseReading::Held {
+        age_secs,
+        owner: value
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        phase: value
+            .get("phase")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+    }
 }
 
 /// Hands a reserved waiter slot back on EVERY exit of [`UpstreamAdmission::acquire`],
@@ -120,6 +294,10 @@ pub struct UpstreamAdmission {
     max_waiters: usize,
     teardown: Duration,
     quiescing: Arc<std::sync::atomic::AtomicBool>,
+    lease: Option<LeaseProbe>,
+    /// How many acquires a live handoff lease refused (telemetry: an operator
+    /// can SEE the gate working instead of inferring it from a 503).
+    lease_refusals: AtomicUsize,
 }
 
 impl Default for UpstreamAdmission {
@@ -140,6 +318,164 @@ impl UpstreamAdmission {
             max_waiters,
             teardown: DEFAULT_TEARDOWN_HOLD,
             quiescing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            lease: None,
+            lease_refusals: AtomicUsize::new(0),
+        }
+    }
+
+    /// Turn on the cross-process handoff lease check. Production wires this
+    /// to `.ai-coordination/llm-handoff.lock`; tests leave it OFF by default
+    /// so the existing capacity/queue semantics are unaffected.
+    pub fn with_lease(mut self, path: impl Into<std::path::PathBuf>, max_wait: Duration) -> Self {
+        self.lease = Some(LeaseProbe {
+            path: path.into(),
+            max_wait,
+            stale_after: DEFAULT_LEASE_STALE,
+        });
+        self
+    }
+
+    /// Override the stale-proof window (tests). Production keeps the default.
+    pub fn with_lease_stale(mut self, stale_after: Duration) -> Self {
+        if let Some(p) = self.lease.as_mut() {
+            p.stale_after = stale_after;
+        }
+        self
+    }
+
+    /// The lease path being honoured, if any (status/telemetry).
+    pub fn lease_path(&self) -> Option<std::path::PathBuf> {
+        self.lease.as_ref().map(|p| p.path.clone())
+    }
+
+    /// Live-handoff refusals so the gate is observable, not a guess.
+    pub fn lease_refusals(&self) -> usize {
+        self.lease_refusals.load(Ordering::SeqCst)
+    }
+
+    /// True right now if a LIVE handoff lease is held (status/monitoring
+    /// only; the admission decision re-reads the file itself).
+    pub fn handoff_held(&self) -> bool {
+        match &self.lease {
+            None => false,
+            Some(p) => matches!(
+                lease_reading(&p.path, p.stale_after),
+                LeaseReading::Held { .. }
+                    | LeaseReading::Uncertain {
+                        abandoned: false,
+                        ..
+                    }
+            ),
+        }
+    }
+
+    /// Wait out a live lease for at most `max_wait`. Ok(()) = free to
+    /// proceed; Err(HandoffHeld) = a live holder is still there;
+    /// Err(Cancelled) = our own caller gave up.
+    async fn await_lease(
+        &self,
+        probe: &LeaseProbe,
+        cancel: &CancellationToken,
+    ) -> Result<(), AdmissionError> {
+        let started = std::time::Instant::now();
+        loop {
+            // What a claim looks like, for the bounded wait below.
+            let (owner, phase, age_secs, uncertain_record, why);
+            match lease_reading(&probe.path, probe.stale_after) {
+                LeaseReading::Free(why) => {
+                    if probe.path.exists() {
+                        // Worth recording: a lease file EXISTS but is not
+                        // honourable. If it ever happens outside a window,
+                        // the evidence says which rule let us admit.
+                        tracing::debug!(
+                            lease = %probe.path.display(),
+                            reason = why,
+                            "handoff lease present but not honourable: admitting"
+                        );
+                    }
+                    return Ok(());
+                }
+                LeaseReading::Stale(age) => {
+                    tracing::warn!(
+                        lease = %probe.path.display(),
+                        age_secs = age,
+                        "handoff lease is provably stale: admitting anyway (fail-open on proof)"
+                    );
+                    return Ok(());
+                }
+                LeaseReading::Uncertain {
+                    age_secs: age,
+                    abandoned: true,
+                    why: reason,
+                } => {
+                    // We could not read it, but its own age proves it was
+                    // abandoned. That is the BOUND that keeps a broken record
+                    // from parking the endpoint forever.
+                    tracing::warn!(
+                        lease = %probe.path.display(),
+                        age_secs = age.unwrap_or(0),
+                        age_known = age.is_some(),
+                        reason = %reason,
+                        "handoff lease is unreadable but its own age proves it was abandoned: admitting"
+                    );
+                    return Ok(());
+                }
+                LeaseReading::Uncertain {
+                    age_secs: age,
+                    abandoned: false,
+                    why: reason,
+                } => {
+                    // No usable record, no proof of abandonment: we do not get
+                    // to wake a model another client may have parked.
+                    owner = "unknown".to_string();
+                    phase = "unreadable-record".to_string();
+                    age_secs = age.unwrap_or(0);
+                    uncertain_record = true;
+                    why = reason;
+                }
+                LeaseReading::Held {
+                    age_secs: age,
+                    owner: who,
+                    phase: stage,
+                } => {
+                    owner = who;
+                    phase = stage;
+                    age_secs = age;
+                    uncertain_record = false;
+                    why = String::new();
+                }
+            }
+            if started.elapsed() >= probe.max_wait {
+                self.lease_refusals.fetch_add(1, Ordering::SeqCst);
+                if uncertain_record {
+                    tracing::warn!(
+                        lease = %probe.path.display(),
+                        age_secs,
+                        reason = %why,
+                        waited_ms = started.elapsed().as_millis() as u64,
+                        "refusing an upstream generation: a handoff lease exists that this \
+                         reader cannot read or parse, so no holder can be ruled out"
+                    );
+                } else {
+                    tracing::warn!(
+                        lease = %probe.path.display(),
+                        owner = %owner,
+                        phase = %phase,
+                        age_secs,
+                        waited_ms = started.elapsed().as_millis() as u64,
+                        "refusing an upstream generation: a heavyweight document/media job \
+                         holds the endpoint lease and the main model is parked"
+                    );
+                }
+                return Err(AdmissionError::HandoffHeld);
+            }
+            let remaining = probe.max_wait.saturating_sub(started.elapsed());
+            let nap = LEASE_POLL.min(remaining);
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(AdmissionError::Cancelled),
+                _ = tokio::time::sleep(nap) => {}
+            }
         }
     }
 
@@ -178,6 +514,11 @@ impl UpstreamAdmission {
         if cancel.is_cancelled() {
             return Err(AdmissionError::Cancelled);
         }
+        // The lease gate comes FIRST: a parked model must not be woken by our
+        // own retry loops, and the check costs nothing when no lease is wired.
+        if let Some(probe) = self.lease.clone() {
+            self.await_lease(&probe, cancel).await?;
+        }
         // Bounded queue: reserve a waiter slot first, hand it back on
         // every exit path. The counter is an admission bound, not a lock —
         // a slightly racy read only shifts WHO is told "QueueFull".
@@ -212,6 +553,205 @@ impl UpstreamAdmission {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    /// Write a lease record in the holder's own wire format: JSON followed by
+    /// NUL padding out of a fixed width.
+    fn write_lease(path: &std::path::Path, heartbeat: f64, owner: &str, phase: &str) {
+        let text = format!(
+            "{{\"token\":\"tok\",\"owner\":\"{owner}\",\"pid\":4242,\"phase\":\"{phase}\",\
+             \"started\":{heartbeat},\"heartbeat\":{heartbeat}}}"
+        );
+        let mut data = text.into_bytes();
+        let raw = std::fs::read(path).unwrap_or_default();
+        let width = raw.len().max(512);
+        data.resize(width, 0);
+        std::fs::write(path, data).unwrap();
+    }
+
+    fn now_secs() -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+    }
+
+    #[tokio::test]
+    async fn a_live_handoff_lease_refuses_admission_without_touching_the_permit() {
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        write_lease(&lease, now_secs(), "handoff-cli", "processing");
+
+        let a = UpstreamAdmission::new().with_lease(&lease, Duration::from_millis(300));
+        assert!(a.handoff_held(), "a fresh heartbeat is a LIVE holder");
+        let t0 = Instant::now();
+        let err = a.acquire(&CancellationToken::new()).await.unwrap_err();
+        assert_eq!(err, AdmissionError::HandoffHeld);
+        assert!(t0.elapsed() >= Duration::from_millis(300), "it waits, not instant refusal");
+        assert_eq!(a.lease_refusals(), 1, "the refusal is observable");
+        assert_eq!(a.queued(), 0, "the lease gate never occupies a queue slot");
+        assert!(
+            !a.generation_in_flight(),
+            "a refused acquire must not consume the single endpoint permit"
+        );
+    }
+
+    #[tokio::test]
+    async fn lease_refusal_survives_a_stale_permit_state_and_retries_are_refused() {
+        // The gate is re-read per acquire: a window that is still open when
+        // the client retries must still be refused (no "one free generation"
+        // leak into the processing window).
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        write_lease(&lease, now_secs(), "handoff-cli", "processing");
+        let a = UpstreamAdmission::new().with_lease(&lease, Duration::from_millis(50));
+        for _ in 0..3 {
+            assert_eq!(a.acquire(&CancellationToken::new()).await.unwrap_err(), AdmissionError::HandoffHeld);
+        }
+        assert_eq!(a.lease_refusals(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_stale_lease_fails_open_only_on_proof() {
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        // Staleness must be provable from BOTH signals, because a file that
+        // was just written has a fresh mtime even if its heartbeat field is
+        // ancient. So: an old heartbeat AND then real elapsed time, against
+        // a one-second stale window.
+        write_lease(&lease, now_secs() - 100.0, "dead-cli", "processing");
+        assert!(
+            matches!(lease_reading(&lease, Duration::from_secs(60)), LeaseReading::Held { .. }),
+            "a file written a moment ago is still a live holder regardless of its \
+             heartbeat field - mtime is the other proof"
+        );
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        let a = UpstreamAdmission::new()
+            .with_lease(&lease, Duration::from_millis(50))
+            .with_lease_stale(Duration::from_secs(1));
+        assert!(!a.handoff_held(), "a dead-man lease is not a live holder");
+        let permit = a.acquire(&CancellationToken::new()).await;
+        assert!(permit.is_ok(), "an abandoned lease must not park the endpoint forever");
+        assert_eq!(a.lease_refusals(), 0);
+    }
+
+    #[tokio::test]
+    async fn unreadable_or_unparseable_lease_records_are_not_free() {
+        // The defect this replaces: a blank/garbage/truncated record used to
+        // read as "nobody owns the model", so a second generation woke a model
+        // that a LIVE processing job had deliberately parked. An unusable
+        // record is HELD-UNCERTAIN: no holder can be ruled out.
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        for (label, bytes) in [
+            ("all-NUL padding", vec![0u8; 512]),
+            ("not JSON at all", b"this is not json at all".to_vec()),
+            ("truncated mid-write", b"{\"token\":\"aaa".to_vec()),
+            ("JSON but not an object", b"[1,2,3]".to_vec()),
+            ("no identity fields", b"{\"phase\":\"processing\"}".to_vec()),
+        ] {
+            std::fs::write(&lease, bytes).unwrap();
+            assert!(
+                matches!(
+                    lease_reading(&lease, DEFAULT_LEASE_STALE),
+                    LeaseReading::Uncertain { abandoned: false, .. }
+                ),
+                "{label}: an unusable record must be uncertain, never free"
+            );
+            if let LeaseReading::Uncertain { age_secs, .. } = lease_reading(&lease, DEFAULT_LEASE_STALE) {
+                assert!(age_secs.is_some(), "{label}: the record is on disk, so its age IS knowable");
+            }
+            let a = UpstreamAdmission::new().with_lease(&lease, Duration::from_millis(50));
+            assert!(a.handoff_held(), "{label}: uncertain counts as claimed");
+            assert_eq!(
+                a.acquire(&CancellationToken::new()).await.unwrap_err(),
+                AdmissionError::HandoffHeld,
+                "{label}: admission refuses rather than waking the model"
+            );
+            assert_eq!(a.lease_refusals(), 1, "{label}: the refusal is observable");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_record_ages_out_so_a_broken_lease_cannot_park_forever() {
+        // The BOUND: an unusable record is held while it is young, and becomes
+        // provably abandoned once its OWN file age passes the window.
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        std::fs::write(&lease, b"{" ).unwrap();
+        let a = UpstreamAdmission::new()
+            .with_lease(&lease, Duration::from_millis(50))
+            .with_lease_stale(Duration::from_secs(1));
+        assert!(a.handoff_held(), "a fresh corrupt record is not evidence of a free endpoint");
+        assert_eq!(
+            a.acquire(&CancellationToken::new()).await.unwrap_err(),
+            AdmissionError::HandoffHeld
+        );
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        assert!(!a.handoff_held(), "its own age is now proof it was abandoned");
+        assert!(
+            a.acquire(&CancellationToken::new()).await.is_ok(),
+            "the uncertainty window is bounded"
+        );
+    }
+
+    #[test]
+    fn a_record_that_exists_but_cannot_be_read_is_not_reported_absent() {
+        // A directory where the record should be: the read fails with something
+        // other than NotFound, and "absent" would be a false claim.
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        std::fs::create_dir_all(&lease).unwrap();
+        match lease_reading(&lease, DEFAULT_LEASE_STALE) {
+            LeaseReading::Uncertain { why, abandoned, .. } => {
+                assert!(!abandoned, "it was just created, so it is not provably abandoned");
+                assert!(why.contains("could not be read"), "got: {why}");
+            }
+            other => panic!("a directory in the record's place must be Uncertain, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_gate_waits_and_admits_once_the_window_closes() {
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        write_lease(&lease, now_secs(), "handoff-cli", "restoring_main_model");
+        let release_lease = lease.clone();
+        let closer = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(350)).await;
+            let _ = std::fs::remove_file(&release_lease);
+        });
+        let a = UpstreamAdmission::new().with_lease(&lease, Duration::from_millis(3_000));
+        let permit = a.acquire(&CancellationToken::new()).await;
+        assert!(permit.is_ok(), "a window that ends inside the wait must not be refused");
+        assert_eq!(a.lease_refusals(), 0);
+        closer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_caller_abandons_the_lease_wait_without_refusal_counters() {
+        let dir = tempfile::tempdir().unwrap();
+        let lease = dir.path().join("llm-handoff.lock");
+        write_lease(&lease, now_secs(), "handoff-cli", "processing");
+        let a = UpstreamAdmission::new().with_lease(&lease, Duration::from_secs(30));
+        let tok = CancellationToken::new();
+        let tok2 = tok.clone();
+        let a = Arc::new(a);
+        let a2 = Arc::clone(&a);
+        let waiter = tokio::spawn(async move { a2.acquire(&tok2).await });
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        tok.cancel();
+        assert_eq!(waiter.await.unwrap().unwrap_err(), AdmissionError::Cancelled);
+        assert_eq!(a.lease_refusals(), 0, "a cancel is not a refusal");
+    }
+
+    #[tokio::test]
+    async fn no_lease_wired_means_the_gate_is_inert() {
+        // The ~10 existing test constructors keep their exact behaviour.
+        let a = UpstreamAdmission::new();
+        assert!(a.lease_path().is_none());
+        assert!(!a.handoff_held());
+        assert!(a.acquire(&CancellationToken::new()).await.is_ok());
+    }
 
     #[tokio::test]
     async fn permit_is_capacity_one_and_serializes() {

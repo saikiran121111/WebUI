@@ -1,0 +1,11 @@
+npm notice run webui-chat@0.2.0 contracts:check
+npm notice run node rust-backend/scripts/gen-mode-contracts.mjs --check && node rust-backend/scripts/gen-contract-manifest.mjs --check
+excel         -> CONTRACT_EXCEL sha=6079047343a91258… bytes=4376
+docs          -> CONTRACT_DOCS sha=9eb1151e8f1f9886… bytes=1877
+pdf           -> CONTRACT_PDF sha=bcaa59a0e542369a… bytes=2160
+ppt           -> CONTRACT_PPT sha=6c8601f65d3b84e8… bytes=3437
+chart         -> CONTRACT_CHART sha=4167ef9308609d84… bytes=1936
+html_render   -> CONTRACT_HTML_RENDER sha=1eee54fa63cde6c0… bytes=1836
+standard_chat -> CONTRACT_STANDARD_CHAT = null
+contracts:check OK — contracts_generated.rs is up to date
+contracts:check OK — rust-backend\fixtures\contracts\manifest.json is up to date

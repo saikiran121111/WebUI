@@ -1,0 +1,62 @@
+npm notice run webui-chat@0.2.0 build
+npm notice run next build
+  ▲ Next.js 14.2.35
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+(node:26128) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+   Generating static pages (0/25) ...
+   Generating static pages (6/25) 
+(node:23896) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+   Generating static pages (12/25) 
+   Generating static pages (18/25) 
+ ✓ Generating static pages (25/25)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    299 kB          391 kB
+├ ○ /_not-found                          880 B          92.7 kB
+├ ƒ /api/attach/[id]/notes               0 B                0 B
+├ ƒ /api/browser                         0 B                0 B
+├ ƒ /api/browser/policy                  0 B                0 B
+├ ƒ /api/browser/ticket                  0 B                0 B
+├ ƒ /api/chat                            0 B                0 B
+├ ƒ /api/conversations                   0 B                0 B
+├ ƒ /api/conversations/[id]              0 B                0 B
+├ ƒ /api/conversations/[id]/title        0 B                0 B
+├ ƒ /api/decision                        0 B                0 B
+├ ƒ /api/documents/docx                  0 B                0 B
+├ ƒ /api/documents/pdf                   0 B                0 B
+├ ƒ /api/documents/powerbi               0 B                0 B
+├ ƒ /api/documents/pptx                  0 B                0 B
+├ ƒ /api/documents/resume                0 B                0 B
+├ ƒ /api/documents/xlsx                  0 B                0 B
+├ ƒ /api/files/extract                   0 B                0 B
+├ ƒ /api/internal/embed                  0 B                0 B
+├ ƒ /api/internal/web-research           0 B                0 B
+├ ƒ /api/internal/web-tools              0 B                0 B
+├ ƒ /api/model-stats                     0 B                0 B
+├ ƒ /api/search                          0 B                0 B
+├ ƒ /api/search-more                     0 B                0 B
+├ ƒ /api/settings                        0 B                0 B
+├ ○ /api/skills                          0 B                0 B
+├ ƒ /api/skills/[skillName]              0 B                0 B
+├ ƒ /api/skills/[skillName]/scenario     0 B                0 B
+└ ƒ /api/skills/install                  0 B                0 B
++ First Load JS shared by all            91.8 kB
+  ├ chunks/2117-0dd4b3d844f5fdb5.js      31.9 kB
+  ├ chunks/fd9d1056-c84ab3640ce130e3.js  53.6 kB
+  └ other shared chunks (total)          6.25 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

@@ -6,7 +6,7 @@
  * corrupts: invalid or empty output resolves to null).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   callMainModel,
   normalizeTitle,
@@ -236,9 +236,21 @@ describe("planTitle", () => {
   it("planTitle returns null when the signal is already aborted (yields without model traffic)", async () => {
     // Real transport, already-aborted signal: fetch rejects pre-flight, the
     // catch keeps the last valid title — no request ever reaches :8080.
+    //
+    // F48: that "never reaches :8080" claim is now ASSERTED, not assumed. Until
+    // now this suite was hermetic only by accident: it passed because the
+    // transport rejects an aborted signal before opening a socket AND because
+    // nothing else happened to be listening. A fake transport would prove
+    // nothing here, so the real one stays and the request count is pinned at 0.
+    const spy = vi.spyOn(globalThis, "fetch");
     const c = new AbortController();
     c.abort();
-    expect(await planTitle(shortConv, { signal: c.signal })).toBeNull();
+    try {
+      expect(await planTitle(shortConv, { signal: c.signal })).toBeNull();
+      expect(spy.mock.calls.length, "an aborted signal must not open a request").toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("all-empty summaries yield null (no title from nothing)", async () => {
@@ -254,10 +266,18 @@ describe("planTitle", () => {
 
 describe("callMainModel abort wiring", () => {
   it("an already-aborted signal rejects pre-flight (never reaches the model)", async () => {
+    // F48: same assertion at the transport layer itself - the abort is handled
+    // before the shared queue and before fetch, at the completion door.
+    const spy = vi.spyOn(globalThis, "fetch");
     const c = new AbortController();
     c.abort();
-    await expect(
-      callMainModel("sys", "user", { model: "m", maxTokens: 8, signal: c.signal }),
-    ).rejects.toThrow();
+    try {
+      await expect(
+        callMainModel("sys", "user", { model: "m", maxTokens: 8, signal: c.signal }),
+      ).rejects.toThrow();
+      expect(spy.mock.calls.length, "pre-aborted work must not open a request").toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

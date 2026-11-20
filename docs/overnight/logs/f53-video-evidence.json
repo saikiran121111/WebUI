@@ -1,0 +1,206 @@
+{
+  "v1_frame_ocr": {
+    "seconds": 0.98,
+    "state": "ready",
+    "reason": "",
+    "detail": "",
+    "stage_counts": {
+      "planned": 5,
+      "decoded": 4,
+      "recognised": 3,
+      "glyph_free": 1,
+      "duplicates": 0,
+      "unresolved": 1
+    },
+    "ocr": {
+      "engine": "tesseract v5.5.3.20260724",
+      "engine_languages": [
+        "eng",
+        "osd"
+      ],
+      "requested_language": "eng",
+      "planned": 5,
+      "decoded": 4,
+      "recognised": 3,
+      "glyph_free": 1,
+      "duplicates": 0,
+      "unresolved": [
+        61.0
+      ],
+      "failure_kinds": {
+        "out_of_range": 1
+      },
+      "seek": "ffmpeg -ss before -i: keyframe input seek + accurate decode; each record carries the REQUESTED presentation time, not a measured frame PTS",
+      "character_limit_per_frame": 20000,
+      "note": "frame OCR reads visible TEXT only. It does not interpret diagrams, recover table structure or claim layout fidelity, and N sampled frames cannot establish visual coverage of a recording: every un-sampled instant is simply unexamined."
+    },
+    "language": "eng",
+    "probe": {
+      "duration": 40.0,
+      "video_streams": 1,
+      "audio_state": "selected",
+      "rotation_deg": 0,
+      "stream_start_offsets": {},
+      "subtitle_tracks": []
+    },
+    "sampling_note": "requested explicitly by the caller",
+    "note": "3 of 5 sampled instant(s) yielded text; 1 decoded frame(s) carried no glyph; 1 unresolved. frame OCR reads visible TEXT only. It does not interpret diagrams, recover table structure or claim layout fidelity, and N sampled frames cannot establish visual coverage of a recording: every un-sampled instant is simply unexamined. Sampling basis: requested explicitly by the caller.",
+    "coverage": {
+      "examined": [
+        [
+          4.0,
+          4.0
+        ],
+        [
+          14.0,
+          14.0
+        ],
+        [
+          27.0,
+          27.0
+        ],
+        [
+          35.0,
+          35.0
+        ]
+      ],
+      "skipped": [
+        [
+          0.0,
+          40.0
+        ]
+      ],
+      "units": "instants",
+      "total_source": 40.0,
+      "complete": false,
+      "note": "examined entries are zero-width SAMPLED INSTANTS at which a frame was decoded and read; sampling instants examines no interval, so the timeline is reported as not examined. frame OCR reads visible TEXT only. It does not interpret diagrams, recover table structure or claim layout fidelity, and N sampled frames cannot establish visual coverage of a recording: every un-sampled instant is simply unexamined."
+    },
+    "frames": {
+      "4.0": {
+        "state": "recognised",
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "confidence": 0.9578759225,
+        "text": "HARBOUR LEDGER entry 7\nthe amber kettle weighed 9 kg"
+      },
+      "14.0": {
+        "state": "recognised",
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "confidence": 0.929926362,
+        "text": "MID-ROLL CARD B 14 s\nquarterly throughput rose 3.5 percent"
+      },
+      "27.0": {
+        "state": "recognised",
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "confidence": 0.94222332,
+        "text": "CLOSING CARD C 27 s\nthe lighthouse closed in 1913"
+      },
+      "35.0": {
+        "state": "empty",
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "confidence": null,
+        "text": ""
+      },
+      "61.0": {
+        "state": "out_of_range",
+        "engine": "",
+        "language_code": "",
+        "confidence": null,
+        "text": ""
+      }
+    }
+  },
+  "v2_audio_only_refusal": {
+    "state": "failed",
+    "reason": "unsupported_input",
+    "detail": "the container carries no video stream, so there is no frame to read (audio streams: selected)"
+  },
+  "v3_asr_tail": {
+    "seconds": 1.63,
+    "state": "ready",
+    "payload_state": "transcribed",
+    "model": "Systran/faster-whisper-base",
+    "device": "cpu",
+    "compute_type": "int8",
+    "language": "en",
+    "language_source": "explicit",
+    "audio_level": {
+      "ok": true,
+      "measured": true,
+      "mean_volume_db": -28.5,
+      "max_volume_db": -2.7,
+      "silence_intervals": [
+        [
+          0.0,
+          33.883
+        ],
+        [
+          38.24,
+          40.031
+        ]
+      ],
+      "silence_ratio": 0.8919,
+      "state": "audible",
+      "truncated": false,
+      "error": "",
+      "human_step": "",
+      "note": "max -2.7 dBFS, mean -28.5 dBFS, 35.7s at or below -60 dBFS over a reported 40.0s",
+      "engine": "D:\\Projects\\WebUI\\WebUI\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+      "noise_floor_db": -60.0
+    },
+    "text": "Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine.",
+    "segment_count": 1,
+    "segment_windows": [
+      [
+        33.62,
+        38.1
+      ]
+    ],
+    "coverage": {
+      "examined": [
+        [
+          0.0,
+          40.0
+        ]
+      ],
+      "skipped": [],
+      "units": "seconds",
+      "total_source": 40.0,
+      "complete": true,
+      "note": "1 segment(s); decoded window(s) 40.000s of 40.000s; full track decoded (gaps under 1.06 ms are reporting rounding, not unexamined audio); speech-activity gating was applied to the decoded audio, so a decoded interval with no segment is a claim about speech presence, not a claim that the audio went unexamined"
+    },
+    "reason": "",
+    "detail": "",
+    "ceiling": {},
+    "word_error": 0.0769,
+    "truth_words": 13
+  },
+  "v4_unsupported_language": {
+    "state": "failed",
+    "reason": "unsupported_input",
+    "detail": "unsupported_language: the engine has no language data addressable as 'zxx-nope'; refusing to run it with a different language and present the result as that language",
+    "frame_states": []
+  },
+  "resources": {
+    "owned_child_peak_working_set_mib": 361.0,
+    "owned_child_peak_commit_mib": 1225.0,
+    "samples": 10,
+    "gpu_compute_apps_before": [
+      {
+        "pid": 9632,
+        "used_memory": "[N/A]"
+      }
+    ],
+    "gpu_compute_apps_after": [
+      {
+        "pid": 9632,
+        "used_memory": "[N/A]"
+      }
+    ],
+    "new_gpu_compute_apps": [],
+    "peak_ws_limit_mib": 4768.0
+  }
+}

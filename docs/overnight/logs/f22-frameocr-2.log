@@ -1,0 +1,20 @@
+test_an_oversize_frame_is_a_resource_limit_not_a_frame_to_keep (tests.test_frame_ocr.CommandShape.test_an_oversize_frame_is_a_resource_limit_not_a_frame_to_keep) ... ok
+test_png_geometry_is_read_from_the_header (tests.test_frame_ocr.CommandShape.test_png_geometry_is_read_from_the_header) ... ok
+test_the_command_we_build_is_the_command_the_decoder_accepts (tests.test_frame_ocr.CommandShape.test_the_command_we_build_is_the_command_the_decoder_accepts) ... ok
+test_a_passed_deadline_leaves_the_rest_unrun_rather_than_half_read (tests.test_frame_ocr.CostHonesty.test_a_passed_deadline_leaves_the_rest_unrun_rather_than_half_read) ... ok
+test_a_sampling_plan_never_claims_visual_coverage (tests.test_frame_ocr.CostHonesty.test_a_sampling_plan_never_claims_visual_coverage) ... ok
+test_cancelling_mid_sample_marks_the_rest_as_never_run (tests.test_frame_ocr.CostHonesty.test_cancelling_mid_sample_marks_the_rest_as_never_run) ... ok
+test_identical_frames_are_not_recognised_twice (tests.test_frame_ocr.CostHonesty.test_identical_frames_are_not_recognised_twice) ... ok
+test_a_row_is_not_installed_when_only_one_of_its_two_programs_exists (tests.test_frame_ocr.RegistryWiring.test_a_row_is_not_installed_when_only_one_of_its_two_programs_exists) ... ok
+test_the_row_requires_decoder_AND_recogniser (tests.test_frame_ocr.RegistryWiring.test_the_row_requires_decoder_AND_recogniser) ... ok
+test_the_worker_dispatches_the_new_capability (tests.test_frame_ocr.RegistryWiring.test_the_worker_dispatches_the_new_capability) ... ok
+test_a_capability_level_condition_is_reported_once_not_once_per_frame (tests.test_frame_ocr.StageSeparation.test_a_capability_level_condition_is_reported_once_not_once_per_frame) ... ok
+test_a_decoded_frame_that_fails_to_recognise_stays_unresolved (tests.test_frame_ocr.StageSeparation.test_a_decoded_frame_that_fails_to_recognise_stays_unresolved) ... ok
+test_a_timestamp_outside_the_container_is_never_reported_as_no_text (tests.test_frame_ocr.StageSeparation.test_a_timestamp_outside_the_container_is_never_reported_as_no_text) ... ok
+test_one_frame_decode_failure_does_not_end_the_sample (tests.test_frame_ocr.StageSeparation.test_one_frame_decode_failure_does_not_end_the_sample) ... ok
+test_recognised_and_glyph_free_are_both_measurements (tests.test_frame_ocr.StageSeparation.test_recognised_and_glyph_free_are_both_measurements) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.074s
+
+OK

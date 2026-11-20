@@ -105,7 +105,10 @@ export async function loadCoreSkillBundle(root: string, skillName: string): Prom
 
 /**
  * The single system block for this turn: matched core skill + active_mode's
- * output contract. Returns null for modes with neither (standard_chat).
+ * output contract (artifact modes) or the fence catalogue (standard_chat,
+ * D-070 - knowledge, not a keyword rule). No mode is contract-less anymore,
+ * so the block exists for every turn; null stays only as the type's honest
+ * out for a MODE_CONTRACTS entry someone sets back to null.
  */
 export async function buildDecisionSkillBlock(
   env: DecisionEnvelope,
@@ -129,7 +132,8 @@ export async function buildDecisionSkillBlock(
     `<decision_skill mode="${env.active_mode}" decided_by="${env.decided_by}">\n` +
     parts.join("\n\n") +
     "\nFollow the skill and output contract above exactly for this request. " +
-    "Emit only the fence type named in the contract (if any); never emit other renderer fences.\n" +
+    "Emit only the fence type named in the contract (if any); where none names one, emit a renderer " +
+    "fence only from the catalogue above and only when the request clearly calls for one.\n" +
     "</decision_skill>"
   );
 }

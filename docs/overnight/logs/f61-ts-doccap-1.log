@@ -1,0 +1,18 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/server/extract-document-capability.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/server/extract-document-capability.test.ts (49 tests) 74ms
+
+ Test Files  1 passed (1)
+      Tests  49 passed (49)
+   Start at  13:08:52
+   Duration  1.06s (transform 211ms, setup 28ms, collect 593ms, tests 74ms, environment 0ms, prepare 219ms)
+
+npm notice
+npm notice New patch version of npm available! 12.2.0 -> 12.2.3
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.3
+npm notice To update run: npm install -g npm@12.2.3
+npm notice

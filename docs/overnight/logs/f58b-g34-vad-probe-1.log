@@ -1,0 +1,15 @@
+load 0.36s
+tone.wav samples 0 0.00s
+tone.wav vad= False -> []
+tone.wav vad= True -> []
+final.wav samples 0 0.00s
+final.wav vad= False -> []
+final.wav vad= True -> []
+speech.wav samples 0 0.00s
+speech.wav vad= False -> []
+speech.wav vad= True -> []
+digital-silence-5s vad= True -> []
+digital-silence-5s vad= False -> [[0.0, 2.0, "You"]]
+digital-silence-40s vad= True -> []
+vad asset: D:\Projects\WebUI\WebUI\python-backend\.venv\Lib\site-packages\faster_whisper\assets\silero_vad_v6.onnx
+vad asset exists: True

@@ -1,0 +1,16 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/rust-golden/decision-parity.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/rust-golden/decision-parity.test.ts (2 tests) 57ms
+stdout | __tests__/rust-golden/decision-parity.test.ts > golden: Part 3 mode-contract byte hashes (skills/06) > records sha256/bytes/utf16 for every MODE_CONTRACTS entry
+[golden-update] re-recorded skills/06-mode-contracts-hashes.json: 3 line(s) changed, first at line 35
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:05:17
+   Duration  375ms (transform 49ms, setup 24ms, collect 75ms, tests 57ms, environment 0ms, prepare 61ms)
+

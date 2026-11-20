@@ -1,0 +1,57 @@
+test_a_lease_that_released_the_model_passes_the_exclusive_window_down (tests.test_ocr_resource_window.CascadeStatesWhichWindowItRunsIn.test_a_lease_that_released_the_model_passes_the_exclusive_window_down) ... ok
+test_a_lease_with_no_unload_keeps_the_normal_window (tests.test_ocr_resource_window.CascadeStatesWhichWindowItRunsIn.test_a_lease_with_no_unload_keeps_the_normal_window) ... ok
+test_an_unexpected_adapter_error_still_recovers_per_unit (tests.test_ocr_resource_window.CascadeStatesWhichWindowItRunsIn.test_an_unexpected_adapter_error_still_recovers_per_unit)
+A raising adapter used to fail the whole job: no recovery, nothing persisted. ... ok
+test_an_exclusive_window_holds_the_same_demand_and_reaches_the_spawn (tests.test_ocr_resource_window.CeilingIsDecidedBeforeTheChildExists.test_an_exclusive_window_holds_the_same_demand_and_reaches_the_spawn) ... ok
+test_the_normal_window_refuses_without_spawning (tests.test_ocr_resource_window.CeilingIsDecidedBeforeTheChildExists.test_the_normal_window_refuses_without_spawning) ... ok
+test_a_low_commit_clamps_to_free_headroom_minus_the_reserve (tests.test_ocr_resource_window.ExclusiveBudgetArithmetic.test_a_low_commit_clamps_to_free_headroom_minus_the_reserve)
+6,000 MiB free commit minus a 2 GiB reserve leaves 3,952 MiB, under the hard maximum. ... ok
+test_an_absurd_configuration_is_clamped_into_the_documented_band (tests.test_ocr_resource_window.ExclusiveBudgetArithmetic.test_an_absurd_configuration_is_clamped_into_the_documented_band) ... ok
+test_an_unmeasurable_host_keeps_the_normal_hard_maximum (tests.test_ocr_resource_window.ExclusiveBudgetArithmetic.test_an_unmeasurable_host_keeps_the_normal_hard_maximum)
+No commit reading must NOT open a wider window on a guess. ... ok
+test_plenty_of_headroom_uses_the_configured_maximum (tests.test_ocr_resource_window.ExclusiveBudgetArithmetic.test_plenty_of_headroom_uses_the_configured_maximum) ... ok
+test_the_normal_window_never_widens_for_an_unload_that_did_not_happen (tests.test_ocr_resource_window.ExclusiveBudgetArithmetic.test_the_normal_window_never_widens_for_an_unload_that_did_not_happen) ... ok
+test_a_child_killed_at_its_ceiling_reports_resource_limit_not_an_engine_fault (tests.test_ocr_resource_window.OsCeilingKillIsClassifiedAsResourceLimit.test_a_child_killed_at_its_ceiling_reports_resource_limit_not_an_engine_fault) ... ok
+test_a_kernel_peak_at_the_limit_reads_as_reached (tests.test_ocr_resource_window.PeakHitLimitClassification.test_a_kernel_peak_at_the_limit_reads_as_reached) ... ok
+test_a_peak_far_below_the_limit_reads_as_not_reached (tests.test_ocr_resource_window.PeakHitLimitClassification.test_a_peak_far_below_the_limit_reads_as_not_reached) ... ok
+test_a_peak_short_of_the_ratio_reads_as_not_reached (tests.test_ocr_resource_window.PeakHitLimitClassification.test_a_peak_short_of_the_ratio_reads_as_not_reached)
+3,900 MiB against a 4,096 MiB ceiling is 95.2 %, under the 98 % ratio. ... ok
+test_an_unreadable_peak_is_unknown_and_never_false (tests.test_ocr_resource_window.PeakHitLimitClassification.test_an_unreadable_peak_is_unknown_and_never_false) ... ok
+test_a_resource_limit_refusal_maps_to_a_real_reason_code_for_the_callers (tests.test_ocr_resource_window.TheAllocationClassifierIsOneAuthorityAcrossProcessBoundaries.test_a_resource_limit_refusal_maps_to_a_real_reason_code_for_the_callers) ... ok
+test_the_child_fallback_list_equals_the_parent_authority (tests.test_ocr_resource_window.TheAllocationClassifierIsOneAuthorityAcrossProcessBoundaries.test_the_child_fallback_list_equals_the_parent_authority) ... ok
+test_the_header_markers_are_installed_and_the_source_is_echoed (tests.test_ocr_resource_window.TheAllocationClassifierIsOneAuthorityAcrossProcessBoundaries.test_the_header_markers_are_installed_and_the_source_is_echoed) ... FAIL
+test_the_parent_sends_that_list_in_the_header (tests.test_ocr_resource_window.TheAllocationClassifierIsOneAuthorityAcrossProcessBoundaries.test_the_parent_sends_that_list_in_the_header) ... ok
+test_a_measured_demand_is_charged_as_itself_with_a_small_margin (tests.test_ocr_resource_window.WorkerCeilingArithmetic.test_a_measured_demand_is_charged_as_itself_with_a_small_margin) ... ok
+test_a_provisional_demand_is_charged_with_the_unmeasured_factor (tests.test_ocr_resource_window.WorkerCeilingArithmetic.test_a_provisional_demand_is_charged_with_the_unmeasured_factor) ... ok
+test_an_explicit_ceiling_is_checked_by_the_same_arithmetic (tests.test_ocr_resource_window.WorkerCeilingArithmetic.test_an_explicit_ceiling_is_checked_by_the_same_arithmetic) ... FAIL
+test_a_clean_exit_with_no_ceiling_evidence_stays_a_load_failure (tests.test_ocr_resource_window.WorkerDeathIsClassifiedOnceAtEverySite.test_a_clean_exit_with_no_ceiling_evidence_stays_a_load_failure) ... ok
+test_a_kernel_peak_at_the_ceiling_is_proven_by_the_os (tests.test_ocr_resource_window.WorkerDeathIsClassifiedOnceAtEverySite.test_a_kernel_peak_at_the_ceiling_is_proven_by_the_os) ... ok
+test_a_protocol_marker_names_the_refusal_and_dominates_everything_else (tests.test_ocr_resource_window.WorkerDeathIsClassifiedOnceAtEverySite.test_a_protocol_marker_names_the_refusal_and_dominates_everything_else) ... ok
+test_a_refusal_named_only_in_the_log_tail_gets_the_same_label (tests.test_ocr_resource_window.WorkerDeathIsClassifiedOnceAtEverySite.test_a_refusal_named_only_in_the_log_tail_gets_the_same_label) ... ok
+test_an_unbounded_abnormal_death_is_a_resource_limit_with_an_unknown_cause (tests.test_ocr_resource_window.WorkerDeathIsClassifiedOnceAtEverySite.test_an_unbounded_abnormal_death_is_a_resource_limit_with_an_unknown_cause) ... ok
+test_every_site_that_notices_a_death_calls_the_same_classifier (tests.test_ocr_resource_window.WorkerDeathIsClassifiedOnceAtEverySite.test_every_site_that_notices_a_death_calls_the_same_classifier)
+Structural pin: the adapter must not grow a fourth local verdict. ... ok
+test_the_stage_only_changes_the_non_resource_label (tests.test_ocr_resource_window.WorkerDeathIsClassifiedOnceAtEverySite.test_the_stage_only_changes_the_non_resource_label) ... ok
+
+======================================================================
+FAIL: test_the_header_markers_are_installed_and_the_source_is_echoed (tests.test_ocr_resource_window.TheAllocationClassifierIsOneAuthorityAcrossProcessBoundaries.test_the_header_markers_are_installed_and_the_source_is_echoed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_ocr_resource_window.py", line 486, in test_the_header_markers_are_installed_and_the_source_is_echoed
+    self.assertEqual(ocr_paddle_worker.memory_refusal_signal("DefaultCPUAllocator: "
+AssertionError: '' != "can't allocate"
++ can't allocate
+
+
+======================================================================
+FAIL: test_an_explicit_ceiling_is_checked_by_the_same_arithmetic (tests.test_ocr_resource_window.WorkerCeilingArithmetic.test_an_explicit_ceiling_is_checked_by_the_same_arithmetic)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_ocr_resource_window.py", line 143, in test_an_explicit_ceiling_is_checked_by_the_same_arithmetic
+    self.assertIn("5974", str(report2["refuse_reason"]).replace(",", ""))
+AssertionError: '5974' not found in 'the normal window can offer a commit ceiling of 6186598400 B (5900 MiB) under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: weight bytes)'
+
+----------------------------------------------------------------------
+Ran 29 tests in 0.100s
+
+FAILED (failures=2)

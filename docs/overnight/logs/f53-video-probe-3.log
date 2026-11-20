@@ -1,0 +1,6 @@
+fixture cards_av.mp4: built size=102422
+evidence written: D:\Projects\WebUI\WebUI\docs\overnight\logs\f53-video-evidence.json
+FAILURES:
+  - V1 authored text found at 14.0s: state=recognised missing=['3.5', 'percent'] text='mid roll card b 14 s larterly throughput rose 3 5 percer'
+  - V3 the tail sits near the END of the source, source-relative: segment_windows=[[27.48, 28.88], [33.66, 38.12]]
+  - V3 the silent head is not reported as speech: segments before 33.0s: [[27.48, 28.88], [33.66, 38.12]]

@@ -45,6 +45,29 @@
  * when the cue trails the target across nothing but filler AND nothing but
  * filler follows the cue in its clause - which is what keeps an English
  * "check X, do not use Y" from draping backwards onto X.
+ *
+ * Three more MECHANISM laws (generalization brief 2026-11-16, domain probes
+ * 6-8). None is a phrase exception for one prompt:
+ *   ELLIPTICAL NEGATOR   a bare "not"/"no"/"non" is a negator only where it
+ *                        cannot attach to a preceding predicate (clause-initial
+ *                        or after ","/";"/":") AND only governs a target that
+ *                        follows it across nothing but filler. That is what
+ *                        makes "Only use X, not Y" exclude Y while "that is
+ *                        not X's fault" and "no restrictions on X" stay inert.
+ *   DISCONTINUOUS FRAME  an exclusive verb class (restrict / limit / confine /
+ *                        narrow + inflections) + "to" across a BOUNDED run of
+ *                        closed-set filler tokens is ONE exclusive cue
+ *                        ("restrict yourself to", "limit the search to").
+ *                        Negated, the composition law cancels: the negation
+ *                        targets the RESTRICTION, so no domain policy exists
+ *                        at all - it is not a block on the named host.
+ *   SUPERSESSION         an explicit broadening phrase ("any source", "all
+ *                        sites", "no restriction") in the same clause as a
+ *                        supersession marker ("now", "previously", "anymore")
+ *                        retracts an ALLOW-WALL whose cue and target precede
+ *                        it. The withdrawal is RECORDED (polarity cancel),
+ *                        never a silent widening, and an explicit exclusion is
+ *                        never retracted by it.
  */
 import { normalizeDomain } from "./domain-match";
 
@@ -56,7 +79,8 @@ export type CueClass =
   | "exclusion"
   | "exclusive"
   | "prefer"
-  | "correction";
+  | "correction"
+  | "broadening";
 
 export interface DomainConstraint {
   /** Normalized registrable host the constraint is about. */
@@ -73,6 +97,9 @@ export interface DomainConstraint {
   postposed: boolean;
   /** True when the governing clause is a self-correction. */
   corrected: boolean;
+  /** True for a SUPERSESSION withdrawal record (F03b): the cue lives in a
+   *  LATER span than the target it retracts, so read the offsets that way. */
+  supersession?: boolean;
   clauseIndex: number;
   clauseStart: number;
   clauseEnd: number;
@@ -180,6 +207,53 @@ const CORRECTION_TERMS = [
   "th\u1ef1c ra", // vi  thuc ra   ("actually")
 ];
 
+/* Elliptical negators (F03b). The SHORT forms deliberately stay OUT of
+ * NEGATOR_TERMS: an unconditional "not"/"no" would turn every copula ("that
+ * is not X's fault") and every noun phrase ("no restrictions on X") into an
+ * exclusion cue. They count as negators only under the two guards added with
+ * them - elliptical position, and an immediately following target. */
+const BARE_NEGATOR_TERMS = ["not", "no", "non"];
+
+/* Exclusive verb class usable in a DISCONTINUOUS frame (F03b). The verb and
+ * its particle "to" may be separated by at most MAX_RESTRICT_FILLER tokens,
+ * and EVERY token between them must come from this CLOSED set - an open-class
+ * word in the gap is exactly the case that must not arm a wall. */
+const RESTRICT_VERB_TERMS = [
+  "restrict", "restricts", "restricted", "restricting",
+  "limit", "limits", "limited", "limiting",
+  "confine", "confines", "confined", "confining",
+  "narrow", "narrows", "narrowed", "narrowing",
+];
+const RESTRICT_FILLER_TERMS = [
+  "yourself", "yourselves", "myself", "it", "them", "the", "our", "my",
+  "this", "that", "these", "those", "its", "their",
+  "search", "searches", "searching", "results", "result", "output", "outputs",
+  "answer", "answers", "response", "responses", "source", "sources", "scope",
+  "findings", "things", "topic", "topics", "matter", "matters", "list",
+  "lists", "report", "reports", "dataset", "datasets", "collection",
+  "collections", "just", "only", "strictly", "further", "more", "down",
+];
+const MAX_RESTRICT_FILLER = 3;
+
+/* Broadening + supersession (F03b). BOTH must appear in the same clause
+ * before anything is retracted: a bare "any source" that merely describes the
+ * research space changes no policy. These lists name broadening SPEECH ACTS,
+ * never domains, and superseding a restriction never erases an explicit
+ * exclusion of some other host. */
+const BROADEN_TERMS = [
+  "any source", "any sources", "all sources", "every source", "any site",
+  "any sites", "all sites", "every site", "any website", "any websites",
+  "all websites", "any domain", "any domains", "any url", "any urls",
+  "anywhere", "no restriction", "no restrictions", "unrestricted",
+  "any search", "any results", "all results", "any provider", "any engine",
+  "whatever source", "whatever sources",
+];
+const SUPERSESSION_TERMS = [
+  "now", "previously", "earlier", "before", "at first", "initially",
+  "instead", "no longer", "anymore", "retract", "changed my mind",
+  "new instruction", "updated",
+];
+
 /** Contrastive conjunctions END a cue's scope; they never create a policy. */
 const CONTRAST_TERMS = [
   "but", "however", "although", "though", "whereas", "nevertheless", "conversely",
@@ -222,6 +296,20 @@ const CUE_PATTERNS: Array<{ cls: CueClass; re: RegExp }> = CUE_CLASSES.map(
   ([cls, terms]) => ({ cls, re: new RegExp("(?:" + alternation(terms) + ")", "giu") }),
 );
 const CONTRAST_RE = new RegExp("(?:" + alternation(CONTRAST_TERMS) + ")", "giu");
+/* F03b machinery (elliptical negator / discontinuous exclusive frame /
+ * broadening+supersession). Compiled from the closed vocabularies above; the
+ * guards that make them safe live with the cue scan, not in the patterns. */
+const BARE_NEGATOR_RE = new RegExp("(?:" + alternation(BARE_NEGATOR_TERMS) + ")", "giu");
+const RESTRICT_VERB_RE = new RegExp("(?:" + alternation(RESTRICT_VERB_TERMS) + ")", "giu");
+const RESTRICT_FILLER_SET = new Set(RESTRICT_FILLER_TERMS);
+const BROADEN_RE = new RegExp("(?:" + alternation(BROADEN_TERMS) + ")", "giu");
+const SUPERSESSION_RE = new RegExp("(?:" + alternation(SUPERSESSION_TERMS) + ")", "giu");
+/** A contrast term with its trailing punctuation, anchored at the query end -
+ *  used to decide whether a bare negator trails one (elliptical scope). */
+const TRAILING_CONTRAST_RE = new RegExp(
+  "(?:" + alternation(CONTRAST_TERMS) + ")[\\s,;:!]*$",
+  "iu",
+);
 
 const DOMAIN_TOKEN_RE = /(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}/gi;
 const SITE_OP_RE = /\bsite:\s*([a-z0-9][a-z0-9.:-]*(?:\/[^\s]*)?)/gi;
@@ -256,12 +344,20 @@ const CONTRAST_LOOKAHEAD = 120;
 const FILLER_GAP_RE =
   /^[\s,.!?;]*(?:\b(?:and|or|for|with|please|instead|then|from|to|as|of)\b[\s,.!?;]*){0,2}$/;
 const FILLER_TAIL_RE = /^[\s,.!?;]*$/;
+/** Gap an ELLIPTICAL negator may cross to reach its target (F03b): punctuation
+ *  plus, at most, two light connectives/adverbs. Anything open-class in the gap
+ *  ("no restrictions ON X") means the negator governs a different phrase. */
+const ELLIPTICAL_GAP_RE =
+  /^[\s,;:!-]*(?:\b(?:and|or|also|just|simply|only|even|rather|specifically)\b[\s,;:-]*)*$/iu;
 
 interface Cue {
   start: number;
   end: number;
   text: string;
   cls: CueClass;
+  /** Bare "not"/"no" accepted by the elliptical law; it may only govern a
+   *  target that FOLLOWS it across pure filler (record-loop guard). */
+  elliptical?: boolean;
 }
 interface Span {
   start: number;
@@ -364,6 +460,105 @@ function splitClauses(text: string): Clause[] {
 }
 
 /**
+ * Elliptical scope for a bare negator (F03b). A bare "not"/"no"/"non" is a
+ * NEGATOR only where it cannot attach backwards to a preceding predicate: at
+ * the clause start, right after a separator, or right after a contrast term.
+ * "…is not X…" fails this test (a verb governs it), so no cue exists at all -
+ * which is exactly why that sentence creates no exclusion.
+ */
+function ellipticalScopeOk(text: string, start: number, clause: Clause): boolean {
+  const before = text.slice(clause.start, start);
+  if (before.trim() === "") return true;
+  if (/[,;:]\s*$/.test(before)) return true;
+  const m = TRAILING_CONTRAST_RE.exec(before);
+  if (!m) return false;
+  const termStart = start - m[0].length;
+  if (termStart <= clause.start) return true;
+  return !ASCII_WORD.test(text[termStart - 1]);
+}
+
+/**
+ * End offset of a DISCONTINUOUS exclusive frame (F03b): from just after an
+ * exclusive verb, accept at most MAX_RESTRICT_FILLER closed-set filler tokens
+ * and then require the particle "to". Anything else - an open-class word,
+ * punctuation, or the clause ending first - means there is NO frame, so a
+ * noun phrase like "the download limit to 5 GB" never arms a wall. Returns the
+ * offset just past "to", or null.
+ */
+function restrictFrameEnd(text: string, from: number, clause: Clause): number | null {
+  let i = from;
+  for (let used = 0; used <= MAX_RESTRICT_FILLER; used++) {
+    const rest = text.slice(i, clause.end);
+    const m = /^\s+([A-Za-z']+)/.exec(rest);
+    if (!m) return null;
+    const word = m[1].toLowerCase();
+    const wordEnd = i + m[0].length;
+    if (word === "to") return wordEnd;
+    if (used === MAX_RESTRICT_FILLER) return null;
+    if (!RESTRICT_FILLER_SET.has(word)) return null;
+    i = wordEnd;
+  }
+  return null;
+}
+
+/**
+ * A broadening SUPERSESSION frame (F03b): the clause must state BOTH an
+ * explicit broadening speech act and a supersession marker. A bare broadening
+ * phrase with no marker (describing the research space, or arguing against
+ * broadening) is NOT a frame, so a live restriction is never silently widened.
+ */
+interface BroadeningFrame {
+  text: string;
+  start: number;
+  end: number;
+}
+
+function broadeningFrameOf(masked: string, clause: Clause): BroadeningFrame | null {
+  BROADEN_RE.lastIndex = clause.start;
+  const broad: RegExpExecArray | null = nextBoundedMatch(BROADEN_RE, masked, clause);
+  if (!broad) return null;
+  SUPERSESSION_RE.lastIndex = clause.start;
+  if (!nextBoundedMatch(SUPERSESSION_RE, masked, clause)) return null;
+  return {
+    text: masked.slice(broad.index, broad.index + broad[0].length),
+    start: broad.index,
+    end: broad.index + broad[0].length,
+  };
+}
+
+/** Next match of `re` inside the clause that also clears the word guards. */
+function nextBoundedMatch(
+  re: RegExp,
+  text: string,
+  clause: Clause,
+): RegExpExecArray | null {
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index >= clause.end) return null;
+    if (m[0].length === 0) {
+      re.lastIndex++;
+      continue;
+    }
+    const end = m.index + m[0].length;
+    if (end > clause.end) return null;
+    if (boundaryOk(text, m.index, end)) return m;
+  }
+  return null;
+}
+
+/**
+ * Second half of the elliptical-negator law (F03b). The cue scan decided the
+ * negator may EXIST; here it decides what it may GOVERN: a target that follows
+ * it across nothing but filler. "only use X, not Y" excludes Y (empty gap);
+ * "no restrictions on X" and "is not X's fault" govern nothing, so they create
+ * no policy. This mirrors the postposed-cue filler law for the opposite order.
+ */
+function ellipticalGoverns(text: string, cueEnd: number, targetStart: number): boolean {
+  if (targetStart < cueEnd) return false;
+  return ELLIPTICAL_GAP_RE.test(text.slice(cueEnd, targetStart));
+}
+
+/**
  * Cue matches inside one clause. A term only counts at a real word edge
  * (script-aware guards), and the LONGEST cue wins wherever cues overlap, so
  * "do not exclude" reads as negator+exclusion and a multiword postposition
@@ -386,6 +581,52 @@ function collectCues(masked: string, clause: Clause): Cue[] {
         found.push({ start: m.index, end, text: masked.slice(m.index, end), cls });
       }
     }
+  }
+  /* Elliptical negator (F03b): the short forms count ONLY where they cannot
+   * attach to a preceding predicate. The companion law - such a negator may
+   * govern only a target that immediately FOLLOWS it across filler - runs in
+   * the record loop, where the target is known. Together they are what keeps
+   * "Only use X, not Y" excluding Y while "is not X's fault" and "no
+   * restrictions on X" stay policy-free. */
+  BARE_NEGATOR_RE.lastIndex = clause.start;
+  let bn: RegExpExecArray | null;
+  while ((bn = BARE_NEGATOR_RE.exec(masked)) !== null) {
+    if (bn.index >= clause.end) break;
+    if (bn[0].length === 0) {
+      BARE_NEGATOR_RE.lastIndex++;
+      continue;
+    }
+    const end = bn.index + bn[0].length;
+    if (end > clause.end) continue;
+    if (!boundaryOk(masked, bn.index, end)) continue;
+    if (!ellipticalScopeOk(masked, bn.index, clause)) continue;
+    found.push({
+      start: bn.index,
+      end,
+      text: masked.slice(bn.index, end),
+      cls: "negator",
+      elliptical: true,
+    });
+  }
+  /* Discontinuous exclusive frame (F03b): restrict/limit/confine/narrow + "to"
+   * across a BOUNDED run of closed-set filler is one exclusive cue. */
+  RESTRICT_VERB_RE.lastIndex = clause.start;
+  let v: RegExpExecArray | null;
+  while ((v = RESTRICT_VERB_RE.exec(masked)) !== null) {
+    if (v.index >= clause.end) break;
+    if (v[0].length === 0) {
+      RESTRICT_VERB_RE.lastIndex++;
+      continue;
+    }
+    if (!boundaryOk(masked, v.index, v.index + v[0].length)) continue;
+    const frameEnd = restrictFrameEnd(masked, v.index + v[0].length, clause);
+    if (frameEnd === null) continue;
+    found.push({
+      start: v.index,
+      end: frameEnd,
+      text: masked.slice(v.index, frameEnd),
+      cls: "exclusive",
+    });
   }
   found.sort((a, b) => a.start - b.start || b.end - a.end);
   const kept: Cue[] = [];
@@ -568,8 +809,9 @@ export function deriveDomainConstraints(userPrompt: string): DomainConstraint[] 
   if (!userPrompt) return out;
   const masked = maskNonInstructionSpans(userPrompt);
   const text = masked.text;
+  const clauses = splitClauses(text);
 
-  for (const clause of splitClauses(text)) {
+  for (const clause of clauses) {
     const cues = collectCues(text, clause);
     const boundaries = contrastEnds(text, clause, cues);
     const correction = cues.find((c) => c.cls === "correction") ?? null;
@@ -597,6 +839,11 @@ export function deriveDomainConstraints(userPrompt: string): DomainConstraint[] 
           continue;
         }
         if (c.cls === "negator") {
+          /* An elliptical bare negator ("… , not Y") is the weakest cue in the
+           * grammar: it may only govern a target that FOLLOWS it across nothing
+           * but filler. That companion law is what keeps "no restrictions on X"
+           * and "…is not X's fault" from becoming an exclusion of X. */
+          if (c.elliptical && !ellipticalGoverns(text, c.end, occ.start)) continue;
           polarity = "block";
           exclusivity = false;
           pendingNeg = true;
@@ -686,6 +933,46 @@ export function deriveDomainConstraints(userPrompt: string): DomainConstraint[] 
         targetStart: occ.start,
         targetEnd: occ.end,
         evidence: userPrompt.slice(occ.start, occ.end),
+      });
+    }
+  }
+
+  /* Supersession pass (F03b). A clause that states BOTH an explicit broadening
+   * speech act and a supersession marker retracts an ALLOW-WALL whose cue and
+   * target precede it - the current instruction wins over the obsolete one.
+   * Three laws keep this honest: only an exclusive allow is retracted (never a
+   * block, never a mere preference), the wall must PRECEDE the frame (a later
+   * restriction still arms), and the withdrawal is a RECORD the caller can
+   * report, never a silent widening. A restriction in the same clause after
+   * the broadening phrase is not retracted. */
+  for (const clause of clauses) {
+    const frame = broadeningFrameOf(text, clause);
+    if (!frame) continue;
+    const retracted = new Set<string>();
+    for (const prior of out.slice()) {
+      if (prior.polarity !== "allow" || !prior.exclusivity) continue;
+      if (prior.cueEnd > frame.start) continue;
+      if (retracted.has(prior.target)) continue;
+      retracted.add(prior.target);
+      out.push({
+        target: prior.target,
+        polarity: "cancel",
+        cueClass: "broadening",
+        cue: frame.text,
+        authority: prior.authority,
+        exclusivity: false,
+        postposed: false,
+        corrected: false,
+        supersession: true,
+        clauseIndex: clause.index,
+        clauseStart: clause.start,
+        clauseEnd: clause.end,
+        scopeStart: clause.start,
+        cueStart: frame.start,
+        cueEnd: frame.end,
+        targetStart: prior.targetStart,
+        targetEnd: prior.targetEnd,
+        evidence: userPrompt.slice(prior.targetStart, prior.targetEnd),
       });
     }
   }

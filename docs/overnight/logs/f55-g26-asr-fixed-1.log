@@ -1,0 +1,8 @@
+ffmpeg D:\Projects\WebUI\WebUI\node_modules\ffmpeg-static\ffmpeg.exe ffprobe D:\Projects\WebUI\WebUI\node_modules\@ffprobe-installer\win32-x64\ffprobe.exe
+free physical 4557 source GlobalMemoryStatusEx
+CEILING speech.asr heavy= True mib= 1914 {"measured_load_peak_mib": 388, "estimate": "measured", "measured_commit_peak_mib": 1276, "commit_estimate": "measured", "commit_basis": "measured: same E03 run, peak_commit of the owned worker tree = 1276.0 MiB (pagefile charge, not resident RAM)"}
+CEILING speech.asr heavy= True mib= 1914 {"measured_load_peak_mib": 388, "estimate": "measured", "measured_commit_peak_mib": 1276, "commit_estimate": "measured", "commit_basis": "measured: same E03 run, peak_commit of the owned worker tree = 1276.0 MiB (pagefile charge, not resident RAM)"}
+state ready secs 1.53
+payload state transcribed device cpu compute int8
+text The Kestral Depot Inventory lists 11 crates of copper cable worth 2400 euros.
+status failed 'P' object has no attribute 'status'

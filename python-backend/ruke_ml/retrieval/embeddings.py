@@ -20,6 +20,11 @@ LEXICAL_META = EmbeddingMeta(model=ModelIdentity(id="ruke-lexical-hash", revisio
                             normalization="l2", pooling="hashed tf, no learned representation",
                             query_instruction="")
 
+# Quality modes this process can actually run. Anything else is refused with the
+# missing piece named, rather than being answered with the lexical baseline.
+LEXICAL_MODES = ("lexical", "hash", "bm25-view")
+NEURAL_MODES = ("neural", "model", "minilm", "onnx")
+
 
 def lexical_embed(text: str, dim: int = LEXICAL_DIM) -> list[float]:
     vec = [0.0] * dim
@@ -34,13 +39,23 @@ def lexical_embed(text: str, dim: int = LEXICAL_DIM) -> list[float]:
 
 
 def embed_texts(texts: Iterable[str], quality_mode: str = "lexical") -> tuple[list[list[float]], EmbeddingMeta]:
-    """Returns vectors plus the meta that describes what they actually are.
+    """Returns vectors plus the meta that describes what they ACTUALLY are.
 
-    A model backend is added by the quality gate; until then callers get the lexical
-    mode and the honest label, never a claim of model-quality parity.
+    "neural" runs the pinned ONNX checkpoint (see nn_embed). It never silently answers a
+    neural request with hashed term weights: if the checkpoint or the runtime is absent,
+    the caller gets a typed failure naming the missing piece.
     """
-    if quality_mode != "lexical":
-        raise ValueError(f"embedding backend {quality_mode!r} is not installed (evaluation_required)")
+    mode = (quality_mode or "lexical").strip().lower()
+    if mode in LEXICAL_MODES:
+        out = [lexical_embed(t) for t in texts]
+        return out, LEXICAL_META
+    if mode in NEURAL_MODES:
+        from .nn_embed import neural_embed_texts
+        vectors, meta, _info = neural_embed_texts(list(texts))
+        return vectors, meta
+    known = ", ".join(sorted(LEXICAL_MODES + NEURAL_MODES))
+    raise ValueError(f"embedding backend {quality_mode!r} is not a mode this process runs "
+                     f"(installed modes: {known})")
     out = [lexical_embed(t) for t in texts]
     return out, LEXICAL_META
 

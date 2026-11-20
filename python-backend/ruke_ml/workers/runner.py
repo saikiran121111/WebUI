@@ -23,13 +23,72 @@ from typing import Any
 
 from ..config import ENV_PARENT_PID
 from ..contracts import SCHEMA_VERSION, Coverage, JobRequest, JobResult, StructuredError
+from .. import allocations
+from . import jobs as jobs_mod
 
 _CANCEL = threading.Event()
 
 
+def _retrieval_failure(reason: str, message: str) -> tuple[str, str]:
+    """One place that decides what a retrieval-model failure asks of the caller.
+
+    Both retrieval handlers used to hard-code "prepare the pinned asset" for any
+    model_unavailable. That is the wrong request when the asset is on disk and the host
+    refused the allocation instead (see ruke_ml/allocations.py), and it is also the wrong
+    request for a missing dependency. The adapter's own reason wins unless the text proves
+    an allocation refusal.
+    """
+    if reason == "memory_pressure" or allocations.is_allocation_failure(message):
+        return "memory_pressure", ("an allocation was refused while loading the pinned model; "
+                                   "the asset is already on disk - free RAM/commit or let the "
+                                   "resource coordinator run the unload/load handoff, then retry")
+    if reason == "model_unavailable":
+        return reason, "prepare the pinned embedding asset (see the setup step), then retry"
+    if reason == "not_configured":
+        return reason, ("install the pinned dependency declared in python-backend/pyproject.toml "
+                        "(onnxruntime + tokenizers for the neural retrieval path)")
+    return reason, "run the retrieval quality gate, then pin the selected model"
+
+# Which native dependency graph each capability worker must own, in load order (the base
+# numeric extension first, so its thread pool is built alone). Deliberately per-capability:
+# a document parse that never touches BLAS must not pay for a numpy import it does not use.
+_PRELUDE: dict[str, tuple[str, ...]] = {
+    "speech.asr": ("numpy", "faster_whisper"),
+    "speech.align": ("numpy",),
+    # The two neural retrieval capabilities were the last ones to import a native extension
+    # lazily, inside a running worker, and it failed the same measured way the ASR path used
+    # to: a rerank hung in numpy's C init for 155 s at 0.14 s of CPU while the model file was
+    # never even opened (faulthandler showed the identical create_module frame at 30 s, 60 s
+    # and 150 s), so every neural rerank ended at its deadline and the candidate order was
+    # never produced. Same interpreter, same venv, same wheels: 0.06 s in a fresh child. The
+    # graph therefore belongs in the single-threaded handshake, not in the job.
+    "rerank": ("numpy", "onnxruntime", "tokenizers"),
+    "embeddings": ("numpy", "onnxruntime", "tokenizers"),
+}
+
+
 def _emit(obj: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    """Write one protocol frame as UTF-8 BYTES, never through the locale text codec.
+
+    The result of a document parse carries the document's own punctuation (curly quotes,
+    currency, CJK, Devanagari). If the child's stdout used the Windows ANSI codepage, those
+    characters went out as cp1252 bytes into a stream the supervisor reads as UTF-8: the
+    reader thread died on the decode and the job was reported as a worker crash, i.e. the
+    successful answer was destroyed by its own encoding. `backslashreplace` keeps even a
+    lone surrogate (which json can emit for a corrupt filename) inside valid UTF-8.
+    """
+    line = json.dumps(obj, ensure_ascii=False) + "\n"
+    raw = getattr(sys.stdout, "buffer", None)
+    if raw is None:                       # stdout was replaced (tests, embedders): text mode
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        return
+    try:
+        sys.stdout.flush()                # drain the text layer first: no interleaved frames
+    except (OSError, ValueError):
+        pass
+    raw.write(line.encode("utf-8", "backslashreplace"))
+    raw.flush()
 
 
 def _progress(job_id: str, capability: str, state: str, note: str = "") -> None:
@@ -47,6 +106,13 @@ def _cancelled(req: JobRequest) -> JobResult:
                                            human_step="re-run the request; no partial result was published"))
 
 
+def _ctx(req: JobRequest) -> "jobs_mod.JobContext":
+    """Bind this worker's cancel event and progress channel into a job context."""
+    return jobs_mod.JobContext(req=req, cancel=_CANCEL,
+                               progress=lambda state, note: _progress(req.job_id, req.capability,
+                                                                      state, note=note))
+
+
 # ------------------------------------------------------------------ capability work
 def _do_embeddings(req: JobRequest) -> JobResult:
     from ..retrieval.embeddings import embed_texts
@@ -62,11 +128,16 @@ def _do_embeddings(req: JobRequest) -> JobResult:
     try:
         vectors, meta = embed_texts(texts, quality_mode=mode)
     except ValueError as exc:
-        return _failed(req, StructuredError("evaluation_required", str(exc), capability="embeddings",
-                                            human_step="run the retrieval quality gate, then pin the selected model"))
+        reason, step = _retrieval_failure(getattr(exc, "reason", "evaluation_required"), str(exc))
+        return _failed(req, StructuredError(reason, str(exc), capability="embeddings",
+                                            human_step=step))
     return JobResult(job_id=req.job_id, capability="embeddings", state="ready",
                      payload={"vectors": vectors, "embedding": meta.to_dict(), "quality_mode": mode,
-                              "quality_note": "lexical hashing is a baseline; it is not model-quality parity"},
+                              "quality_note": (
+                                  "lexical hashing is a baseline; it is not model-quality parity"
+                                  if meta.model.id == "ruke-lexical-hash" else
+                                  f"model embeddings from {meta.model.id} ({meta.model.provider}, "
+                                  f"dim {meta.dim}); quality is measured, not assumed")},
                      model=meta.model)
 
 
@@ -94,14 +165,43 @@ def _do_rerank(req: JobRequest) -> JobResult:
     try:
         scored, used = rerank(query, chunks, mode=mode)
     except ValueError as exc:
-        return _failed(req, StructuredError("evaluation_required", str(exc), capability="rerank",
-                                            human_step="run the retrieval quality gate, then pin the reranker"))
+        reason, step = _retrieval_failure(getattr(exc, "reason", "evaluation_required"), str(exc))
+        return _failed(req, StructuredError(reason, str(exc), capability="rerank",
+                                            human_step=step))
     limited = scored[: int(req.payload.get("top_k", len(scored)))]
+    identity: dict[str, object] = {}
+    if used != "lexical":
+        # Which engine actually scored this matters to the reader: the UI must not be able to
+        # show "reranked" while hiding whether a bi-encoder or a cross-encoder ran.
+        try:
+            if used == "neural_cross_encoder_minilm":
+                from ..retrieval.nn_rerank import cross_encoder_identity
+                identity = cross_encoder_identity().to_dict()
+            else:
+                from ..retrieval.nn_embed import neural_meta
+                identity = neural_meta().model.to_dict()
+        except Exception:                                   # reporting only, never fatal
+            identity = {}
     return JobResult(job_id=req.job_id, capability="rerank", state="ready",
                      payload={"scores": [{"chunk_id": s.chunk.chunk_id, "score": s.score, "rank": i + 1}
                                          for i, s in enumerate(limited)],
                               "mode_actually_used": used, "candidate_count": len(chunks),
-                              "returned": len(limited)},
+                              "returned": len(limited),
+                              "engine": identity,
+                              "quality_note": (
+                                  "lexical BM25 baseline reordering only"
+                                  if used == "lexical" else
+                                  "dense bi-encoder cosine (MiniLM, CPU ONNX); a bi-encoder scores "
+                                  "each text separately and is NOT a cross-encoder"
+                                  if used == "neural_biencoder_minilm" else
+                                  "pinned cross-encoder on CPU ONNX: query and passage are scored "
+                                  "jointly in one forward pass; English MS MARCO coverage, and it "
+                                  "can only reorder candidates it was given"),
+                              "truncation_note": (
+                                  "candidates longer than the model window were truncated at the "
+                                  "tail; scoring is per pair" if used == "neural_cross_encoder_minilm"
+                                  else ""),
+                              },
                      coverage=Coverage(units="chunks", total_source=float(len(chunks)),
                                        examined=[(0.0, float(len(chunks)))],
                                        complete=len(limited) >= len(chunks),
@@ -110,47 +210,41 @@ def _do_rerank(req: JobRequest) -> JobResult:
 
 
 def _do_documents_parse(req: JobRequest) -> JobResult:
-    from ..documents import ocr, parser
-    from ..security import resolve_within
-    path = str(req.payload.get("path", ""))
-    root = str(req.payload.get("root", ""))
-    if not path or not root:
-        return _failed(req, StructuredError("input_rejected", "documents.parse needs path and root",
-                                            capability="documents.parse"))
-    try:
-        target = resolve_within(path, root)
-    except Exception as exc:
-        return _failed(req, StructuredError("input_rejected", f"path refused: {exc}",
-                                            capability="documents.parse",
-                                            human_step="place the file inside the allowed upload root"))
-    if not target.exists():
-        return _failed(req, StructuredError("input_rejected", "file not found inside the allowed root",
-                                            capability="documents.parse"))
-    if _CANCEL.is_set():
-        return _cancelled(req)
-    _progress(req.job_id, "documents.parse", "extracting", note=target.name)
-    try:
-        doc = parser.load_document(target)
-    except parser.ExtractionRejected as exc:
-        return _failed(req, StructuredError("corrupt_input", str(exc), capability="documents.parse",
-                                            human_step="the archive exceeded its bounds or was malformed"))
-    except Exception as exc:
-        return _failed(req, StructuredError("unsupported_input", f"extraction failed: {exc}",
-                                            capability="documents.parse"))
-    a = ocr.assess(doc)
-    units = doc.coverage.units_total or len(doc.blocks)
-    return JobResult(job_id=req.job_id, capability="documents.parse", state="ready",
-                     payload={"document": doc.to_dict(), "ocr_route": a.route,
-                              "ocr_reasons": a.reasons, "ocr_units": a.units,
-                              "coverage_complete": doc.coverage.complete},
-                     coverage=Coverage(units="pages" if doc.kind == "pdf" else "units",
-                                       total_source=float(units),
-                                       examined=[(0.0, float(doc.coverage.units_extracted))],
-                                       skipped=[(float(i - 1), float(i)) for i in
-                                                sorted(set(doc.coverage.units_failed
-                                                          + doc.coverage.units_needing_ocr))],
-                                       complete=doc.coverage.complete, note=doc.coverage.note or
-                                       "non-empty text is not proof that every unit was understood"))
+    """Extraction with per-unit honesty (kernel B).
+
+    Two false-success paths were removed here. An unsupported extension used to answer
+    `ready` with zero blocks, which a caller read as "the document is empty"; and coverage
+    used to be the contiguous prefix `[(0, units_extracted)]`, which is a FALSE statement
+    whenever the units that worked are not a prefix (pages 1 and 3 succeeding while page 2
+    failed used to be reported as two examined pages). Coverage is now derived from the
+    recorded unit ids, and the OCR escalation runs the real adapter when the readiness
+    gate says it is executable, or says out loud that it did not run.
+    """
+    from .document_jobs import parse_job
+    return parse_job(_ctx(req))
+
+
+def _do_documents_ocr(req: JobRequest) -> JobResult:
+    """Real rasterize+recognise cascade through the external engine (kernel E wiring)."""
+    from .document_jobs import ocr_job
+    return ocr_job(_ctx(req))
+
+
+def _do_speech_asr(req: JobRequest) -> JobResult:
+    """Transcription through the adapter the registry names, in bounded windows."""
+    from .speech_jobs import asr_job
+    return asr_job(_ctx(req))
+
+
+def _do_speech_align(req: JobRequest) -> JobResult:
+    """Word timing only when a provider really supplies it; segment spans stay spans."""
+    from .speech_jobs import align_job
+    return align_job(_ctx(req))
+
+
+def _do_speech_diarize(req: JobRequest) -> JobResult:
+    from ..speech.asr import license_required_error
+    return _failed(req, license_required_error("speech.diarize"))
 
 
 def _do_video_timeline(req: JobRequest) -> JobResult:
@@ -248,11 +342,16 @@ def _do_video_scenes(req: JobRequest) -> JobResult:
             note = (f"{note}; cut detection {scan.error} ({scan.detail}); "
                     "anchors below are head/middle/tail + interval coverage only")
         elif scan.truncated:
-            note = (f"{note}; cut scan stopped after {scan.scanned_seconds:.1f}s of "
-                    f"{duration:.1f}s, so later cuts are unknown")
+            horizon = (f"{scan.scanned_seconds:.1f}s decoded" if scan.prefix_measured
+                       else "an unmeasured amount")
+            note = (f"{note}; cut scan stopped after {horizon} of {duration:.1f}s, "
+                    "so later cuts are unknown")
+    stage_anchors = [{"start": a.start, "end": a.end, "kind": a.kind, "reason": a.reason}
+                     for a in scenes.anchors(duration, cuts)]
+    # anchors() already labels each cut anchor as a POINT whose window is only a
+    # sampling suggestion; the worker must not rewrite that provenance here.
     return JobResult(job_id=req.job_id, capability="video.scenes", state="ready",
-                     payload={"anchors": [{"start": a.start, "end": a.end, "kind": a.kind, "reason": a.reason}
-                                          for a in scenes.anchors(duration, cuts)],
+                     payload={"anchors": stage_anchors,
                               "windows": [{"start": w.start, "end": w.end, "kind": w.kind, "reason": w.reason}
                                           for w in plan.windows],
                               "deduped": plan.deduped,
@@ -261,13 +360,35 @@ def _do_video_scenes(req: JobRequest) -> JobResult:
                                   "cuts": scan.cuts, "ok": scan.ok, "error": scan.error,
                                   "detail": scan.detail, "truncated": scan.truncated,
                                   "scanned_seconds": scan.scanned_seconds,
+                                  "prefix_measured": scan.prefix_measured,
+                                  "progress_updates": scan.progress_updates,
+                                  "log_chars": scan.log_chars, "log_capped": scan.log_capped,
                                   "threshold": scan.threshold, "elapsed_ms": scan.elapsed_ms}),
+                              # The measured stage, kept separate from the plan on purpose:
+                              # a decode prefix is evidence about the DECODER, and a plan is
+                              # evidence about nothing yet.
+                              "stages": {"sampling_plan": {
+                                             "windows": len(plan.windows),
+                                             "planned_seconds": plan.planned_seconds,
+                                             "claims_inspected_coverage": False},
+                                         "decode_scan": (None if scan is None else {
+                                             "measured_prefix_s": scan.scanned_seconds,
+                                             "prefix_measured": scan.prefix_measured,
+                                             "truncated": scan.truncated,
+                                             "detected_cuts": len(scan.cuts)})},
                               "ffmpeg_scene_command": scenes.ffmpeg_scene_command(
                                   source or "media"),
                               "note": note},
-                     coverage=Coverage(units="seconds", total_source=duration,
-                                       examined=[(w.start, w.end) for w in plan.windows],
-                                       complete=False, note=note))
+                     # Coverage for THIS job is a plan, so it examined nothing. Real evidence
+                     # arrives through the stages that actually decode frames, recorded via
+                     # video.timeline's add_observations, never by borrowing the plan's numbers.
+                     coverage=Coverage(
+                         units="seconds",
+                         total_source=duration,
+                         examined=[],
+                         skipped=[(0.0, duration)] if duration > 0 else [],
+                         complete=False,
+                         note="Sampling plan only; visual observations are recorded separately."))
 
 
 def _do_video_hints(req: JobRequest) -> JobResult:
@@ -286,6 +407,12 @@ def _do_video_hints(req: JobRequest) -> JobResult:
                               "queries": hints.to_queries(int(req.payload.get("max_queries", 8)))})
 
 
+def _do_video_frame_ocr(req: JobRequest) -> JobResult:
+    """Decode frames and READ their visible text: the stage that makes visual evidence real."""
+    from .video_jobs import frame_ocr_job
+    return frame_ocr_job(_ctx(req))
+
+
 def _do_artifacts(req: JobRequest) -> JobResult:
     # The working artifact engines in this repository are TypeScript (ExcelJS/DOCX/PPTX/PDF).
     # Claiming a Python engine here would be a fiction, so the honest answer is a typed refusal.
@@ -301,51 +428,39 @@ HANDLERS = {
     "embeddings": _do_embeddings,
     "rerank": _do_rerank,
     "documents.parse": _do_documents_parse,
+    "documents.ocr": _do_documents_ocr,
+    "speech.asr": _do_speech_asr,
+    "speech.align": _do_speech_align,
+    "speech.diarize": _do_speech_diarize,
     "video.timeline": _do_video_timeline,
     "video.observations": _do_video_timeline,
     "video.scenes": _do_video_scenes,
     "video.search_hints": _do_video_hints,
+    "video.frame_ocr": _do_video_frame_ocr,
     "artifacts.xlsx": _do_artifacts,
     "artifacts.docx": _do_artifacts,
     "artifacts.pptx": _do_artifacts,
 }
 
+# Capabilities whose handler consults the registry readiness gate before doing any work.
+# These are exactly the ones that used to answer with a FIXED failure regardless of what
+# was installed, so the gate is what makes "the report says available" and "the job runs"
+# the same statement. video.* keeps its own typed probes (it already distinguishes a
+# missing decoder from a corrupt file), but video.frame_ocr is the exception: it needs a
+# validated DECODER and a validated RECOGNISER at once, and the gate is what stops a host
+# that has one of them from reporting a capability that cannot actually run.
+# documents.parse is served by built-in readers and needs no gate.
+GATED = ("documents.ocr", "speech.asr", "speech.align", "speech.diarize", "video.frame_ocr")
+
 
 def dispatch(req: JobRequest) -> JobResult:
     handler = HANDLERS.get(req.capability)
     if handler is not None:
+        if req.capability in GATED:
+            err = jobs_mod.readiness_gate(req.capability)
+            if err is not None:
+                return _failed(req, err)
         return handler(req)
-    if req.capability == "documents.ocr":
-        from ..documents.ocr import ocr_status
-        st = ocr_status()
-        return _failed(req, StructuredError("evaluation_required", str(st["detail"]),
-                                            capability="documents.ocr", human_step=str(st["human_step"])))
-    if req.capability == "speech.asr":
-        from ..speech.asr import language_route
-        route = language_route(str(req.payload.get("language", "")))
-        if route["decision"] in ("not_configured", "unsupported"):
-            return _failed(req, StructuredError("not_configured",
-                                                f"no ASR route for {route['language']}: {route['note']}",
-                                                capability="speech.asr",
-                                                human_step=str(route.get("human_step", ""))))
-        return _failed(req, StructuredError("evaluation_required",
-                                            f"candidate for {route['language']} is not installed/pinned: "
-                                            f"{route['note']}", capability="speech.asr",
-                                            human_step=str(route.get("human_step")
-                                                          or "install and evaluate the candidate model")))
-    if req.capability == "speech.align":
-        from ..speech.alignment import alignment_supported
-        ok, why = alignment_supported(str(req.payload.get("model", "")), str(req.payload.get("language", "")))
-        if ok:
-            return _failed(req, StructuredError("evaluation_required",
-                                                why + "; alignment quality must be measured before use",
-                                                capability="speech.align"))
-        reason = "unsupported_input" if "does not list" in why else "not_configured"
-        return _failed(req, StructuredError(reason, why, capability="speech.align",
-                                            human_step="install/verify the aligner, or accept segment-level timing"))
-    if req.capability == "speech.diarize":
-        from ..speech.asr import license_required_error
-        return _failed(req, license_required_error("speech.diarize"))
     return _failed(req, StructuredError("capability_mismatch", f"this worker does not serve {req.capability}",
                                         capability=req.capability))
 
@@ -390,12 +505,44 @@ def _parent_watchdog() -> None:
             seen_dead = 0
 
 
+def _prelude(capability: str) -> dict[str, Any]:
+    """Build this capability's heavy dependency graph while the process is single-threaded.
+
+    Measured reason, not superstition: with the ASR path importing numpy lazily inside a
+    job, the extension module was mapped into the worker but its C init never returned -
+    faulthandler reported the identical frame at 12s, 24s, 48s and 108s while the worker
+    had used 0.14s of CPU, and every non-silent transcription ended at its deadline. The
+    same interpreter imports the identical graph in 0.27s in a fresh child, so the import
+    does not belong in the middle of a running worker: doing it here makes the cost
+    deterministic, moves it inside the startup handshake where it can be measured, and
+    keeps the BLAS thread pool from being built alongside the control threads.
+
+    An absent optional dependency is reported on the handshake, not turned into a crash:
+    the job path still answers with its typed readiness error.
+    """
+    mods = _PRELUDE.get(capability, ())
+    if not mods:
+        return {}
+    started = time.perf_counter()
+    imported: list[str] = []
+    failures: list[str] = []
+    for name in mods:
+        try:
+            __import__(name)
+            imported.append(name)
+        except (ImportError, OSError, ValueError) as exc:
+            failures.append(f"{name}: {type(exc).__name__}: {str(exc)[:160]}")
+    return {"imports": imported, "import_failures": failures,
+            "prelude_ms": int((time.perf_counter() - started) * 1000)}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Ruke capability worker")
     ap.add_argument("capability", nargs="?", default="")
     args = ap.parse_args(argv)
     if sys.stdin is None or sys.stdout is None:
         return 2
+    prelude = _prelude(args.capability)
     q: queue.Queue = queue.Queue()
     threading.Thread(target=_stdin_reader, args=(q,), daemon=True).start()
     threading.Thread(target=_parent_watchdog, daemon=True).start()
@@ -403,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
     # "started but can never answer"; without this, a broken worker consumes a whole
     # job deadline before anyone notices.
     _emit({"kind": "ready", "capability": args.capability, "pid": os.getpid(),
-           "schema_version": SCHEMA_VERSION})
+           "schema_version": SCHEMA_VERSION, "prelude": prelude})
     while True:
         line = q.get()
         if line is None:
@@ -430,6 +577,9 @@ def main(argv: list[str] | None = None) -> int:
         if kind == "shutdown":                      # clean exit for idle TTL / owner shutdown
             return 0
         if kind == "selftest_crash":            # test control, never a capability
+            # A crash without any stderr is undiagnosable: the owner reports the worker's
+            # own last words, so the injected fault has to leave some.
+            print("selftest_crash: injected helper fault (test control)", file=sys.stderr, flush=True)
             os._exit(3)
         if kind == "selftest_slow":
             time.sleep(float(obj.get("seconds", 5.0)))

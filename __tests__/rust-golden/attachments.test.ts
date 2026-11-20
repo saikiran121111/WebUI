@@ -173,20 +173,26 @@ describe("golden: attachment retrieval", () => {
         "§5k (2026-11-13, brief L195): RE-RECORDED wording law — completeness may only qualify the " +
         "locally-preserved copy, never the shown selection ('nothing was truncated' was a completeness " +
         "over-claim over a retrieval sample); both runtimes + corpus moved together. " +
-        "Frames: retrieval then retrieval_done {1,1} (done==total == injected block count). " +
-        "PRODUCTION BUG RECORDED (not fixed, §8): the route ALWAYS passes lastUserIdx+1 to " +
-        "buildAttachmentTurn (route.ts:450) assuming a skill block was injected at lastUserIdx — but " +
-        "buildDecisionSkillBlock returns null for standard_chat (skill-loader.ts:88), so the 'shift' never " +
-        "happened and the block lands AFTER the user turn instead of before it (message order in " +
-        "upstreamCalls[0].bodyJson: user, then system). Rust Part 6 must reproduce the OBSERVED order. " +
-        "P1 (2026-11-01): the live-clock injection adds one <runtime_clock> system block between the " +
-        "user turn and the knowledge block; the after-the-user contract is unchanged.",
+        "Frames: decision_done, an UNNAMED 'skill' frame (D-070, 2026-11-20: standard_chat now carries " +
+        "the fence CATALOGUE block, so block bytes > 0 on every turn and the frame rides — it names " +
+        "nothing, the core-tier invisibility law), then retrieval then retrieval_done {1,1} " +
+        "(done==total == injected block count). " +
+        "MESSAGE ORDER (supersedes the historical §8 'block lands after the user turn' production-bug " +
+        "note — that off-by-one was F08-fixed 2026-11-15 by resolveTurnIndex, and D-070 re-armed the " +
+        "block itself): standard_chat now carries a decision_skill block, so the observed order in " +
+        "upstreamCalls[0].bodyJson is [decision_skill, knowledge_index, response_policy, runtime_clock, " +
+        "user] — the marker <decision_skill_block id=\"decision_skill:standard_chat\"> is the FIRST " +
+        "system block. Rust Part 6 reproduces the OBSERVED order. " +
+        "P1 (2026-11-01): the live-clock injection adds one <runtime_clock> system block; its content " +
+        "is MASKED in the fixture (the clock text itself is pinned by clock unit tests).",
       comparison: "structural",
       rawBody: userTurn("According to the indexed lecture notes, what happens in the Calvin cycle?", {
         att_id: "att_golden1a", name: "intro-biology.pdf", category: "text",
       }),
     });
-    expect(stages(logical.frames).map((s) => s.stage)).toEqual(["decision_done", "retrieval", "retrieval_done"]);
+    // D-070 (2026-11-20): the nameless 'skill' frame rides every standard_chat
+    // turn now — the catalogue block makes block bytes > 0 (route.ts:496).
+    expect(stages(logical.frames).map((s) => s.stage)).toEqual(["decision_done", "skill", "retrieval", "retrieval_done"]);
     const done = stages(logical.frames).find((s) => s.stage === "retrieval_done");
     expect(done).toEqual({ stage: "retrieval_done", done: 1, total: 1 });
     const msgs = messagesOf(upstreamCalls[0].bodyJson);
@@ -248,7 +254,8 @@ describe("golden: attachment retrieval", () => {
         "keyframe was SILENTLY DROPPED. route.ts/pipeline.ts now resolve the turn slot ONCE " +
         "(resolveTurnIndex) and re-resolve it after every injected block, so the keyframe rides the END " +
         "of the forwarded user turn (intro text + image_url). retrieval_done {1,1} still counts blocks, " +
-        "not frames. Injection order for this turn: [knowledge_index, response_policy, runtime_clock, " +
+        "not frames. Injection order for this turn (D-070, 2026-11-20: standard_chat now carries the " +
+        "fence-catalogue block): [decision_skill, knowledge_index, response_policy, runtime_clock, " +
         "user]. (The pre-fix fixture name said keyframes-dropped; renamed with the fix.)",
       comparison: "structural",
       rawBody: userTurn("What is happening in the training video around 1:45:00?", {
@@ -262,11 +269,13 @@ describe("golden: attachment retrieval", () => {
     expect(String(sys!.content)).toContain("[01:45:00 - 01:46:00]\nDemo: rendering the pivot table.");
     // F08 (2026-11-15): every injected block lands BEFORE the user turn and the
     // keyframe rides the END of that user turn — no silent drop.
-    expect(msgs.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
-    expect(String(msgs[0].content)).toContain("<knowledge_index name=\"pivot-table-training.mp4\">");
-    expect(String(msgs[1].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
-    expect(String(msgs[2].content).startsWith("<runtime_clock>")).toBe(true);
-    const userParts = msgs[3].content as { type: string }[];
+    // D-070 (2026-11-20): the catalogue block now leads every standard_chat turn.
+    expect(msgs.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user"]);
+    expect(String(msgs[0].content)).toBe("<decision_skill_block id=\"decision_skill:standard_chat\">");
+    expect(String(msgs[1].content)).toContain("<knowledge_index name=\"pivot-table-training.mp4\">");
+    expect(String(msgs[2].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
+    expect(String(msgs[3].content).startsWith("<runtime_clock>")).toBe(true);
+    const userParts = msgs[4].content as { type: string }[];
     expect(userParts.some((p) => p.type === "image_url")).toBe(true);
     expect(userParts.some((p) => p.type === "attachment_ref")).toBe(false);
   });
@@ -316,8 +325,9 @@ describe("golden: attachment retrieval", () => {
       scenario: "same retrieval on the legacy stream:false path",
       semantics:
         "runTurnPipeline is shared: identical injection/strip behavior on BOTH response shapes — F08 " +
-        "(2026-11-15) fixed the standard_chat off-by-one on both paths, so every block lands BEFORE the " +
-        "user turn: [knowledge_index, response_policy, runtime_clock, user]. Only the stage FRAMES are " +
+        "(2026-11-15) fixed the standard_chat off-by-one on both paths and D-070 (2026-11-20) re-armed " +
+        "the standard_chat block, so every block lands BEFORE the " +
+        "user turn: [decision_skill, knowledge_index, response_policy, runtime_clock, user]. Only the stage FRAMES are " +
         "absent on the legacy path (stage() is a no-op), so retrieval_done never appears. " +
         "§5k (2026-11-13): RE-RECORDED header bytes (coverage-honest wording).",
       comparison: "byte-exact",
@@ -328,9 +338,11 @@ describe("golden: attachment retrieval", () => {
     });
     expect(logical.frames.some((f) => f.kind === "stage")).toBe(false);
     const msgs = messagesOf(upstreamCalls[0].bodyJson);
-    // F08 (2026-11-15): knowledge, policy, clock, then the user turn — parity with the progress path.
-    expect(msgs.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
-    expect(String(msgs[0].content)).toContain("<knowledge_index name=\"intro-biology.pdf\">");
+    // F08 (2026-11-15) + D-070: block, knowledge, policy, clock, then the user
+    // turn — parity with the progress path.
+    expect(msgs.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user"]);
+    expect(String(msgs[0].content)).toBe("<decision_skill_block id=\"decision_skill:standard_chat\">");
+    expect(String(msgs[1].content)).toContain("<knowledge_index name=\"intro-biology.pdf\">");
     expect(run.headers["x-decision-mode"]).toBe("standard_chat");
   });
 

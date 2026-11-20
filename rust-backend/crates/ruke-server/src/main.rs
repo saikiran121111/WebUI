@@ -9,9 +9,13 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ruke_core::{
-    admission::UpstreamAdmission, config, settings::SettingsStore, slot::InferenceSlot,
+    admission::{UpstreamAdmission, DEFAULT_LEASE_WAIT},
+    config,
+    settings::SettingsStore,
+    slot::InferenceSlot,
     turn::TurnCounter,
 };
 use ruke_server::{
@@ -34,7 +38,28 @@ async fn main() {
     // Strata POST in this process — chat forwards, web/browser rounds,
     // titles, attachment notes, and the TS helpers' internal-completion
     // route — serializes through this instance.
-    let admission = Arc::new(UpstreamAdmission::new());
+    // Resource-aware handoff (2026-11-17 amendment, section 5 "coordinate all
+    // clients"): a heavyweight document/media job parks the main model while
+    // it holds the endpoint. Ruke's own generation paths must NOT auto-wake
+    // it during that window, and an in-process semaphore cannot bound an
+    // independent client either, so admission reads the SAME lease file the
+    // Python coordinator writes. `.ai-coordination/llm-handoff.lock` is the
+    // same path `python-backend/ruke_ml/handoff.py` (LEASE_NAME) uses, under
+    // the same project root (`config::project_root()`).
+    // RUKE_HANDOFF_WAIT_MS bounds how long a request waits for the window to
+    // close before getting an honest 503 (default 2 s; 0 = refuse instantly).
+    let lease_wait = std::env::var("RUKE_HANDOFF_WAIT_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(DEFAULT_LEASE_WAIT);
+    let handoff_lease = root.join(".ai-coordination").join("llm-handoff.lock");
+    let admission = Arc::new(UpstreamAdmission::new().with_lease(&handoff_lease, lease_wait));
+    tracing::info!(
+        lease = %handoff_lease.display(),
+        wait_ms = lease_wait.as_millis(),
+        "shared-endpoint admission is lease-aware (handoff windows are refused, not woken)"
+    );
     let http = reqwest::Client::new();
 
     // Conversations dir mirrors the TS persistence chain

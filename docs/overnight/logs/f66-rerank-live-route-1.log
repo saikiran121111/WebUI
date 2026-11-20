@@ -1,0 +1,32 @@
+[2026-11-20T17:33:37.696Z] F66 scoped live rerank route run (g58) — supervisor + ruke-server only, no :8080 contact, no next, no bridge secret
+[2026-11-20T17:33:37.957Z] host headroom: free physical 3773 MiB, free commit 19471 MiB
+[2026-11-20T17:33:37.970Z] supervisor spawned pid 19596 (log docs\overnight\logs\f66-supervisor-1.log)
+[2026-11-20T17:33:38.486Z] supervisor discovery: pid 6892 port 52954
+[2026-11-20T17:33:38.710Z] supervisor /health ok (unauthenticated, as dev-supervisor's own pre-token probe)
+[2026-11-20T17:33:38.711Z] token read from supervisor.secret (43 bytes; value never logged)
+[2026-11-20T17:33:38.714Z] ruke-server spawned pid 24052 on :3101 (log docs\overnight\logs\f66-ruke-server-1.log)
+[2026-11-20T17:33:39.233Z] ruke-server ready (local slot read; no provider contact)
+[2026-11-20T17:33:39.237Z] RSS sampler pid 6116 watching supervisor tree rooted at our spawned pid 19596 (record child 6892)
+[2026-11-20T17:33:39.237Z] running: npx vitest run __tests__/server/attach-rerank-live-route.test.ts (RUKE_LIVE_RERANK=1 RUKE_RUST_BACKEND=1 RUKE_BACKEND_PORT=3101)
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/Projects/WebUI/WebUI[39m
+
+ [32m✓[39m __tests__/server/attach-rerank-live-route.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 1149[2mms[22m[39m
+   [33m[2m✓[22m[39m F66 live rerank route: the production caller chain executes for real[2m > [22mthe turn.ts composition reaches a REAL engine through POST /api/ruke/ml/job [33m1106[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m   Start at [22m 23:03:40
+[2m   Duration [22m 1.45s[2m (transform 51ms, setup 26ms, collect 41ms, tests 1.15s, environment 0ms, prepare 69ms)[22m
+
+
+--- stderr ---
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/server/attach-rerank-live-route.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+[2026-11-20T17:33:41.859Z] VITEST_EXIT=0
+[2026-11-20T17:33:42.375Z] worker/supervisor tree: baseline 36 MiB, PEAK working set 204 MiB, PEAK commit 157 MiB, samples 23, pids_at_peak [19596,6892,25128,23780]
+[2026-11-20T17:33:42.432Z] teardown taskkill pid 24052 -> exit 0
+[2026-11-20T17:33:42.488Z] teardown taskkill pid 19596 -> exit 0
+[2026-11-20T17:33:42.571Z] removed the discovery record of our own now-dead supervisor (dev-supervisor precedent); secret file left in place
+[2026-11-20T17:33:42.571Z] DONE exit=0

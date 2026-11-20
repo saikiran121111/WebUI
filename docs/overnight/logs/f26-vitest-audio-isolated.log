@@ -1,0 +1,18 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/hardening-audio.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+[05:49:20.371] [33mWARN[39m (extract/audio): [36mGPU whisper unavailable — falling back to CPU[39m 
+    err: "CUDAExecutionProvider is not available in this ONNX build"
+[05:49:20.381] [33mWARN[39m (extract/audio): [36mGPU whisper unavailable — falling back to CPU[39m 
+    err: "CUDAExecutionProvider is not available in this ONNX build"
+ ✓ __tests__/hardening-audio.test.ts (9 tests) 1361ms
+   ✓ three-stage VRAM lifecycle: automatic CPU fallback > GPU present but busy and no unload hook → stays on CPU 1207ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  05:49:18
+   Duration  1.60s (transform 54ms, setup 0ms, collect 21ms, tests 1.36s, environment 0ms, prepare 61ms)
+

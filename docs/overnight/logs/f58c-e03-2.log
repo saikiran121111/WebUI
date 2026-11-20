@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "failures": [],
+  "word_errors": {
+    "c1_explicit_en": 0.0769,
+    "c9_container_with_audio": 0.0
+  },
+  "peak_working_set_mib": 398.0,
+  "gpu_violations": null,
+  "evidence": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\e03-speech-20261117T18475091282.json"
+}

@@ -139,6 +139,19 @@ pub async fn forward_legacy(
                 &error::unreachable_message(&url),
             );
         }
+        Err(ruke_core::admission::AdmissionError::HandoffHeld) => {
+            // Honest, distinct refusal: the model is deliberately parked by
+            // an exclusive document/media job, so waking it here would break
+            // that job's memory/VRAM window. The UI shows this and retries.
+            tracing::warn!(
+                parent: span,
+                "llm stream refused: a document/media job holds the endpoint lease"
+            );
+            return error::json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "A document or media job has the model parked; retry in a moment.",
+            );
+        }
     };
 
     // TS checks `signal.aborted` before/after the fetch; axum cannot
@@ -349,6 +362,15 @@ pub async fn forward_into(
         Err(ruke_core::admission::AdmissionError::Cancelled) => {
             tracing::warn!(parent: span, "llm stream aborted by client");
             ch.close();
+            return;
+        }
+        Err(ruke_core::admission::AdmissionError::HandoffHeld) => {
+            tracing::warn!(
+                parent: span,
+                "llm stream refused: a document/media job holds the endpoint lease"
+            );
+            ch.fail("A document or media job has the model parked; retry in a moment.")
+                .await;
             return;
         }
     };

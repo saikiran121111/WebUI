@@ -1,0 +1,45 @@
+[OK] executable - D:\Projects\WebUI\WebUI\.data\tools\tesseract\tesseract.exe -> tesseract v5.5.3.20260724 (run in place; its DLLs resolve from the project directory)
+[OK] language coverage - installed: eng, osd - reported live from --list-langs, no other language is claimed
+D:\Projects\WebUI\WebUI\.data\tmp\tesseract-verify\render_page.py:4: SyntaxWarning: invalid escape sequence '\P'
+  print('rendered D:\Projects\WebUI\WebUI\.data\tmp\tesseract-verify\d1_scanned_p1.png')
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\.data\tmp\tesseract-verify\render_page.py", line 3, in <module>
+    page.render(scale=200/72).to_pil().save(r'D:\Projects\WebUI\WebUI\.data\tmp\tesseract-verify\d1_scanned_p1.png')
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\.venv\Lib\site-packages\pypdfium2\_helpers\bitmap.py", line 266, in to_pil
+    image = Lazy.PIL_Image.frombuffer(
+            ^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\functools.py", line 998, in __get__
+    val = self.func(instance)
+          ^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\.venv\Lib\site-packages\pypdfium2\_lazy.py", line 25, in PIL_Image
+    import PIL.Image; return PIL.Image
+    ^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'PIL'
+WARNING: rasterisation failed - no usable page image at D:\Projects\WebUI\WebUI\.data\tmp\tesseract-verify\d1_scanned_p1.png
+{
+    "mode":  "verify-only",
+    "project_local_only":  true,
+    "steps":  [
+                  {
+                      "step":  "executable",
+                      "status":  "ok",
+                      "detail":  "D:\\Projects\\WebUI\\WebUI\\.data\\tools\\tesseract\\tesseract.exe -\u003e tesseract v5.5.3.20260724 (run in place; its DLLs resolve from the project directory)"
+                  },
+                  {
+                      "step":  "language coverage",
+                      "status":  "ok",
+                      "detail":  "installed: eng, osd - reported live from --list-langs, no other language is claimed"
+                  }
+              ],
+    "warnings":  [
+                     "rasterisation failed - no usable page image at D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\tesseract-verify\\d1_scanned_p1.png"
+                 ],
+    "installed_languages":  [
+                                "eng",
+                                "osd"
+                            ],
+    "version":  "tesseract v5.5.3.20260724",
+    "real_ocr_run":  null,
+    "ready":  false
+}

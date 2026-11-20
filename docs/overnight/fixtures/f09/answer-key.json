@@ -1,0 +1,261 @@
+{
+  "version": "f10-heldout-1",
+  "authored": "2026-11-16, BEFORE any reader was re-scored against these fixtures",
+  "authored_from": "Every expected string below was copied out of docs/overnight/fixtures/f09/ho_docs.py by hand, or written from the fixture's intent (honest-absence rules). None of it was read back from reader output.",
+  "matching_rule": "Whitespace runs are collapsed to a single space before matching, because PDF text-layer extraction re-flows spacing. Token ORDER and exact tokens are still required, so a paraphrase or a lost word is a miss.",
+  "unit_numbering": "1-based unit ids for pages, sheets, slides and paragraphs, shared by Python, Rust, TS and citations.",
+  "status_meaning": "coverage_complete=true is only allowed when every unit produced content. An empty or unread unit must appear in units_empty/units_failed/units_needing_ocr.",
+  "files": {
+    "ho-hydro.pdf": {
+      "reader_kind": "pdf",
+      "coverage": {
+        "units_total": 7,
+        "units_succeeded": [1, 2, 4, 5, 6, 7],
+        "units_empty": [3],
+        "units_needing_ocr": [],
+        "units_failed": [],
+        "complete": false
+      },
+      "ocr": { "route": "native", "units": [] },
+      "meta_checks": [
+        { "path": "pages", "equals": 7 },
+        { "path": "page_numbering", "equals": "1-based" },
+        { "path": "rotated_pages", "has_entry": { "4": 270 } }
+      ],
+      "unit_attribution": [
+        { "fact": "Kestrel Basin Hydrological Survey", "unit": 1 },
+        { "fact": "LEFT COLUMN page 2", "unit": 2 },
+        { "fact": "RIGHT COLUMN page 2", "unit": 2 },
+        { "fact": "spillway gate 4 failed inspection on 12 May", "unit": 2 },
+        { "fact": "code: SELECT gauge_id FROM stations WHERE basin = 'kestrel';", "unit": 4 },
+        { "fact": "formula: Q = C * b * sqrt(2 * g * h)", "unit": 4 },
+        { "fact": "the Kestrel weir closure was approved on 8 August", "unit": 7 },
+        { "fact": "the footbridge repair was approved on 8 August", "unit": 7 }
+      ],
+      "blocks_none_for_unit": [3],
+      "reader_notes": "page 3 carries an empty content stream: no block may claim page-3 content, and page 4 is rotated 270 with a code line and a formula line whose short length must NOT be scored as a failed page",
+      "http": {
+        "must": [
+          "spillway gate 4 failed inspection on 12 May",
+          "the Kestrel weir closure was approved on 8 August",
+          "Q = C * b * sqrt(2 * g * h)",
+          "LEFT COLUMN page 2",
+          "RIGHT COLUMN page 2"
+        ],
+        "must_not": [],
+        "must_not_note": "the distractor sentence IS in the source (page 7), so extraction must not hide it; what is verified is its PAGE attribution, at reader level",
+        "coverage_must_any": ["units: 6 of 7 read", "failed units: 3"]
+      }
+    },
+    "ho-negate.pdf": {
+      "reader_kind": "pdf",
+      "coverage": {
+        "units_total": 9,
+        "units_succeeded": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "units_empty": [],
+        "units_needing_ocr": [],
+        "units_failed": [],
+        "complete": true
+      },
+      "ocr": { "route": "native", "units": [] },
+      "unit_attribution": [
+        { "fact": "Maritime Cargo Underwriting Panel - Q3 minute", "unit": 1 },
+        { "fact": "The board did not approve the 14 percent surcharge.", "unit": 2 },
+        { "fact": "the surcharge was NOT accepted", "unit": 2 },
+        { "fact": "the inspection levy was set at EUR 2,400 per vessel", "unit": 9 },
+        { "fact": "2,400 EUR 3.5 m depth 92 % relative humidity", "unit": 9 }
+      ],
+      "must_not_facts": ["approved the 14 percent surcharge"],
+      "reader_notes": "polarity and the numeric unit string must survive verbatim; the answer-bearing fact is on the LAST page, so a front-sampling reader cannot produce it",
+      "http": {
+        "must": [
+          "did not approve the 14 percent surcharge",
+          "inspection levy was set at EUR 2,400 per vessel",
+          "2,400 EUR 3.5 m depth 92 % relative humidity"
+        ],
+        "must_not": ["approved the 14 percent surcharge"],
+        "coverage_must_any": ["units: 9 of 9 read"]
+      }
+    },
+    "ho-empty.pdf": {
+      "reader_kind": "pdf",
+      "coverage": {
+        "units_total": 2,
+        "units_succeeded": [],
+        "units_empty": [1, 2],
+        "units_needing_ocr": [],
+        "units_failed": [],
+        "complete": false
+      },
+      "ocr": { "route": "native", "units": [] },
+      "block_count": { "equals": 0 },
+      "reader_notes": "a valid PDF with no text layer and no image XObject: the honest answer is 'nothing was extracted, and there is no raster evidence to OCR'. It is NOT an empty success and NOT an advertised OCR job.",
+      "http": {
+        "must": [],
+        "must_not": [],
+        "accept_any_of": [
+          ["units: 0 of 2 read"],
+          ["no text layer"],
+          ["no parser", "refused"]
+        ]
+      }
+    },
+    "ho-inventory.xlsx": {
+      "reader_kind": "xlsx",
+      "coverage": {
+        "units_total": 1,
+        "units_succeeded": [1],
+        "units_empty": [],
+        "units_failed": [],
+        "complete": true
+      },
+      "meta_checks": [
+        { "path": "sheets", "equals": ["Yard"] },
+        { "path": "merged_ranges.Yard", "contains_all": ["A1:C1", "B3:B4"] }
+      ],
+      "block_field_checks": [
+        { "fact": "Kestrel depot inventory (merged title spans three columns)", "loc": { "cell": "A1", "merged": "A1:C1" } },
+        { "fact": "Dock A", "loc": { "cell": "B3", "merged": "B3:B4" } },
+        { "fact": "0", "loc": { "cell": "C4", "!value_missing": true } },
+        { "fact": "Zürich", "loc": { "cell": "A4" } },
+        { "fact": "12B", "loc": { "cell": "A5" } },
+        { "fact": "1234.5", "loc": { "cell": "B5" } },
+        { "fact": "=SUM(B5:C5) (cached 1234.5)", "loc": { "cell": "E5", "formula": "SUM(B5:C5)", "cached_value": "1234.5" } }
+      ],
+      "cell_value_absent": [
+        { "cell": "C5" },
+        { "cell": "B4" },
+        { "cell": "B1" },
+        { "cell": "C1" }
+      ],
+      "meta_empty_cell_checks": [
+        { "sheet": "Yard", "contains_all": ["B1", "C1", "B4", "C5"] }
+      ],
+      "reader_notes": "merged geometry in BOTH directions (A1:C1 across, B3:B4 down) matched by coordinates rather than string equality; the explicit 0 in C4 must be a real value while the declared-empty C5 stays missing, never 0; formula text and its cached result stay separate fields",
+      "http": {
+        "must": [
+          "A1=Kestrel depot inventory (merged title spans three columns)",
+          "[merged A1:C1]",
+          "[merged B3:B4]",
+          "C4=0",
+          "E5=SUM(B5:C5) (cached 1234.5)",
+          "Zürich"
+        ],
+        "must_not": ["C5=0", "B4=0", "C1=0"],
+        "coverage_must_any": ["units: 1 of 1 read"]
+      }
+    },
+    "ho-corrupt.xlsx": {
+      "reader_kind": "xlsx",
+      "coverage": {
+        "units_total": 1,
+        "units_succeeded": [1],
+        "units_empty": [],
+        "units_failed": [],
+        "complete": true
+      },
+      "meta_checks": [
+        { "path": "corrupt_cells", "min_items": 2 },
+        { "path": "corrupt_cells", "contains_all_joined": ["99", "#REF!"] }
+      ],
+      "block_field_checks": [{ "fact": "only string", "loc": { "cell": "A2" } }],
+      "cell_value_absent": [{ "cell": "A1" }, { "cell": "A3" }],
+      "reader_notes": "an out-of-range shared-string index and an error-type cell are corruption: reported by reference and reason, never silently turned into a blank or a zero, and the readable cell A2 is still delivered",
+      "http": {
+        "must": ["only string", "could NOT read"],
+        "must_not": ["A1=only string", "A3=#REF!"],
+        "coverage_must_any": ["units: 1 of 1 read"]
+      }
+    },
+    "ho-badxml.xlsx": {
+      "reader_kind": "xlsx",
+      "coverage": {
+        "units_total": 1,
+        "units_succeeded": [],
+        "units_empty": [],
+        "units_failed": [1],
+        "complete": false
+      },
+      "block_count": { "equals": 0 },
+      "meta_checks": [{ "path": "sheets", "equals": ["Torn"] }],
+      "reader_notes": "the sheet part is not well-formed XML: the honest result is 'sheet 1 failed', not 'the workbook contains no cells' and not a crash of the whole supervisor",
+      "http": {
+        "must": [],
+        "must_not": [],
+        "accept_any_of": [
+          ["failed units: 1"],
+          ["could not be read", "corrupt"],
+          ["units: 0 of 1 read"]
+        ]
+      }
+    },
+    "ho-catalog.docx": {
+      "reader_kind": "docx",
+      "coverage": {
+        "units_total": 1,
+        "units_succeeded": [1],
+        "units_empty": [],
+        "units_failed": [],
+        "complete": true
+      },
+      "meta_checks": [{ "path": "tables", "equals": 3 }],
+      "block_field_checks": [
+        { "fact": "Transit Route Catalogue", "kind": "heading" },
+        { "fact": "Morne-Rouge | Chantal", "kind": "table_row", "loc": { "table": 1, "row": 2, "cells": ["Morne-Rouge", "Chantal"] } },
+        { "fact": "Zürich West | 9 | 6", "kind": "table_row", "loc": { "table": 2, "row": 3, "cells": ["Zürich West", "9", "6"] } },
+        { "fact": "Morne-Rouge | Quai | Ferme", "kind": "table_row", "loc": { "table": 3, "row": 2, "cells": ["Morne-Rouge", "Quai | Ferme"] } },
+        { "fact": "### this literal markdown line is a paragraph, not a heading", "kind": "paragraph" },
+        { "fact": "code-ish line: SELECT route_id FROM runs WHERE operator = 'Chantal';", "kind": "paragraph" },
+        { "fact": "the timetable is re-tendered each spring", "kind": "paragraph" }
+      ],
+      "kind_absent_for_fact": [
+        { "fact": "### this literal markdown line is a paragraph, not a heading", "kind": "heading" }
+      ],
+      "reader_notes": "three tables of DIFFERENT widths keep stable table/row identity even though a paragraph sits between them; one cell contains the delimiter itself, so the cells array (not the joined line) is what preserves identity; unicode place names survive; a paragraph that literally starts with ### stays a paragraph block",
+      "http": {
+        "must": [
+          "Morne-Rouge | Chantal",
+          "Morne-Rouge | Quai | Ferme",
+          "table 3 row 2",
+          "Zürich West",
+          "the timetable is re-tendered each spring"
+        ],
+        "must_not": [],
+        "coverage_must_any": ["units: 1 of 1 read"]
+      }
+    },
+    "ho-slides.pptx": {
+      "reader_kind": "pptx",
+      "coverage": {
+        "units_total": 3,
+        "units_succeeded": [1, 2, 3],
+        "units_empty": [],
+        "units_failed": [],
+        "complete": true
+      },
+      "meta_checks": [
+        { "path": "slides", "equals": 3 },
+        { "path": "note_parts", "contains_all": ["ppt/notesSlides/notesSlide2.xml"] }
+      ],
+      "block_field_checks": [
+        { "fact": "Fleet Transition Review", "loc": { "slide": 1 } },
+        { "fact": "Route closures: - Morne-Rouge suspended - Zürich West doubled", "loc": { "slide": 2 } },
+        { "fact": "Speaker note fact: the depot lease expires 1 June and the fare uplift was deferred", "kind": "note", "loc": { "slide": 2, "part": "notes" } },
+        { "fact": "SELECT line_id FROM fleet WHERE depot = 'Nord';", "loc": { "slide": 3 } },
+        { "fact": "Étiquette: dépôt 日本語: 車庫", "loc": { "slide": 3 } }
+      ],
+      "block_count_for_unit": [{ "unit": 1, "equals": 1 }],
+      "reader_notes": "slide 1 has a shape with NO text (silent visual content): it must produce no invented block; the speaker note is the only place the lease/uplift fact exists, and it stays attributed to slide 2 with note provenance",
+      "http": {
+        "must": [
+          "the depot lease expires 1 June and the fare uplift was deferred",
+          "Route closures:",
+          "日本語",
+          "Étiquette"
+        ],
+        "must_not": [],
+        "coverage_must_any": ["units: 3 of 3 read"]
+      }
+    }
+  }
+}

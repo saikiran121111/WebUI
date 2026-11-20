@@ -1,0 +1,15 @@
+test_a_unit_no_engine_read_stays_visible_as_unresolved (tests.test_handoff_devices.CascadeMechanics.test_a_unit_no_engine_read_stays_visible_as_unresolved) ... ok
+test_cancellation_skips_the_fallback_entirely (tests.test_handoff_devices.CascadeMechanics.test_cancellation_skips_the_fallback_entirely) ... ok
+test_inside_a_handoff_the_cascade_never_requests_a_nested_lease (tests.test_handoff_devices.CascadeMechanics.test_inside_a_handoff_the_cascade_never_requests_a_nested_lease) ... ok
+test_only_unread_units_go_to_recovery_after_the_primary_is_released (tests.test_handoff_devices.CascadeMechanics.test_only_unread_units_go_to_recovery_after_the_primary_is_released) ... ok
+test_primary_reads_all_and_no_fallback_runs (tests.test_handoff_devices.CascadeMechanics.test_primary_reads_all_and_no_fallback_runs) ... ok
+test_production_cancel_callable_reaches_the_real_tesseract_engine (tests.test_handoff_devices.CascadeMechanics.test_production_cancel_callable_reaches_the_real_tesseract_engine)
+The worker hands the cascade a CALLABLE cancel; the engine takes an Event. ... ok
+test_resource_limit_without_authorised_unload_refuses_the_primary (tests.test_handoff_devices.CascadeMechanics.test_resource_limit_without_authorised_unload_refuses_the_primary) ... ok
+test_the_operator_readiness_report_names_both_engines_and_never_claims_quality (tests.test_handoff_devices.CascadeMechanics.test_the_operator_readiness_report_names_both_engines_and_never_claims_quality) ... ok
+test_unavailable_primary_sends_every_unit_to_recovery_with_the_reason (tests.test_handoff_devices.CascadeMechanics.test_unavailable_primary_sends_every_unit_to_recovery_with_the_reason) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.518s
+
+OK

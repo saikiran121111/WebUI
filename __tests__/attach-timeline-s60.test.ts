@@ -276,13 +276,23 @@ describe("durable timeline record", () => {
     },
     capability: "video.timeline",
     jobState: "done",
-    sceneScan: { state: "ok_recorded", reason: "", scannedSec: 60, truncated: true },
+    // scannedSec here is a measured prefix (prefix_measured came back true), so a
+    // truncated scan of an 83.45 s clip legitimately lists 60 s examined.
+    sceneScan: {
+      state: "ok_recorded", reason: "", scannedSec: 60, truncated: true, prefixMeasured: true,
+    },
+    frameRead: {
+      state: "ok_recorded", reason: "", language: "eng", planned: 12, decoded: 11,
+      recognised: 1, glyphFree: 3, unresolved: 7, engine: "5.5.3.20260724", readAt: [5],
+    },
     recordDir: "timeline",
     updatedAt: 1730000000000,
   };
   const observations = [
     { start: 2, end: 5, kind: "scene", text: "", frame_ref: "", audio_state: "unknown", provider: "ffmpeg:scene-threshold-0.35" },
-    { start: 5, end: 8, kind: "ocr", text: "Invoice 4711 total 1,200 EUR", provider: "paddle:pending" },
+    // The provider string names the engine that actually produced the text. A
+    // "paddle:pending" label would claim an engine that never ran.
+    { start: 5, end: 8, kind: "ocr", text: "Invoice 4711 total 1,200 EUR", provider: "tesseract@5.5.3.20260724/eng" },
   ];
 
   beforeAll(() => {
@@ -417,7 +427,7 @@ describe("buildTimeline", () => {
     const record = { meta: { coverage: { units: "seconds", examined: [[0, 40]], skipped: [[40, 60]], total_source: 60, complete: false, note: "bounded scan" } } };
     const { calls, runJob } = stub({
       init: okEnvelope("video.timeline", { record, reply: "40 s examined" }),
-      scenes: okEnvelope("video.scenes", { cut_scan: { ok: true, cuts: [12.5, 30], scanned_seconds: 40, truncated: true, threshold: 0.35 } }),
+      scenes: okEnvelope("video.scenes", { cut_scan: { ok: true, cuts: [12.5, 30], scanned_seconds: 40, prefix_measured: true, truncated: true, threshold: 0.35 } }),
       observe: okEnvelope("video.timeline", { record, reply: "recorded" }),
     });
     const baseline = await buildTimeline({
@@ -437,7 +447,9 @@ describe("buildTimeline", () => {
     expect(calls[1].payload.stream_start_offset).toBe(0);
     expect(calls[2].payload.stage).toBe("scene-cuts");
     expect(b.observations.map((o) => [o.start, o.end])).toEqual([[12.5, 30], [30, 40]]);
-    expect(b.summary.sceneScan).toEqual({ state: "ok_recorded", reason: "", scannedSec: 40, truncated: true });
+    expect(b.summary.sceneScan).toEqual({
+      state: "ok_recorded", reason: "", scannedSec: 40, truncated: true, prefixMeasured: true,
+    });
     expect(b.summary.coverage.unexamined).toEqual([[40, 60]]);
     expect(b.summary.coverage.examinedSec).toBe(40);
     expect(b.summary.rotationDeg).toBe(-90);
@@ -486,7 +498,7 @@ describe("buildTimeline", () => {
     const record = { meta: { coverage: { units: "seconds", examined: [[0, 60]], skipped: [], complete: true } } };
     const { calls, runJob } = stub({
       init: okEnvelope("video.timeline", { record, reply: "ok" }),
-      scenes: okEnvelope("video.scenes", { cut_scan: { ok: true, cuts: [], scanned_seconds: 60, truncated: false, threshold: 0.35 } }),
+      scenes: okEnvelope("video.scenes", { cut_scan: { ok: true, cuts: [], scanned_seconds: 60, prefix_measured: true, truncated: false, threshold: 0.35 } }),
       observe: okEnvelope("video.timeline", { record, reply: "static span examined" }),
     });
     const baseline = await buildTimeline({ attId: "att_static60", srcPath, probeText: MP4_PROBE, durationSec: 60, scratchRoot, runJob });

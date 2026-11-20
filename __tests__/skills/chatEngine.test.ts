@@ -182,29 +182,38 @@ describe("POST /api/chat — Decision Engine pipeline", () => {
     expect(payload.tools).toBeUndefined();
   });
 
-  it("standard_chat injects nothing and keeps the turn verbatim", async () => {
+  it("standard_chat injects only the D-070 catalogue and keeps the turn verbatim", async () => {
     const { res } = await postChat("why is my useEffect firing twice");
     expect(res.headers.get("x-decision-mode")).toBe("standard_chat");
     const payload = upstreamPayloads[0];
-    expect(systemBlocks(payload, "<decision_skill")).toHaveLength(0);
+    // D-070: the ONLY injected block is the always-on fence catalogue — no skill
+    // body, no mode contract. (This test predates D-070 and asserted zero.)
+    const decision = systemBlocks(payload, "<decision_skill");
+    expect(decision).toHaveLength(1);
+    expect(decision[0]).toContain("<fence_catalogue>");
+    expect(decision[0]).not.toContain("<core_skill");
+    expect(decision[0]).not.toMatch(/<output_contract_/);
     expect(systemBlocks(payload, "<active_skill")).toHaveLength(0);
-    // The user's own words stay byte-verbatim and nothing is injected —
-    // including no standing browser block (subsystem removed 2026-10-26;
-    // this zero-assert pins the removal so it cannot silently return).
+    // The user's own words stay byte-verbatim and no renderer skill/contract is
+    // injected — including no standing browser block (subsystem removed
+    // 2026-10-26; this zero-assert pins the removal so it cannot silently return).
     expect(lastUserMessage(payload).content).toBe("why is my useEffect firing twice");
     expect(systemBlocks(payload, "## Browser agent")).toHaveLength(0);
   });
 
-  it("engine down -> standard_chat fallback, every renderer stays off", async () => {
+  it("engine down -> standard_chat fallback, only the catalogue, every renderer stays off", async () => {
     // 2026-10-22: the :8790 engine is gone; routing is in-process
     // (lib/decision/client.ts). There is no "engine down" path anymore —
-    // a non-deliverable message always lands on standard_chat with zero
-    // injected blocks.
+    // a non-deliverable message always lands on standard_chat, where the
+    // D-070 fence catalogue is the only injected block (no skill, no contract).
     const { res, body } = await postChat("hello there");
     expect(res.headers.get("x-decision-mode")).toBe("standard_chat");
     expect(body).toContain("final answer");
     const payload = upstreamPayloads[0];
-    expect(systemBlocks(payload, "<decision_skill")).toHaveLength(0);
+    const decision = systemBlocks(payload, "<decision_skill");
+    expect(decision).toHaveLength(1);
+    expect(decision[0]).toContain("<fence_catalogue>");
+    expect(decision[0]).not.toMatch(/<output_contract_/);
     expect(lastUserMessage(payload).content).toBe("hello there"); // verbatim
     expect(systemBlocks(payload, "## Browser agent")).toHaveLength(0); // browser subsystem removed 2026-10-26
   });

@@ -1,0 +1,26 @@
+Metadata-Version: 2.4
+Name: ruke-ml
+Version: 0.1.0
+Summary: Ruke capability backend: document/OCR/retrieval/speech/video workers behind a lightweight stdlib supervisor.
+Requires-Python: <3.13,>=3.12
+Provides-Extra: documents
+Requires-Dist: pypdf==7.1.0; extra == "documents"
+Requires-Dist: pypdfium2==5.6.0; extra == "documents"
+Provides-Extra: speech
+Requires-Dist: faster-whisper==1.2.1; extra == "speech"
+Requires-Dist: ctranslate2==4.9.0; extra == "speech"
+Provides-Extra: media
+Requires-Dist: av==19.0.2; extra == "media"
+Requires-Dist: numpy==2.5.5; extra == "media"
+Provides-Extra: onnx
+Requires-Dist: onnxruntime==1.32.0; extra == "onnx"
+Provides-Extra: hub
+Requires-Dist: huggingface-hub==2.4.0; extra == "hub"
+Requires-Dist: tokenizers==0.23.3; extra == "hub"
+Provides-Extra: embeddings
+Requires-Dist: sentence-transformers<4,>=3; extra == "embeddings"
+Provides-Extra: qwen
+Requires-Dist: qwen-asr; extra == "qwen"
+Provides-Extra: diarization
+Requires-Dist: pyannote.audio<4,>=3; extra == "diarization"
+Provides-Extra: dev

@@ -1,0 +1,23 @@
+{
+  "$schema": "ruke-measured-prefix/v1",
+  "note": "Shared TS<->Python answer key for the decoded-prefix rule (brief 3-D). Producer side: python-backend/ruke_ml/video/scenes.py::measured_prefix_end. Consumer side: lib/server/attachindex/timeline.ts::measuredPrefixEnd. A duration is NOT a measurement of how far a decoder got: measured=false always yields 0.0. Booleans are rejected because bool is an int in Python. Cases are plain JSON; 1e400 parses to +Infinity on both sides.",
+  "contract_fields": {
+    "cut_scan.scanned_seconds": "measured decoded prefix, never the clip duration",
+    "cut_scan.prefix_measured": "true only when ffmpeg's own -progress stream reported an out_time; absence must be read as unknown",
+    "cut_scan.truncated": "the scan stopped at a bound, so later content is unknown"
+  },
+  "cases": [
+    { "id": "measured-progress-is-kept",        "value": 46.0,   "duration": 120.0, "measured": true,  "expected": 46.0 },
+    { "id": "duration-is-not-a-prefix",         "value": 120.0,  "duration": 120.0, "measured": false, "expected": 0.0 },
+    { "id": "no-progress-no-prefix",            "value": 0.0,    "duration": 120.0, "measured": false, "expected": 0.0 },
+    { "id": "clamp-above-duration",             "value": 250.0,  "duration": 120.0, "measured": true,  "expected": 120.0 },
+    { "id": "clamp-below-zero",                 "value": -5.0,   "duration": 120.0, "measured": true,  "expected": 0.0 },
+    { "id": "numeric-string-measures",          "value": "46.5", "duration": 120.0, "measured": true,  "expected": 46.5 },
+    { "id": "bool-is-never-a-measurement",      "value": true,   "duration": 120.0, "measured": true,  "expected": 0.0 },
+    { "id": "null-is-unknown",                  "value": null,   "duration": 120.0, "measured": true,  "expected": 0.0 },
+    { "id": "prose-is-unknown",                 "value": "deep", "duration": 120.0, "measured": true,  "expected": 0.0 },
+    { "id": "infinity-is-unknown",              "value": 1e400,  "duration": 120.0, "measured": true,  "expected": 0.0 },
+    { "id": "zero-duration-source",             "value": 46.0,   "duration": 0.0,   "measured": true,  "expected": 0.0 },
+    { "id": "unmeasured-negative-is-zero",      "value": -9.0,   "duration": 120.0, "measured": false, "expected": 0.0 }
+  ]
+}

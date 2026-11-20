@@ -1,0 +1,348 @@
+{
+  "key_version": "f10-heldout-1",
+  "results": [
+    {
+      "name": "ho-hydro.pdf",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "pdf",
+      "pages": 7,
+      "truncated": false,
+      "body_chars": 2152,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 6 of 7 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 4, 5, 6, 7; units: 6 of 7 read; not read: page 3; OCR did not run: 1 of 7 unit(s) produced no text layer and carry no image evidence: there is nothing there to recognise, so they stay recorded as uncovered rather than being sent to an OCR engine]",
+      "checks": [
+        {
+          "kind": "must",
+          "needle": "spillway gate 4 failed inspection on 12 May",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "the Kestrel weir closure was approved on 8 August",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "Q = C * b * sqrt(2 * g * h)",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "LEFT COLUMN page 2",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "RIGHT COLUMN page 2",
+          "ok": true
+        },
+        {
+          "kind": "coverage_must_any",
+          "needle": "units: 6 of 7 read || failed units: 3",
+          "ok": true,
+          "matched": "units: 6 of 7 read"
+        }
+      ],
+      "body": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 6 of 7 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 4, 5, 6, 7; units: 6 of 7 read; not read: page 3; OCR did not run: 1 of 7 unit(s) produced no text layer and carry no image evidence: there is nothing there to recognise, so they stay recorded as uncovered rather than being sent to an OCR engine] [page 1 | read by: pdf.js text layer] Kestrel Basin Hydrological Survey - Water Resources Board Prepared by the basin engineering group. Discharge through the upper gauges stayed within the seasonal band. Sediment load fell after the restoration works, which the district engineers attribute to the new buffer planting. [page 2 | read by: pdf.js text layer] LEFT COLUMN page 2 Weir condition notes: - crest free of debris - guide rail corrosion noted RIGHT COLUMN page 2 Gate inspection notes: - spillway gate 4 failed inspection on 12 May - actuator fluid logged at 61 percent [page 3 | not read: no text layer AND no image content on this page, so there is nothing for an OCR engine to read] [page 4 | read by: pdf.js text layer] PAGE 4 rotated 270 degrees code: SELECT gauge_id FROM stations WHERE basin = 'kestrel'; formula: Q = C * b * sqrt(2 * g * h) [page 5 | read by: pdf.js text layer] PAGE FIVE filler paragraph. Nothing decisive happens on this page; it exists to push the answer-bearing page toward the end of a long source and to cross the reader's own block limits, so that a chunk-boundary defect cannot hide behind a short file. [page 6 | read by: pdf.js text layer] PAGE SIX filler paragraph. Nothing decisive happens on this page; it exists to push the answer-bearing page toward the end of a long source and to cross the reader's own block limits, so that a chunk-boundary defect cannot hide behind a short file. [page 7 | read by: pdf.js text layer] PAGE SEVEN - late evidence Answer-bearing fact: the Kestrel weir closure was approved on 8 August. Distractor that must not be mistaken for it: the footbridge repair was approved on 8 August. Appendix note: figures audited by the external reviewer."
+    },
+    {
+      "name": "ho-negate.pdf",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "pdf",
+      "pages": 9,
+      "truncated": false,
+      "body_chars": 3042,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 9 of 9 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; both readers agree every page carries a text layer; read: pages 1, 2, 3, 4, 5, 6, 7, 8, 9; units: 9 of 9 read; OCR did not run: all 9 unit(s) produced a usable text layer; no unit showed raster evidence]",
+      "checks": [
+        {
+          "kind": "must",
+          "needle": "did not approve the 14 percent surcharge",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "inspection levy was set at EUR 2,400 per vessel",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "2,400 EUR 3.5 m depth 92 % relative humidity",
+          "ok": true
+        },
+        {
+          "kind": "must_not",
+          "needle": "approved the 14 percent surcharge",
+          "ok": true
+        },
+        {
+          "kind": "coverage_must_any",
+          "needle": "units: 9 of 9 read",
+          "ok": true,
+          "matched": "units: 9 of 9 read"
+        }
+      ],
+      "body": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 9 of 9 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; both readers agree every page carries a text layer; read: pages 1, 2, 3, 4, 5, 6, 7, 8, 9; units: 9 of 9 read; OCR did not run: all 9 unit(s) produced a usable text layer; no unit showed raster evidence] [page 1 | read by: pdf.js text layer] Maritime Cargo Underwriting Panel - Q3 minute Held by the classification committee. Delegates reviewed the schedule of endorsements. The panel considered whether the 14 percent surcharge should apply to reefer containers, and recorded the vote in the addendum. [page 2 | read by: pdf.js text layer] NEGATION page 2 - read exactly, polarity matters The board did not approve the 14 percent surcharge. No delegate objected to the inspection levy, but the surcharge itself remained unapproved. Paraphrase trap: the surcharge was NOT accepted. [page 3 | read by: pdf.js text layer] PAGE 3 filler. Distractor content, deliberately plausible: reefer claims, deductible bands, subrogation recoveries and classification society audits appear on every page so that a reader which only samples the front of a document can never produce the answer-bearing material. [page 4 | read by: pdf.js text layer] PAGE 4 filler. Distractor content, deliberately plausible: reefer claims, deductible bands, subrogation recoveries and classification society audits appear on every page so that a reader which only samples the front of a document can never produce the answer-bearing material. [page 5 | read by: pdf.js text layer] PAGE 5 filler. Distractor content, deliberately plausible: reefer claims, deductible bands, subrogation recoveries and classification society audits appear on every page so that a reader which only samples the front of a document can never produce the answer-bearing material. [page 6 | read by: pdf.js text layer] PAGE 6 filler. Distractor content, deliberately plausible: reefer claims, deductible bands, subrogation recoveries and classification society audits appear on every page so that a reader which only samples the front of a document can never produce the answer-bearing material. [page 7 | read by: pdf.js text layer] PAGE 7 filler. Distractor content, deliberately plausible: reefer claims, deductible bands, subrogation recoveries and classification society audits appear on every page so that a reader which only samples the front of a document can never produce the answer-bearing material. [page 8 | read by: pdf.js text layer] PAGE 8 filler. Distractor content, deliberately plausible: reefer claims, deductible bands, subrogation recoveries and classification society audits appear on every page so that a reader which only samples the front of a document can never produce the answer-bearing material. [page 9 | read by: pdf.js text layer] PAGE NINE - late evidence Answer-bearing fact: the inspection levy was set at EUR 2,400 per vessel. Numeric unit line: 2,400 EUR 3.5 m depth 92 % relative humidity"
+    },
+    {
+      "name": "ho-empty.pdf",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "pdf",
+      "pages": 2,
+      "truncated": false,
+      "body_chars": 655,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 2 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; read: no pages; units: 0 of 2 read; not read: pages 1, 2; OCR did not run: 2 of 2 unit(s) produced no text layer and carry no image evidence: there is nothing there to recognise, so they stay recorded as uncovered rather than being sent to an OCR engine]",
+      "checks": [
+        {
+          "kind": "accept_any_of",
+          "needle": "units: 0 of 2 read || no text layer || no parser + refused",
+          "ok": true,
+          "matched": "units: 0 of 2 read",
+          "groups": [
+            {
+              "needle": "units: 0 of 2 read",
+              "ok": true
+            },
+            {
+              "needle": "no text layer",
+              "ok": true
+            },
+            {
+              "needle": "no parser + refused",
+              "ok": false
+            }
+          ]
+        }
+      ],
+      "body": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 2 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; read: no pages; units: 0 of 2 read; not read: pages 1, 2; OCR did not run: 2 of 2 unit(s) produced no text layer and carry no image evidence: there is nothing there to recognise, so they stay recorded as uncovered rather than being sent to an OCR engine] [page 1 | not read: no text layer AND no image content on this page, so there is nothing for an OCR engine to read] [page 2 | not read: no text layer AND no image content on this page, so there is nothing for an OCR engine to read]"
+    },
+    {
+      "name": "ho-inventory.xlsx",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "office",
+      "pages": 1,
+      "truncated": false,
+      "body_chars": 1067,
+      "coverageNote": "[document capability documents.parse (ooxml-cellwise); body: ooxml-cellwise chosen over the TS reader: it carries all 54 content item(s) the TS reader read and adds 10 new item(s) plus 0 structurally grouped line(s), 3 line(s) re-broken but fully carried plus structure: capability 6 structural fact(s) [merged-area attributions 2, declared-empty cells 4] vs TS 0 [none stated]; 420 vs 291 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; body_source: capability:ooxml-cellwise; units: 1 of 1 read]",
+      "checks": [
+        {
+          "kind": "must",
+          "needle": "A1=Kestrel depot inventory (merged title spans three columns)",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "[merged A1:C1]",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "[merged B3:B4]",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "C4=0",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "E5=SUM(B5:C5) (cached 1234.5)",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "Zürich",
+          "ok": true
+        },
+        {
+          "kind": "must_not",
+          "needle": "C5=0",
+          "ok": true
+        },
+        {
+          "kind": "must_not",
+          "needle": "B4=0",
+          "ok": true
+        },
+        {
+          "kind": "must_not",
+          "needle": "C1=0",
+          "ok": true
+        },
+        {
+          "kind": "coverage_must_any",
+          "needle": "units: 1 of 1 read",
+          "ok": true,
+          "matched": "units: 1 of 1 read"
+        }
+      ],
+      "body": "[document capability documents.parse (ooxml-cellwise); body: ooxml-cellwise chosen over the TS reader: it carries all 54 content item(s) the TS reader read and adds 10 new item(s) plus 0 structurally grouped line(s), 3 line(s) re-broken but fully carried plus structure: capability 6 structural fact(s) [merged-area attributions 2, declared-empty cells 4] vs TS 0 [none stated]; 420 vs 291 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; body_source: capability:ooxml-cellwise; units: 1 of 1 read] ### worksheet: Yard ### merged cells (2): A1:C1, B3:B4 - a merged block carries ONE value; the other cells in it are blank, not zero ### declared-empty cells in this worksheet (4): B1, C1, B4, C5 - these cells exist and hold no value; an empty cell is not zero A1=Kestrel depot inventory (merged title spans three columns) [merged A1:C1] A3=Lane B3=Dock A [merged B3:B4] C3=Inbound tonnes D3=Outbound tonnes A4=Zürich C4=0 D4=empty cell carries no value A5=12B B5=1234.5 E5=SUM(B5:C5) (cached 1234.5)"
+    },
+    {
+      "name": "ho-corrupt.xlsx",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "office",
+      "pages": 1,
+      "truncated": false,
+      "body_chars": 912,
+      "coverageNote": "[document capability documents.parse (ooxml-cellwise); body: ooxml-cellwise chosen over the TS reader: it carries all 7 content item(s) the TS reader read and adds 29 new item(s) plus 0 structurally grouped line(s), 2 line(s) re-broken but fully carried plus structure: capability 2 structural fact(s) [cells unreadable-by-reference 2] vs TS 0 [none stated]; 197 vs 67 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; 3 reader artifact rendering(s) (placeholder/error text, not document content) excluded from the loss measurement on both sides; body_source: capability:ooxml-cellwise; units: 1 of 1 read]",
+      "checks": [
+        {
+          "kind": "must",
+          "needle": "only string",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "could NOT read",
+          "ok": true
+        },
+        {
+          "kind": "must_not",
+          "needle": "A1=only string",
+          "ok": true
+        },
+        {
+          "kind": "must_not",
+          "needle": "A3=#REF!",
+          "ok": true
+        },
+        {
+          "kind": "coverage_must_any",
+          "needle": "units: 1 of 1 read",
+          "ok": true,
+          "matched": "units: 1 of 1 read"
+        }
+      ],
+      "body": "[document capability documents.parse (ooxml-cellwise); body: ooxml-cellwise chosen over the TS reader: it carries all 7 content item(s) the TS reader read and adds 29 new item(s) plus 0 structurally grouped line(s), 2 line(s) re-broken but fully carried plus structure: capability 2 structural fact(s) [cells unreadable-by-reference 2] vs TS 0 [none stated]; 197 vs 67 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; 3 reader artifact rendering(s) (placeholder/error text, not document content) excluded from the loss measurement on both sides; body_source: capability:ooxml-cellwise; units: 1 of 1 read] ### worksheet: Broken ### cells this reader could NOT read: A1: shared-string index '99' is outside the 1 entry table; A3: cell holds an error value: #REF! - reported by reference and reason; they are NOT blank and NOT zero A2=only string"
+    },
+    {
+      "name": "ho-badxml.xlsx",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "office",
+      "pages": 1,
+      "truncated": false,
+      "body_chars": 847,
+      "coverageNote": "[document capability documents.parse (ooxml-cellwise); body: ooxml-cellwise refused as the body: it loses 3 content item(s) the TS reader read (a1, a2, 2), so promoting it would be a regression whatever its 207 characters suggest plus structure: capability 1 structural fact(s) [reported unit failures 1] vs TS 0 [none stated]; measured on the reader's own structure-preserving rendering; body_source: ts:office-reader; units: 0 of 1 read; failed units: 1; unit failures: sheet Torn (unit 1): the sheet part is not well-formed XML: not well-formed (invalid token): line 1, column 181 [part xl/worksheets/sheet1.xml]; 2 TS content line(s) were not carried by the capability reader; the TS body may carry unverified content for the unit(s) the capability reader reported as failed (1); treat those units as unconfirmed]",
+      "checks": [
+        {
+          "kind": "accept_any_of",
+          "needle": "failed units: 1 || could not be read + corrupt || units: 0 of 1 read",
+          "ok": true,
+          "matched": "failed units: 1",
+          "groups": [
+            {
+              "needle": "failed units: 1",
+              "ok": true
+            },
+            {
+              "needle": "could not be read + corrupt",
+              "ok": false
+            },
+            {
+              "needle": "units: 0 of 1 read",
+              "ok": true
+            }
+          ]
+        }
+      ],
+      "body": "[document capability documents.parse (ooxml-cellwise); body: ooxml-cellwise refused as the body: it loses 3 content item(s) the TS reader read (a1, a2, 2), so promoting it would be a regression whatever its 207 characters suggest plus structure: capability 1 structural fact(s) [reported unit failures 1] vs TS 0 [none stated]; measured on the reader's own structure-preserving rendering; body_source: ts:office-reader; units: 0 of 1 read; failed units: 1; unit failures: sheet Torn (unit 1): the sheet part is not well-formed XML: not well-formed (invalid token): line 1, column 181 [part xl/worksheets/sheet1.xml]; 2 TS content line(s) were not carried by the capability reader; the TS body may carry unverified content for the unit(s) the capability reader reported as failed (1); treat those units as unconfirmed] ### worksheet: Torn A1=1 A2=2"
+    },
+    {
+      "name": "ho-catalog.docx",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "office",
+      "pages": 1,
+      "truncated": false,
+      "body_chars": 1482,
+      "coverageNote": "[document capability documents.parse (ooxml); body: ooxml chosen over the TS reader: it carries all 52 content item(s) the TS reader read and adds 30 new item(s) plus 11 structurally grouped line(s) plus structure: capability 0 structural fact(s) [none stated] vs TS 0 [none stated]; 818 vs 399 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; body_source: capability:ooxml; units: 1 of 1 read]",
+      "checks": [
+        {
+          "kind": "must",
+          "needle": "Morne-Rouge | Chantal",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "Morne-Rouge | Quai | Ferme",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "table 3 row 2",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "Zürich West",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "the timetable is re-tendered each spring",
+          "ok": true
+        },
+        {
+          "kind": "coverage_must_any",
+          "needle": "units: 1 of 1 read",
+          "ok": true,
+          "matched": "units: 1 of 1 read"
+        }
+      ],
+      "body": "[document capability documents.parse (ooxml); body: ooxml chosen over the TS reader: it carries all 52 content item(s) the TS reader read and adds 30 new item(s) plus 11 structurally grouped line(s) plus structure: capability 0 structural fact(s) [none stated] vs TS 0 [none stated]; 818 vs 399 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; body_source: capability:ooxml; units: 1 of 1 read] ### tables in this document: 3; table rows are kept row-by-row ### this reader did NOT extract: nested tables, vertically merged cells, footnotes/endnotes, text boxes and drawing shapes, numbered-list restart state # Transit Route Catalogue ## Table one: operators | Route | Operator | [table 1 row 1 of 2 cell(s)] | Morne-Rouge | Chantal | [table 1 row 2 of 2 cell(s)] | Zürich West | Anders | [table 1 row 3 of 2 cell(s)] ## Table two: frequencies | Route | Peak | Off-peak | [table 2 row 1 of 3 cell(s)] | Morne-Rouge | 12 | 7 | [table 2 row 2 of 3 cell(s)] | Zürich West | 9 | 6 | [table 2 row 3 of 3 cell(s)] ## Table three: a cell that contains a delimiter | Route | Interchange | [table 3 row 1 of 2 cell(s)] | Morne-Rouge | Quai | Ferme | [table 3 row 2 of 2 cell(s)] | Zürich West | Kant | Ost | [table 3 row 3 of 2 cell(s)] Closing note: the timetable is re-tendered each spring. ### this literal markdown line is a paragraph, not a heading code-ish line: SELECT route_id FROM runs WHERE operator = 'Chantal';"
+    },
+    {
+      "name": "ho-slides.pptx",
+      "ok": true,
+      "http_status": 200,
+      "error": "",
+      "category": "office",
+      "pages": 3,
+      "truncated": false,
+      "body_chars": 1087,
+      "coverageNote": "[document capability documents.parse (ooxml); body: ooxml chosen over the TS reader: it carries all 20 content item(s) the TS reader read and adds 30 new item(s) plus 0 structurally grouped line(s) plus structure: capability 0 structural fact(s) [none stated] vs TS 0 [none stated]; 532 vs 135 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; body_source: capability:ooxml; units: 3 of 3 read]",
+      "checks": [
+        {
+          "kind": "must",
+          "needle": "the depot lease expires 1 June and the fare uplift was deferred",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "Route closures:",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "日本語",
+          "ok": true
+        },
+        {
+          "kind": "must",
+          "needle": "Étiquette",
+          "ok": true
+        },
+        {
+          "kind": "coverage_must_any",
+          "needle": "units: 3 of 3 read",
+          "ok": true,
+          "matched": "units: 3 of 3 read"
+        }
+      ],
+      "body": "[document capability documents.parse (ooxml); body: ooxml chosen over the TS reader: it carries all 20 content item(s) the TS reader read and adds 30 new item(s) plus 0 structurally grouped line(s) plus structure: capability 0 structural fact(s) [none stated] vs TS 0 [none stated]; 532 vs 135 non-whitespace characters (reported, not the decision); measured on the reader's own structure-preserving rendering; body_source: capability:ooxml; units: 3 of 3 read] ### slide 1 ### this reader did NOT extract: charts, SmartArt, animations, slide master text, hyperlink relationship targets Fleet Transition Review ### slide 2 ### this reader did NOT extract: charts, SmartArt, animations, slide master text, hyperlink relationship targets Route closures: - Morne-Rouge suspended - Zürich West doubled [notes] Speaker note fact: the depot lease expires 1 June and the fare uplift was deferred. ### slide 3 ### this reader did NOT extract: charts, SmartArt, animations, slide master text, hyperlink relationship targets SELECT line_id FROM fleet WHERE depot = 'Nord'; Étiquette: dépôt 日本語: 車庫"
+    }
+  ]
+}

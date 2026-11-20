@@ -15,7 +15,8 @@ SCHEMA_VERSION = 1
 CAPABILITIES = (
     "embeddings", "rerank", "documents.parse", "documents.ocr", "speech.asr",
     "speech.align", "speech.diarize", "video.scenes", "video.observations",
-    "video.timeline", "video.search_hints", "artifacts.xlsx", "artifacts.docx", "artifacts.pptx",
+    "video.timeline", "video.search_hints", "video.frame_ocr",
+    "artifacts.xlsx", "artifacts.docx", "artifacts.pptx",
 )
 PROGRESS_STATES = ("queued", "preparing", "download_required", "extracting", "ocr", "transcribing",
                    "indexing", "retrieving", "analysing", "writing", "ready", "failed", "cancelled")

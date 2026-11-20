@@ -1,0 +1,79 @@
+{
+ "paddle_state": {
+  "engine": "paddleocr-vl-1.6",
+  "runtime": {
+   "runtime": "paddle-ocr-cpu",
+   "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+   "found": true,
+   "inside_project": true,
+   "pinned": {
+    "paddlepaddle": "3.2.1",
+    "paddleocr": "3.6.0",
+    "paddlex": "3.6.1",
+    "opencv-contrib-python": "4.10.0.84"
+   },
+   "missing": [],
+   "mismatched": [],
+   "cpu_only_verified": false,
+   "detail": "interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe"
+  },
+  "recognition_asset": {
+   "model_id": "PaddlePaddle/PaddleOCR-VL-1.6",
+   "present": true,
+   "detail": "snapshot 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd found in the project cache root",
+   "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd"
+  },
+  "layout_asset": {
+   "model_id": "PaddlePaddle/PP-DocLayoutV3",
+   "present": true,
+   "detail": "snapshot 241f8bdfc77a7c7bee915a5057aaee58c235a8d3 found in the project cache root",
+   "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PP-DocLayoutV3\\snapshots\\241f8bdfc77a7c7bee915a5057aaee58c235a8d3"
+  },
+  "est_peak_mib": 3300,
+  "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+  "est_peak_vram_mib": 6000,
+  "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+  "model_id": "PaddleOCR-VL-1.6",
+  "worker": "ocr_paddle_worker.py",
+  "worker_present": true,
+  "ready": true,
+  "blockers": []
+ },
+ "estimate": {
+  "est_peak_mib": 3300,
+  "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+  "est_peak_vram_mib": 6000,
+  "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+  "model_id": "PaddleOCR-VL-1.6"
+ },
+ "tesseract": {
+  "binary": {
+   "name": "tesseract",
+   "found": true,
+   "source": "project-local",
+   "path": ".data/tools/tesseract/tesseract.exe",
+   "inside_repo": true,
+   "detail": "validated by `tesseract --version; found via project-local"
+  },
+  "found": true,
+  "version": "tesseract v5.5.3.20260724",
+  "languages": [
+   "eng",
+   "osd"
+  ],
+  "languages_source": "captured from --list-langs of the validated binary"
+ },
+ "rasterizer": {
+  "present": true,
+  "package": "pypdfium2",
+  "version": "5.6.0"
+ },
+ "policy": {
+  "primary": "paddleocr-vl-1.6",
+  "allow_gpu": false,
+  "allow_gpu_default_reason": "the pinned OCR runtime is the CPU build: paddle.is_compiled_with_cuda() returned False on this host (measured 2026-11-17). GPU placement becomes available by preparing a CUDA-enabled pinned build in the isolated runtime and setting RUKE_OCR_ALLOW_GPU=1; it is never enabled by borrowing the main LLM's device.",
+  "allow_unload": false,
+  "allow_unload_default_reason": "unloading the resident main model is an exclusive, coordinated action; a normal upload path does not take it without an operator opting in via RUKE_OCR_ALLOW_UNLOAD",
+  "source": "env(RUKE_OCR_PRIMARY/RUKE_OCR_ALLOW_GPU/RUKE_OCR_ALLOW_UNLOAD)"
+ }
+}

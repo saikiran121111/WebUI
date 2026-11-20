@@ -91,6 +91,10 @@ export async function buildPptx(rawSpec: unknown): Promise<PptxBuildResult> {
   const slides = spec.slides.map((sd) => {
     const s = pptx.addSlide();
     s.background = { color: bg };
+    // Speaker notes: without this call the notesSlide part exists but holds ONLY
+    // the slide-number placeholder, so authored notes were silently dropped and a
+    // reader could only ever report "1", "2", "3" as the note text (D-071).
+    if (sd.notes) s.addNotes(sd.notes);
     return s;
   });
   const S = (i: number) => slides[i];

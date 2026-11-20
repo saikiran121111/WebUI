@@ -1,0 +1,15 @@
+test_ceiling_rejects_an_allocation_that_exceeds_it (tests.test_job_limits.JobObjectMechanism.test_ceiling_rejects_an_allocation_that_exceeds_it)
+The whole point: the child's allocation fails, its work does not silently proceed. ... ok
+test_live_charge_is_measured_per_member (tests.test_job_limits.JobObjectMechanism.test_live_charge_is_measured_per_member)
+The extended block reports the peak but no live value, so the live sum is measured. ... ok
+test_peak_evidence_is_reported_in_mib (tests.test_job_limits.JobObjectMechanism.test_peak_evidence_is_reported_in_mib) ... ok
+test_positive_limit_required (tests.test_job_limits.JobObjectMechanism.test_positive_limit_required) ... ok
+test_attach_child_needs_a_job_or_a_limit (tests.test_job_limits.RuntimeTreeJob.test_attach_child_needs_a_job_or_a_limit) ... ok
+test_install_is_idempotent_and_children_inherit (tests.test_job_limits.RuntimeTreeJob.test_install_is_idempotent_and_children_inherit) ... ok
+test_limits_match_the_agreed_budget (tests.test_job_limits.RuntimeTreeJob.test_limits_match_the_agreed_budget) ... ok
+test_self_assignment_reports_the_mechanism_honestly (tests.test_job_limits.RuntimeTreeJob.test_self_assignment_reports_the_mechanism_honestly) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.175s
+
+OK

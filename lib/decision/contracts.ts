@@ -53,8 +53,9 @@ Produce an Excel (.xlsx) workbook: one short intro sentence, then ONE \`\`\`xlsx
 
 const PPTX_CONTRACT = `<output_contract_pptx>
 Produce a PowerPoint (.pptx) deck at the INSANE animation tier BY DEFAULT — only use "normal" or "simple" if the user explicitly says simple / low animations / more text. One short intro sentence, then ONE \`\`\`pptx fence with ONE JSON object:
-{"filename","title","tier":"insane","reducedMotion":false,"theme":{"bg":"#0A0A0A","accent":"#38E8FF","positive":"#22C55E"},"slides":[{"layout":"title|hero|stats|split|spotlight|chart|table|bullets","title","subtitle","bullets":[...],"stats":[{"label","value","suffix"}],"chart":{"type":"bar|line|area|donut","categories":[...],"series":[{"name","data":[...]}]},"table":{"headers":[...],"rows":[[...]]},"morphGroup":"hero","motion":{"transition":"auto|morph|fade|none","reveal":"auto|none"}}]}
+{"filename","title","tier":"insane","reducedMotion":false,"theme":{"bg":"#0A0A0A","accent":"#38E8FF","positive":"#22C55E"},"slides":[{"layout":"title|hero|stats|split|spotlight|chart|table|bullets","title","subtitle","bullets":[...],"stats":[{"label","value","suffix"}],"chart":{"type":"bar|line|area|donut","categories":[...],"series":[{"name","data":[...]}]},"table":{"headers":[...],"rows":[[...]]},"notes":"presenter notes for this slide","morphGroup":"hero","motion":{"transition":"auto|morph|fade|none","reveal":"auto|none"}}]}
 - 8-14 slides BY DEFAULT, one big idea per slide, huge type, dark executive theme, real numbers from the conversation. An explicit request wins over every default here: a stated slide count, a stated size/orientation, brand colors/fonts, or "simple/reduced motion" override the insane-motion default rather than being silently kept.
+- SPEAKER NOTES: put presenter guidance in a slide's "notes" string (up to 4000 characters) whenever the user asks for speaker notes, a script to present from, or per-slide talking points — the engine writes them into the deck's notes part, where they stay separate from the slide text and survive being read back. A deck the user did not ask to annotate needs no notes.
 - The engine writes NATIVE PowerPoint motion from one plan the preview also plays: Morph (byObject)/fade slide transitions, entrance animations (title fades, stat cards fly in, bullets reveal one paragraph per CLICK), and the INSANE signature patterns — split-mask entry, stat crop-fill, moving spotlight. Tag consecutive slides with the SAME "morphGroup" to morph a shared element; "insane" morphs every incoming slide, "normal" only morphGroup pairs. Set "reducedMotion":true when the user asks for reduced/accessible motion (Morph becomes a plain fade). A deck with NO motion at all is expressed with "tier":"simple"; to kill motion on ONE slide of an animated deck use "motion":{"transition":"none","reveal":"none"} ("reveal":"none" = no entrance animations or click builds on that slide).
 </output_contract_pptx>`;
 
@@ -73,10 +74,34 @@ Produce a data chart: one short intro sentence, then ONE \`\`\`chart fence with 
 
 const withBridge = (contract: string): string => EXECUTION_BRIDGE_MANDATE + "\n" + contract;
 
+/**
+ * D-070 designed fix, implemented now: an answer that renders prose where a
+ * fence was appropriate never reaches fenceRepair, because nothing fails a
+ * validator - the prose is valid. The clean fix is knowledge, not another
+ * keyword rule: every turn already gets a mode contract or this catalogue, so
+ * the model knows WHICH renderer fences exist without the decision engine
+ * having to guess the mode first. Claims here mirror the real viewers:
+ * components/render/FenceRouter.tsx mounts exactly these kinds (lib/render/
+ * registry.ts); retired kinds (3D/CAD/anatomy) only ever show the
+ * RetiredFenceBlock compatibility card, so the catalogue says not to emit them.
+ */
+const FENCE_CATALOGUE = `<fence_catalogue>
+Renderer fences this WebUI mounts live (each as ONE fenced block; the block renders as an interactive viewer for the user - any other fence language renders as plain code):
+- \`\`\`chart - chart-spec JSON (bar/line/area/pie/donut/scatter/histogram): live interactive chart, Download as PNG.
+- \`\`\`powerbi - dataset + DAX-measures spec JSON: live cross-filtering dashboard, Download as a .pbip package.
+- \`\`\`mermaid - diagram source: rendered flow / sequence / gantt diagram.
+- \`\`\`widget - spec JSON with "kind":"form|tabs|accordion|kpi": live controls the user can operate (fields, sliders, cards).
+- \`\`\`html - complete self-contained HTML document: live dark auto-sizing viewer with pass-through interactivity, Download as HTML + A4 PDF.
+- \`\`\`docx / \`\`\`xlsx / \`\`\`pptx - Word / Excel / PowerPoint spec JSON: the engine builds the real file (xlsx headlessly recalculates every live formula) and Download hands it over.
+- \`\`\`resume - resume/CV spec JSON: formatted live resume, Download as PDF.
+Prose stays the default answer and a fence never replaces the explanation: use one only when the request clearly calls for that shape of output. The 3D/CAD/anatomy fences (scene3d, asset3d, threejs, cad, anatomy) are RETIRED - emitting one only shows the user a "viewer retired" card.</fence_catalogue>`;
+
 /** active_mode -> the ONE output contract injected with the matched skill.
  * Every artifact contract carries the EXECUTION BRIDGE MANDATE first: the
  * fenced block IS the execution, so "I cannot execute/create a file" is a
- * forbidden answer in every renderer mode. */
+ * forbidden answer in every renderer mode. standard_chat carries the fence
+ * CATALOGUE instead of a contract: no fence is required, but every renderer
+ * that exists is named (D-070). */
 export const MODE_CONTRACTS: Record<RendererMode, string | null> = {
   excel: withBridge(XLSX_CONTRACT),
   docs: withBridge(DOCX_CONTRACT),
@@ -84,5 +109,5 @@ export const MODE_CONTRACTS: Record<RendererMode, string | null> = {
   ppt: withBridge(PPTX_CONTRACT),
   chart: withBridge(CHART_CONTRACT),
   html_render: withBridge(HTML_CONTRACT),
-  standard_chat: null,
+  standard_chat: FENCE_CATALOGUE,
 };

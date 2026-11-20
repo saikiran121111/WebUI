@@ -12,9 +12,12 @@ Order (first VALIDATED hit wins):
   2. PATH
   3. project-local copies this repository or its installed dev dependencies already own
 
-Every candidate is validated by actually running `<program> -version` with a bounded
-timeout, and the outcome (including which source supplied it) is cached per process so
-capability reporting costs at most one probe per binary. Nothing is downloaded here.
+Every candidate is validated by actually running the program's version probe with a
+bounded timeout, and the outcome (including which source supplied it) is cached per
+process so capability reporting costs at most one probe per binary. The probe flag is
+program-specific: `-version` is the ffmpeg/ffprobe convention, while the Windows
+Tesseract build rejects it (exit 1) and only accepts `--version`, so a single hard-coded
+flag would report a real, working copy as not installed. Nothing is downloaded here.
 """
 from __future__ import annotations
 
@@ -27,10 +30,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import processes
 from ..config import repo_root
 
 PROBE_TIMEOUT_S = 5.0
 MAX_PROBE_OUTPUT_BYTES = 1 << 16
+
+# Version-probe arguments per program. The first entry is the documented convention for
+# that program; a bounded set of alternatives is tried before the candidate is refused,
+# so an unfamiliar-but-genuine build is not misreported as broken.
+VERSION_ARGS: dict[str, tuple[str, ...]] = {
+    "ffmpeg": ("-version",),
+    "ffprobe": ("-version",),
+    "tesseract": ("--version",),
+}
+
+
+def _probe_variants(name: str) -> tuple[tuple[str, ...], ...]:
+    primary = VERSION_ARGS.get(name, ("-version",))
+    variants = [primary]
+    for args in (("-version",), ("--version",)):
+        if args not in variants:
+            variants.append(args)
+    return tuple(variants)
+
 
 # Only the names the application actually shells out to. Adding a name here is a
 # contract change, not a convenience: it decides what "installed" may claim.
@@ -47,8 +70,26 @@ PROJECT_LOCAL_PATTERNS: dict[str, tuple[str, ...]] = {
     ),
     "ffprobe": (
         "node_modules/@ffprobe-installer/ffprobe/ffprobe.exe",
+        # The platform sub-package is where this installer actually lays the binary; the
+        # umbrella package only holds a JS shim, so a probe of the umbrella path would
+        # report a real, working ffprobe as missing.
+        "node_modules/@ffprobe-installer/win32-x64/ffprobe.exe",
+        "node_modules/@ffprobe-installer/*/ffprobe.exe",
+        "node_modules/@ffprobe-installer/*/ffprobe",
         "bin/ffprobe.exe",
         "bin/ffprobe",
+    ),
+    # OCR shells out to an external engine, so "installed" must mean a validated copy,
+    # not a pip wrapper that would fail at spawn time.
+    "tesseract": (
+        # The amendment-4 location: a project-local install of the verified UB Mannheim /
+        # upstream Windows x64 build. A system-wide install is deliberately not used.
+        ".data/tools/tesseract/tesseract.exe",
+        ".data/tools/tesseract/bin/tesseract.exe",
+        "bin/tesseract/tesseract.exe",
+        "bin/tesseract.exe",
+        "bin/tesseract/tesseract",
+        "bin/tesseract",
     ),
 }
 
@@ -141,22 +182,33 @@ def validate(path: str, name: str = "") -> str:
             return "not an executable file extension on Windows"
     elif not os.access(str(p), os.X_OK):
         return "not marked executable"
-    kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "capture_output": True,
-                              "timeout": PROBE_TIMEOUT_S}
-    if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        done = subprocess.run([str(p), "-version"], **kwargs)
-    except subprocess.TimeoutExpired:
-        return "probe timed out"
-    except (OSError, subprocess.SubprocessError) as exc:
+        first_failure = ""
+        for args in _probe_variants(name):
+            try:
+                done = processes.run_captured([str(p), *args], timeout=PROBE_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                first_failure = first_failure or f"version probe `{args[0]}` timed out"
+                continue
+            except (OSError, subprocess.SubprocessError) as exc:
+                # A file that cannot be spawned at all will not get better with a
+                # different flag, so stop rather than mask the real cause.
+                return f"could not be executed ({exc.__class__.__name__})"
+            blob = ((done.stdout or b"") + (done.stderr or b""))[:MAX_PROBE_OUTPUT_BYTES]
+            if done.returncode != 0:
+                first_failure = first_failure or (
+                    f"version probe `{name} {' '.join(args)}` exited {done.returncode}"
+                )
+                continue
+            if name.encode("ascii", "ignore").split(b"-")[0] not in blob.lower():
+                first_failure = first_failure or (
+                    f"version probe for `{name} {' '.join(args)}` did not identify this program"
+                )
+                continue
+            return ""
+        return first_failure or "no version probe args were available"
+    except OSError as exc:
         return f"could not be executed ({exc.__class__.__name__})"
-    blob = ((done.stdout or b"") + (done.stderr or b""))[:MAX_PROBE_OUTPUT_BYTES]
-    if done.returncode != 0:
-        return f"version probe exited {done.returncode}"
-    if name.encode("ascii", "ignore").split(b"-")[0] not in blob.lower():
-        return "version probe did not identify this program"
-    return ""
 
 
 def _candidates(name: str) -> list[tuple[str, str]]:
@@ -214,7 +266,8 @@ def resolve(name: str) -> Resolution:
         reason = validate(path, name)
         if not reason:
             result = Resolution(name=name, path=path, source=source,
-                                detail=f"validated by `{name} -version`; found via {source}")
+                                detail=(f"validated by `{name} "
+                                        f"{' '.join(_probe_variants(name)[0])}; found via {source}"))
             break
         notes.append(f"{source} candidate {path!r}: {reason}")
     if not result.found:

@@ -180,38 +180,12 @@ function raceBody<T>(read: Promise<T>, res: Response, lc: UpstreamLifecycle): Pr
 
 /* -- endpoint / resource identity (R03) ----------------------------------- */
 
-/** Hostnames that all name THIS machine's inference server. */
-const LOOPBACK_ALIASES = new Set([
-  "localhost",
-  "127.0.0.1",
-  "0.0.0.0",
-  "::1",
-  "ip6-localhost",
-  "ip6-loopback",
-  "host.docker.internal",
-]);
-
-/**
- * Identity of an inference RESOURCE = origin (scheme + canonical host +
- * effective port). Capacity is a property of the SERVER, not of a path or
- * a spelling, so "/v1/chat/completions" and "/v1/completions" on one origin
- * are the same resource, and localhost/127.0.0.1/::1 are one alias family.
- * Unparseable strings degrade to a trimmed lowercase spelling.
- */
-export function resourceKey(rawUrl: string): string {
-  let u: URL;
-  try {
-    u = new URL(rawUrl);
-  } catch {
-    return "raw:" + rawUrl.trim().toLowerCase();
-  }
-  const scheme = u.protocol === "https:" ? "https" : "http";
-  let host = u.hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
-  if (LOOPBACK_ALIASES.has(host)) host = "127.0.0.1";
-  const implicitPort = scheme === "http" ? "80" : "443";
-  const port = u.port && u.port !== implicitPort ? `:${u.port}` : "";
-  return `${scheme}://${host}${port}`;
-}
+// F48: LOOPBACK_ALIASES and resourceKey now live VERBATIM in the leaf module
+// lib/server/resource-identity.ts, so test support can ask "does this URL name the
+// operator's live model server?" without importing this module's capacity machinery.
+// Re-exported here because every existing importer reaches resourceKey via this file.
+import { resourceKey } from "./resource-identity";
+export { LOOPBACK_ALIASES, resourceKey } from "./resource-identity";
 
 /** True when `candidate` addresses the SAME server as the configured model. */
 export function sameResourceAsConfigured(candidate: string): boolean {

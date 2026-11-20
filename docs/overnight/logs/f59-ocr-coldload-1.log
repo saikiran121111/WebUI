@@ -1,0 +1,7 @@
+cap_bytes: 4000000000  cap_mib: 3814
+{
+ "cap_bytes": 4000000000,
+ "raised": "OcrUnavailable",
+ "raised_detail": "the OCR worker exited before reporting ready (code None); worker log tail: data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd\\config.json\r\nLoading weights file D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd\\model.safetensors\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_heads: 16- num_key_value_heads: 2\r\nuse GQA - num_hea",
+ "wall_seconds": 24.6
+}

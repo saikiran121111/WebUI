@@ -1,0 +1,36 @@
+﻿.\.venv\Scripts\python.exe : ..E....E........
+At line:2 char:44
++ ... on-backend; .\.venv\Scripts\python.exe -X utf8 -m unittest tests.test ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (..E....E........:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+======================================================================
+ERROR: test_the_cascade_policy_reports_the_configured_source 
+(tests.test_provider_config.HandoffPolicyIsConfiguredNotFlagged.test_the_cascade_policy_reports_the_configured_source)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_provider_config.py", line 172, in 
+test_the_cascade_policy_reports_the_configured_source
+    pol = ocr_cascade.policy()
+          ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\documents\ocr_cascade.py", line 78, in policy
+    "provider": cfg.as_dict(),
+                ^^^^^^^^^^^^^
+TypeError: 'dict' object is not callable
+
+======================================================================
+ERROR: test_the_api_key_is_never_serialised_into_a_report 
+(tests.test_provider_config.LifecycleDerivation.test_the_api_key_is_never_serialised_into_a_report)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_provider_config.py", line 129, in 
+test_the_api_key_is_never_serialised_into_a_report
+    blob = json.dumps(cfg.as_dict())
+                      ^^^^^^^^^^^^^
+TypeError: 'dict' object is not callable
+
+----------------------------------------------------------------------
+Ran 16 tests in 6.140s
+
+FAILED (errors=2)

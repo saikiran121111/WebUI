@@ -1,0 +1,127 @@
+f63 bounded measurement decision (g56) 2026-11-20T21:06:09
+host memory (GlobalMemoryStatusEx): {
+ "total_mib": 65299,
+ "available_mib": 1659,
+ "commit_total_mib": 100115,
+ "commit_avail_mib": 23968,
+ "source": "GlobalMemoryStatusEx"
+}
+ocr_paddle.estimate(): {
+ "est_peak_mib": 3300,
+ "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+ "estimate_kind": "provisional",
+ "est_peak_vram_mib": 6000,
+ "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+ "est_vram_kind": "provisional",
+ "model_id": "PaddleOCR-VL-1.6"
+}
+device_plan: {
+ "capability": "documents.ocr",
+ "device": "none",
+ "fits": false,
+ "needs_handoff": true,
+ "reason": "neither device fits: free physical RAM is 1659 MiB, under the 5974 MiB this load needs (provisional load peak 3300 MiB charged at 4950 MiB because it has never been measured on this host + 1024 MiB margin); GPU: free VRAM is 2805 MiB, under the 9256 MiB this needs (6000 MiB estimate charged at 9000 MiB + 256 MiB margin)",
+ "evidence": {
+  "ram": {
+   "measured": true,
+   "fits": false,
+   "free_physical_mib": 1659,
+   "total_physical_mib": 65299,
+   "commit_available_mib": 23968,
+   "est_peak_mib": 3300,
+   "est_peak_mib_charged": 4950,
+   "estimate_basis": "provisional",
+   "required_mib": 5974,
+   "reasons": [
+    "free physical RAM is 1659 MiB, under the 5974 MiB this load needs (provisional load peak 3300 MiB charged at 4950 MiB because it has never been measured on this host + 1024 MiB margin)"
+   ],
+   "estimate": "provisional-estimate",
+   "floor_free_physical_mib": 1024,
+   "policy": "free-physical-plus-commit",
+   "sampled_at": 1795188969.130781
+  },
+  "vram": {
+   "available": true,
+   "free_mib": 2805,
+   "devices": [
+    {
+     "name": "NVIDIA GeForce RTX 3060",
+     "total_mib": 12288,
+     "used_mib": 9483,
+     "free_mib": 2805
+    }
+   ],
+   "detail": "1 of 1 GPU row(s) readable; most free: NVIDIA GeForce RTX 3060 2805 MiB of 12288 MiB",
+   "source": "nvidia-smi",
+   "sampled_at": 1795188969.130781
+  },
+  "est_peak_mib": 3300,
+  "est_peak_basis": "declared 3300 MiB with no recorded measurement on this host",
+  "est_peak_vram_mib": 6000,
+  "est_vram_basis": "declared 6000 MiB with no recorded measurement on this host",
+  "margin_mib": 256,
+  "charged": {
+   "ram_mib": 4950,
+   "vram_mib": 9000,
+   "rule": "unmeasured estimate charged at 1.5x with a 1024 MiB minimum margin",
+   "required_ram_mib": 5974
+  },
+  "main_model": {}
+ }
+}
+demand as the adapter sees it: 3460300800 B, basis: 'provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak'
+worker_ceiling_bytes(inside_window=False): {
+ "ceiling_bytes": 5000000000,
+ "window": "normal",
+ "effective_limit_bytes": 5000000000,
+ "effective_limit_mib": 4768,
+ "target_bytes": 4000000000,
+ "bound_by": "the agreed hard maximum for the Ruke runtime tree",
+ "reason": "no coordinated unload happened, so the normal-operation budget still applies in full: target 4000000000 B, hard maximum 5000000000 B",
+ "measured": true,
+ "declared_demand_bytes": 3460300800,
+ "demand_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+ "demand_is_measured": false,
+ "charged_demand_bytes": 5190451200,
+ "margin_bytes": 1073741824,
+ "minimum_viable_ceiling_bytes": 6264193024,
+ "below_declared_demand": true,
+ "refuse_reason": "the normal window can offer a commit ceiling of 5000000000 B (4768 MiB), under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak)"
+}
+worker_ceiling_bytes(inside_window=True): {
+ "ceiling_bytes": 7000000000,
+ "window": "exclusive",
+ "configured_limit_bytes": 7000000000,
+ "configured_note": "default 7000000000 B (no RUKE_EXCLUSIVE_LIMIT_BYTES set)",
+ "bounded_config_limit_bytes": 7000000000,
+ "config_bounds_bytes": [
+  5000000000,
+  12000000000
+ ],
+ "system_reserve_bytes": 2000000000,
+ "reserve_note": "default 2000000000 B (no RUKE_SYSTEM_RESERVE_BYTES set)",
+ "normal_hard_limit_bytes": 5000000000,
+ "normal_target_bytes": 4000000000,
+ "measured": true,
+ "commit_available_bytes": 25338839040,
+ "commit_available_mib": 24165,
+ "free_physical_mib": 1657,
+ "after_reserve_bytes": 23338839040,
+ "effective_limit_bytes": 7000000000,
+ "effective_limit_mib": 6675,
+ "bound_by": "the configured exclusive maximum",
+ "widened_beyond_normal": true,
+ "reason": "effective exclusive ceiling 7000000000 B = min(configured 7000000000 B, free commit 25338839040 B - reserve 2000000000 B); normal-operation hard maximum is 5000000000 B",
+ "declared_demand_bytes": 3460300800,
+ "demand_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+ "demand_is_measured": false,
+ "charged_demand_bytes": 5190451200,
+ "margin_bytes": 1073741824,
+ "minimum_viable_ceiling_bytes": 6264193024,
+ "below_declared_demand": false
+}
+NOTE: the inside_window=True row is ARITHMETIC ONLY. Executing that window means releasing the main model that hosts this coding session (capacity-1 endpoint at :8080); the cold-load peak measurement stays blocked behind the attended run recorded in STATE.md's blocker section. A 7 GB exclusive ceiling is a maximum, not evidence that 7 GB is physically resident.
+ADAPTER PRE-SPAWN ANSWER (production code, real call):
+  kind  = resource_limit
+  detail= refusing to spawn: the normal window can offer a commit ceiling of 5000000000 B (4768 MiB), under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak)
+  human_step = the demand declared for this pipeline does not fit the resource window it ran in: open the coordinated exclusive window (drain inference, release the main model, re-check admission) or run the recovery engine; report this as a resource limit rather than an engine fault, and do NOT raise the hard maximum, drop a page, or re-prepare assets that are already valid

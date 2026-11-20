@@ -105,6 +105,23 @@ const VECTORS: string[] = [
   "please can you draft an invoice template as a pdf",
   "no pdf needed, just explain the tables",
   "export the table to csv and then build a pdf",
+  // — F02b held-out corpus (brief §4 generalisation axes: action vs
+  //   discussion, material vs subject, discontinuous transform particle,
+  //   hypothetical frame). The frozen ANSWER KEY for these prompts lives in
+  //   __tests__/decision/generalization-f02b.test.ts; this list only pins
+  //   that BOTH engines agree on the same outcome for the same prompt.
+  "Show me the steps for making an Excel workbook.",
+  "Create a PDF using the Excel data.",
+  "Create a presentation on the history of Excel.",
+  "Could you turn this PDF into a DOCX file?",
+  "If I wanted a PDF, how would I make it?",
+  "Turn the deck into a PDF",
+  "change these numbers into a workbook",
+  "If the data is ready, make the workbook",
+  "Create a PDF of the presentation history",
+  "Create a docx on the background of our pdf pipeline",
+  "Turn the invoice, then create a PDF",
+  "Create a deck explaining the cards",
 ];
 
 describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
@@ -200,6 +217,24 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
     expect(at("generate a chart of the reaction rates").active_mode).toBe("chart");
     expect(at("please can you draft an invoice template as a pdf").active_mode).toBe("pdf");
     expect(at("export the table to csv and then build a pdf").active_mode).toBe("pdf");
+    // F02b held-out law (brief §4): the ACTION/DISCUSSION, MATERIAL/SUBJECT,
+    // DISCONTINUOUS TRANSFORM PARTICLE and HYPOTHETICAL FRAME axes. The frozen
+    // answer key for these prompts is __tests__/decision/generalization-f02b
+    // .test.ts; these guards only pin that the recorded corpus carries them.
+    expect(at("Show me the steps for making an Excel workbook.").active_mode).toBe("standard_chat");
+    expect(at("Create a PDF using the Excel data.").task_constraints).toEqual([
+      "deliverable-request=pdf",
+    ]);
+    expect(at("Create a presentation on the history of Excel.").active_mode).toBe("ppt");
+    expect(at("Could you turn this PDF into a DOCX file?").active_mode).toBe("docs");
+    expect(at("If I wanted a PDF, how would I make it?").active_mode).toBe("standard_chat");
+    expect(at("Turn the invoice, then create a PDF").active_mode).toBe("pdf");
+    expect(at("Create a deck explaining the cards").active_mode).toBe("standard_chat"); // polysemy
+    // DOCUMENTED PIN CHANGE (F02b, 2026-11-16): a transform cue is the verb
+    // plus its particle even when the material sits between them, so
+    // "put <material> into <format>" names the format as the DESTINATION. This
+    // pin moved from a cue-less miss to an excel request — intended law change.
+    expect(at("put these numbers into my spreadsheet").active_mode).toBe("excel");
     // Multiple deliverables are EXPLICIT, ordered, never silently merged:
     const multi = at("Create a PDF and an XLSX of these numbers");
     expect(multi.active_mode).toBe("standard_chat"); // no single winner is invented
@@ -245,13 +280,13 @@ describe("golden: Part 3 decision-intent vectors (decision/06)", () => {
         "honestly misses. Honest confidence: 0.8 verb-bound, 0.5 miss/ambiguous — the retired blanket " +
         "1.0 was false certainty. Anatomy/3d/cad vocabulary stays standard_chat (retired 2026-11-06/07) " +
         "unless a §4a cue-bound request survives ('make an exploded diagram in html' -> html_render; " +
-        "'interior design with html' -> html_render because 'design' is a production cue now). " + "F02 (re-recorded 2026-11-16, typed-relation law): a request is a request whatever its " + "politeness - 'would like'/\"'d like\" are production cues, so 'I would like a spreadsheet of the " + "figures' routes excel; a COGNITIVE or REPORT frame around the format word is never a request - " + "'I would like to understand how a pdf stores fonts', 'walk me through how to generate a docx', " + "'she exported a pptx last Friday', 'it looked like a pdf' and 'Explain what a PDF and a DOCX are' " + "all stay standard_chat. Polysemy stays polysemy ('deck' of cards / terrace deck / poker deck). " + "Honest decided_by vocabulary: -none (no deliverable found, never reported as a match), -match " + "(exactly one), -multiple (two or more requested deliverables, recorded in task_constraints as " + "'deliverable-request=<mode>' in first-appearance order; active_mode stays standard_chat because " + "the scan must not invent a winner and the injection layer arms every requested contract). " + "The retired -ambiguous label conflated 'several deliverables' with 'uncertain', which silently " + "lost one requested output.",
+        "'interior design with html' -> html_render because 'design' is a production cue now). " + "F02 (re-recorded 2026-11-16, typed-relation law): a request is a request whatever its " + "politeness - 'would like'/\"'d like\" are production cues, so 'I would like a spreadsheet of the " + "figures' routes excel; a COGNITIVE or REPORT frame around the format word is never a request - " + "'I would like to understand how a pdf stores fonts', 'walk me through how to generate a docx', " + "'she exported a pptx last Friday', 'it looked like a pdf' and 'Explain what a PDF and a DOCX are' " + "all stay standard_chat. Polysemy stays polysemy ('deck' of cards / terrace deck / poker deck). " + "Honest decided_by vocabulary: -none (no deliverable found, never reported as a match), -match " + "(exactly one), -multiple (two or more requested deliverables, recorded in task_constraints as " + "'deliverable-request=<mode>' in first-appearance order; active_mode stays standard_chat because " + "the scan must not invent a winner and the injection layer arms every requested contract). " + "The retired -ambiguous label conflated 'several deliverables' with 'uncertain', which silently " + "lost one requested output. F02b (re-recorded 2026-11-16, generalisation law): the didactic frame now also covers step NOUN PHRASES ('the steps for making', 'procedure for'), which frame the whole clause exactly the way 'how to' does; using/on/of/for mark MATERIAL or TOPIC and never a second deliverable (the container particles in/as/into/to stay out of that set on purpose); a transform cue is the verb PLUS its particle even when the material sits between them ('turn this PDF into a DOCX'), and a bare transform verb with a production cue in the gap is an unfinished transform, never a source role for the later ask; a HYPOTHETICAL FRAME (a conditional antecedent whose own production cue governs the format word, plus a turn-level didactic/interrogative frame) discusses production instead of requesting a file, while an affirmative conditional without such a frame keeps its deliverable. One pin moved with the law: 'put these numbers into my spreadsheet' now names the spreadsheet as the DESTINATION (excel) instead of being a cue-less miss.",
       comparison: "semantic",
       notes:
         "Field-for-field (mode/skill/decided_by/trim/confidence) — regex existence only, no span " +
         "capture. Re-recorded 2026-11-13 for the §4a intent law (brief §4): the OLD corpus pinned the " +
         "ASCII-\\b quirks, INTENT_ORDER precedence and confidence 1 as contracts; brief §6 reclassifies " +
-        "those as legacy defects, so their pins moved to the OPPOSITE behavior. F02 2026-11-16 re-record adds the polite-desire cues, the " + "cognitive/report frame law and the explicit multi-deliverable record; the decided_by pin " + "vocabulary changed from -ambiguous to -multiple, and a plain miss now records -none instead of " + "claiming -match. Every changed pin is the intended new law, verified against the live oracle.",
+        "those as legacy defects, so their pins moved to the OPPOSITE behavior. F02 2026-11-16 re-record adds the polite-desire cues, the " + "cognitive/report frame law and the explicit multi-deliverable record; the decided_by pin " + "vocabulary changed from -ambiguous to -multiple, and a plain miss now records -none instead of " + "claiming -match. Every changed pin is the intended new law, verified against the live oracle. F02b 2026-11-16 (brief section 4 generalisation): 12 new vectors for the action-vs-discussion, material-vs-subject, discontinuous-transform-particle and hypothetical-frame axes, plus the single documented pin change above. The frozen ANSWER KEY for those prompts lives in __tests__/decision/generalization-f02b.test.ts (written before the repair and first run as a reproduction); this corpus only pins that both engines reach the same outcome.",
       harness: HARNESS,
       env: {},
       normalization: "none — deterministic zero-network function",

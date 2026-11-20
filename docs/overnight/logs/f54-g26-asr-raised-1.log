@@ -1,0 +1,8 @@
+ffmpeg D:\Projects\WebUI\WebUI\node_modules\ffmpeg-static\ffmpeg.exe ffprobe D:\Projects\WebUI\WebUI\node_modules\@ffprobe-installer\win32-x64\ffprobe.exe
+free physical 4661 source GlobalMemoryStatusEx
+CEILING speech.asr heavy= True mib= 776 {"measured_load_peak_mib": 388, "estimate": "measured"}
+OVERRIDDEN to 3072 MiB
+state ready secs 1.57
+payload state transcribed device cpu compute int8
+text The Kestral Depot Inventory lists 11 crates of copper cable worth 2400 euros.
+status failed 'P' object has no attribute 'status'

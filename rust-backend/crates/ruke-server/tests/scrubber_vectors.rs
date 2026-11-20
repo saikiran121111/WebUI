@@ -64,17 +64,46 @@ fn think_field_split_matrix_replays_cross_engine_vectors() {
             exp["reasoning"].as_str().unwrap(),
             "reasoning mismatch replaying {pieces:?}"
         );
-        // F17 (2026-11-15): fence-literal delimiters are LEGITIMATE channel
-        // text — a fence-free text's channels must never contain a delimiter
-        // spelling; a fence-y text's channels legitimately do.
+        // F17 (2026-11-15) + F05 (2026-11-16 brief section 6): a delimiter
+        // spelled INSIDE literal code is legitimate channel text. Literal code
+        // has three forms here: a fence, an inline span, and an indented code
+        // chunk. The recorded per-case `literalTagText` boolean IS that
+        // contract (the TS harness classifies with a superset predicate); the
+        // fallback mirrors it so an older fixture cannot silently loosen the
+        // guard: any backtick/tilde run, or a line indented by 4+ spaces or a
+        // tab, counts as a code construct.
         let text = case["text"].as_str().unwrap();
-        if !(text.contains("```") || text.contains("~~~")) {
+        let literal_tag_text = case["literalTagText"].as_bool().unwrap_or_else(|| {
+            text.contains('`')
+                || text.contains("~~~")
+                || text.contains("\n    ")
+                || text.starts_with("    ")
+                || text.contains("\n\t")
+                || text.starts_with('\t')
+        });
+        if !literal_tag_text {
             assert!(
                 !content.contains("<think>") && !content.contains("</think>")
                     && !reasoning.contains("<think>") && !reasoning.contains("</think>"),
-                "delimiters never leak into a channel for fence-free texts"
+                "delimiters never leak into a channel for texts without a code construct"
             );
         }
+        // Non-fabrication law, applies to EVERY case including code-bearing
+        // ones: the splitter may relocate a delimiter spelling out of code into
+        // a channel, but it can never invent one the source did not contain.
+        let src_open = text.matches("<think>").count();
+        let src_close = text.matches("</think>").count();
+        let out_open = content.matches("<think>").count() + reasoning.matches("<think>").count();
+        let out_close = content.matches("</think>").count() + reasoning.matches("</think>").count();
+        assert!(
+            out_open <= src_open && out_close <= src_close,
+            "splitter fabricated delimiter spellings for {text:?} at split {}: {}/{} opens, {}/{} closes",
+            case["splitAtChar"].as_i64().unwrap(),
+            out_open,
+            src_open,
+            out_close,
+            src_close
+        );
         replays += 1;
     }
     assert!(replays > 0, "the matrix must carry cases");

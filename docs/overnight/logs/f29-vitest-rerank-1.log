@@ -1,0 +1,74 @@
+﻿node.exe : npm notice run webui-chat@0.2.0 npx
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Ruku\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run webui-chat@0.2.0 npx:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run __tests__/server/attach-rerank-neural.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See 
+https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ❯ __tests__/server/attach-rerank-neural.test.ts (17 tests | 2 failed) 11ms
+   × applyNeuralOrder > unscored candidates keep their own relative order, below the scored ones 3ms
+     → expected undefined to be 3 // Object.is equality
+   × makeRerankStage speaks the worker contract > maps chunk ids back to chunk indices and reports the engine's OWN name 3ms
+     → expected [ { idx: 7, score: -1.5 } ] to deeply equal [ { idx: 9, score: 2.5 }, …(1) ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/server/attach-rerank-neural.test.ts > applyNeuralOrder > unscored candidates keep their own relative 
+order, below the scored ones
+AssertionError: expected undefined to be 3 // Object.is equality
+
+- Expected: 
+3
+
++ Received: 
+undefined
+
+ ❯ __tests__/server/attach-rerank-neural.test.ts:210:22
+    208|     const applied = applyNeuralOrder(ranked, [{ idx: 3, score: 1 }], 5…
+    209|     const order = [...applied.ranked.priority.entries()].sort((x, y) =…
+    210|     expect(order[0]).toBe(3);
+       |                      ^
+    211|     expect(order.slice(1)).toEqual([0, 1, 2, 4]);
+    212|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  __tests__/server/attach-rerank-neural.test.ts > makeRerankStage speaks the worker contract > maps chunk ids 
+back to chunk indices and reports the engine's OWN name
+AssertionError: expected [ { idx: 7, score: -1.5 } ] to deeply equal [ { idx: 9, score: 2.5 }, …(1) ]
+
+- Expected
++ Received
+
+  Array [
+    Object {
+-     "idx": 9,
+-     "score": 2.5,
+-   },
+-   Object {
+      "idx": 7,
+      "score": -1.5,
+    },
+  ]
+
+ ❯ __tests__/server/attach-rerank-neural.test.ts:245:24
+    243|     expect(jobOpts.deadlineMs).toBeGreaterThan(0);
+    244|     expect(out?.engine).toBe(RERANK_MODE);
+    245|     expect(out?.order).toEqual([
+       |                        ^
+    246|       { idx: 9, score: 2.5 },
+    247|       { idx: 7, score: -1.5 },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 15 passed (17)
+   Start at  13:39:46
+   Duration  496ms (transform 55ms, setup 0ms, collect 64ms, tests 11ms, environment 0ms, prepare 243ms)
+

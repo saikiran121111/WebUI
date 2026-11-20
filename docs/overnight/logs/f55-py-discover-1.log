@@ -1,0 +1,98 @@
+...........................................................................................................................................................................FF............................................F....................................................C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\case.py:589: ResourceWarning: unclosed file <_io.TextIOWrapper name=3 encoding='cp1252'>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+................EOF marker not found
+.........................passed   symbol_identifiers               n= 7 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   lexical_hard_negatives           n= 5 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   exact_identifiers                n= 4 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   scripts_without_spaces           n= 6 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   vowels_and_diacritics            n= 5 mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   european_natural_questions       n= 5 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   abstention_no_answer_in_corpus   n= 6 abstention_accuracy=1.000
+not_run  neural_embedding                 model=Qwen/Qwen3-Embedding-0.6B              install=not_configured reason=not_configured
+not_run  neural_reranking                 model=Qwen/Qwen3-Reranker-0.6B               install=not_configured reason=not_configured
+not_run  document_layout_ocr              model=PaddleOCR-VL-1.6                       install=available reason=installed_but_unmeasured
+not_run  asr_multilingual                 model=openai/whisper-large-v3                install=not_configured reason=not_configured
+not_run  speaker_diarization              model=pyannote/speaker-diarization-community-1 install=license_acceptance_required reason=license_acceptance_required
+not_run  forced_alignment                 model=Qwen/Qwen3-ForcedAligner-0.6B          install=not_configured reason=not_configured
+not_run  temporal_video_localisation      model=ruke-video-timeline                    install=available reason=installed_but_unmeasured
+families 7/7 passed; cases=38 gated_not_run=7
+denominator: 38 frozen cases across 7 families; the 7 gated capabilities are NOT part of this denominator
+{"kind": "progress", "job_id": "j-lexical", "capability": "rerank", "state": "analysing", "note": "2 candidates, mode=lexical"}
+{"kind": "progress", "job_id": "j-neural", "capability": "rerank", "state": "analysing", "note": "2 candidates, mode=neural"}
+{"kind": "progress", "job_id": "j-cross_encoder", "capability": "rerank", "state": "analysing", "note": "2 candidates, mode=cross_encoder"}
+{"kind": "progress", "job_id": "j-bad", "capability": "rerank", "state": "analysing", "note": "2 candidates, mode=cross_encoder_qwen3_unpinned"}
+.....................................................................C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\subprocess.py:1127: ResourceWarning: subprocess 19268 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\case.py:589: ResourceWarning: unclosed file <_io.TextIOWrapper name=3 encoding='utf-8'>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.22:31:05 127.0.0.1 "GET /health HTTP/1.1" 200 -
+.22:31:05 127.0.0.1 "POST /job HTTP/1.1" 401 -
+.22:31:06 127.0.0.1 "POST /job HTTP/1.1" 200 -
+.22:31:06 127.0.0.1 "POST /job HTTP/1.1" 552 -
+.22:31:06 127.0.0.1 "POST /job HTTP/1.1" 413 -
+.22:31:06 127.0.0.1 "POST /job HTTP/1.1" 400 -
+.22:31:06 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+...22:31:06 127.0.0.1 "GET /health HTTP/1.1" 200 -
+.22:31:06 127.0.0.1 "POST /shutdown HTTP/1.1" 401 -
+22:31:06 127.0.0.1 "POST /shutdown HTTP/1.1" 200 -
+....FATAL: the supervisor may bind only to loopback
+..........................................................
+======================================================================
+FAIL: test_worker_that_dies_before_ready_reports_its_log (tests.test_handoff_devices.PaddleWorkerProtocol.test_worker_that_dies_before_ready_reports_its_log)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_handoff_devices.py", line 1279, in test_worker_that_dies_before_ready_reports_its_log
+    self.assertEqual(caught.exception.kind, "load_failed")
+AssertionError: 'see the recorded worker log' != 'load_failed'
+- see the recorded worker log
++ load_failed
+
+
+======================================================================
+FAIL: test_worker_that_never_loads_is_a_typed_load_failure (tests.test_handoff_devices.PaddleWorkerProtocol.test_worker_that_never_loads_is_a_typed_load_failure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_handoff_devices.py", line 1271, in test_worker_that_never_loads_is_a_typed_load_failure
+    self.assertEqual(caught.exception.kind, "load_failed")
+AssertionError: 'verify the pinned runtime and the two model directories' != 'load_failed'
+- verify the pinned runtime and the two model directories
++ load_failed
+
+
+======================================================================
+FAIL: test_refusal_is_typed_retryable_and_names_what_would_change_it (tests.test_memory_policy.Admission.test_refusal_is_typed_retryable_and_names_what_would_change_it)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_memory_policy.py", line 131, in test_refusal_is_typed_retryable_and_names_what_would_change_it
+    self.assertEqual(res.payload["refused_for"], "host_memory")
+AssertionError: 'commit_ceiling_below_measured_demand' != 'host_memory'
+- commit_ceiling_below_measured_demand
++ host_memory
+
+
+----------------------------------------------------------------------
+Ran 453 tests in 57.016s
+
+FAILED (failures=3)
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-heof6b2x\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [3.0, 6.0, 9.0] truncated=False error=
+detection: 3/3 within 0.60s, mean_abs_err=0.0, spurious=0
+cut-time localisation: hit_rate=1.0 mean_abs_error_s=0.0 over n=3 (windows=5)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: Planned 5 sampling windows across 12.0s; a sampling plan does not establish inspected-content coverage.
+decode prefix: 11.9s of 12.0s (prefix_measured=True, progress_updates=2)
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-heof6b2x\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [] truncated=False error=
+detection: 0/3 within 0.60s, mean_abs_err=None, spurious=0
+cut-time localisation: hit_rate=0.0 mean_abs_error_s=None over n=3 (windows=6)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: Planned 6 sampling windows across 12.0s; a sampling plan does not establish inspected-content coverage.
+decode prefix: 11.9s of 12.0s (prefix_measured=True, progress_updates=2)
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+probe blocked: ffmpeg_not_installed no validated ffmpeg copy (override, PATH or project-local)

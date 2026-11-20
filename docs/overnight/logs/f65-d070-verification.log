@@ -1,0 +1,24 @@
+== F65 D-070 verification 2026-11-20 ==
+--- clean golden TS + decision injection (no update flag) ---
+
+[2m Test Files [22m [1m[32m11 passed[39m[22m[90m (11)[39m
+[2m      Tests [22m [1m[32m65 passed[39m[22m[90m (65)[39m
+[2m   Start at [22m 22:21:48
+[2m   Duration [22m 1.46s[2m (transform 905ms, setup 312ms, collect 2.00s, tests 5.09s, environment 1ms, prepare 1.02s)[22m
+
+--- cargo ruke-decision ---
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+--- cargo ruke-server golden_replay + attachment_replay ---
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.21s
+--- tsc ---
+npm notice run webui-chat@0.2.0 npx
+npm notice run tsc --noEmit -p tsconfig.json --incremental false
+TSC_EXIT=0
+--- contracts:check ---
+html_render   -> CONTRACT_HTML_RENDER sha=1eee54fa63cde6c0… bytes=1836
+standard_chat -> CONTRACT_STANDARD_CHAT sha=d4f2910b833ecf05… bytes=1309
+contracts:check OK — contracts_generated.rs is up to date
+contracts:check OK — rust-backend\fixtures\contracts\manifest.json is up to date

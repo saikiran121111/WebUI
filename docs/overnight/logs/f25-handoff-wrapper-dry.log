@@ -1,0 +1,9 @@
+
+==============================================================================
+SAFE RUN - no model lifecycle call, no inference
+==============================================================================
+The five unload scenarios are recorded as HELD and stay unproven. Real unload
+evidence needs -Attended -ConfirmUnload UNLOAD with an operator present.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe D:\Projects\WebUI\WebUI\docs\overnight\probes\j4_handoff_probe.py --base http://127.0.0.1:3101 --out D:\Projects\WebUI\WebUI\docs\overnight\logs\j4-attended-20261117-000517.json
+DRY RUN - nothing executed.

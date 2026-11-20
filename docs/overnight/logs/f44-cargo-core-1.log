@@ -1,0 +1,54 @@
+﻿cargo :    Compiling ruke-core v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-core)
+At line:2 char:42
++ ... \WebUI\WebUI\rust-backend; cargo test -p ruke-core --lib 2>&1 | Out-F ...
++                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling ru...ates\ruke-core):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.16s
+     Running unittests src\lib.rs (target\debug\deps\ruke_core-95230e0029049d5e.exe)
+
+running 40 tests
+test slot::tests::begin_user_turn_aborts_registered_title_tokens ... ok
+test admission::tests::no_lease_wired_means_the_gate_is_inert ... ok
+test config::tests::port_parsing_falls_back_to_default ... ok
+test admission::tests::permit_is_capacity_one_and_serializes ... ok
+test admission::tests::cancel_while_queued_never_leaks_the_permit ... ok
+test admission::tests::a_record_that_exists_but_cannot_be_read_is_not_reported_absent ... ok
+test settings::tests::missing_file_yields_empty_settings_and_env_then_fallback_wins ... ok
+test admission::tests::pre_cancelled_caller_never_enters_the_queue ... ok
+test admission::tests::panic_unwind_releases_the_permit ... ok
+test slot::tests::end_clamps_at_zero_like_math_max ... ok
+test admission::tests::completed_generation_releases_immediately ... ok
+test slot::tests::guard_releases_exactly_once_on_drop_and_panics_unwind_ok ... ok
+test slot::tests::title_guard_drop_unregisters ... ok
+test turn::tests::ids_are_monotonic_and_unique ... ok
+test turn::tests::root_cancel_kills_all_descendants_tree_wide ... ok
+test turn::tests::cancelling_one_subtree_leaves_siblings_and_root_alive_rule7_nonfatal ... ok
+test turn::tests::await_cancellation_pattern_used_by_all_child_work ... ok
+test settings::tests::create_dir_all_for_nested_settings_path ... ok
+test config::tests::package_json_alone_is_not_enough_and_missing_root_returns_none ... ok
+test settings::tests::file_beats_env_priority ... ok
+test config::tests::discovers_repo_root_by_walking_up_from_nested_dir ... ok
+test settings::tests::clear_removes_file_and_resets_cache ... ok
+test settings::tests::an_unreadable_env_local_keeps_the_last_good_parse ... ok
+test settings::tests::valid_json_non_object_is_ignored_like_ts_would_store_garbage_but_getters_ignore ... ok
+test settings::tests::env_local_is_used_when_settings_and_process_env_are_silent ... ok
+test settings::tests::merge_preserves_unknown_keys_updates_in_place_and_appends_new ... ok
+test settings::tests::settings_json_still_wins_over_env_local ... ok
+test settings::tests::corrupted_file_keeps_last_good_parse_and_recovers_when_fixed ... ok
+test admission::tests::queue_is_bounded_fail_fast ... ok
+test admission::tests::dropped_acquire_future_hands_back_the_waiter_slot ... ok
+test slot::tests::wait_for_user_idle_returns_true_when_released_and_false_on_timeout ... ok
+test admission::tests::max_concurrent_holders_is_one_under_contention ... ok
+test admission::tests::a_cancelled_caller_abandons_the_lease_wait_without_refusal_counters ... ok
+test admission::tests::abandoned_generation_holds_the_endpoint_for_the_teardown_window ... ok
+test admission::tests::lease_refusal_survives_a_stale_permit_state_and_retries_are_refused ... ok
+test admission::tests::unreadable_or_unparseable_lease_records_are_not_free ... ok
+test admission::tests::a_live_handoff_lease_refuses_admission_without_touching_the_permit ... ok
+test admission::tests::the_gate_waits_and_admits_once_the_window_closes ... ok
+test admission::tests::a_stale_lease_fails_open_only_on_proof ... ok
+test admission::tests::an_unreadable_record_ages_out_so_a_broken_lease_cannot_park_forever ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+

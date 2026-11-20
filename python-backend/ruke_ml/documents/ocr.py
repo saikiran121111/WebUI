@@ -26,12 +26,27 @@ def assess(doc: Document, min_chars_per_unit: int = 80) -> Assessment:
         # native/ooxml readers already keep structure; OCR would only lose it
         return Assessment(TEXT_LAYER_OK, ["structured reader already produced blocks"], [])
     cov = doc.coverage
-    weak = list(dict.fromkeys(cov.units_empty + cov.units_needing_ocr))
+    # Escalation needs MEASURED evidence that a raster exists and was not read: a page whose
+    # text layer is too short, a page that carries an image but no text, or a page whose text
+    # extraction raised. A page that produced neither text nor image evidence is blank - OCR
+    # cannot manufacture evidence there, so it stays an uncovered unit instead of becoming an
+    # advertised OCR job. (A PDF upload is not an OCR instruction.)
+    escalate = list(dict.fromkeys(list(cov.units_needing_ocr) + list(cov.units_failed)))
+    blank = [u for u in cov.units_empty if u not in set(escalate)]
     if cov.units_total == 0:
         return Assessment(LAYOUT_MODEL, ["no text layer was recovered at all"], [])
-    if weak:
-        reasons.append(f"{len(weak)} of {cov.units_total} units produced too little text")
-        return Assessment(LIGHT_OCR, reasons, weak)
+    if escalate:
+        reasons.append(f"{len(escalate)} of {cov.units_total} unit(s) carry raster or "
+                       "extraction evidence that the text layer did not capture")
+        if blank:
+            reasons.append(f"{len(blank)} unit(s) produced neither text nor image evidence")
+        return Assessment(LIGHT_OCR, reasons, escalate)
+    if blank:
+        reasons.append(
+            f"{len(blank)} of {cov.units_total} unit(s) produced no text layer and carry no "
+            "image evidence: there is nothing there to recognise, so they stay recorded as "
+            "uncovered rather than being sent to an OCR engine")
+        return Assessment(TEXT_LAYER_OK, reasons, [])
     if cov.units_extracted < cov.units_total:
         reasons.append("some units failed to extract")
         return Assessment(LIGHT_OCR, reasons, cov.units_failed)
@@ -39,13 +54,32 @@ def assess(doc: Document, min_chars_per_unit: int = 80) -> Assessment:
     if len(short) > len(doc.blocks) // 2:
         reasons.append("most blocks are shorter than a plausible sentence - possible column/reading-order loss")
         return Assessment(LAYOUT_MODEL, reasons, [])
-    return Assessment(TEXT_LAYER_OK, ["text layer looks sufficient"], [])
+    return Assessment(TEXT_LAYER_OK,
+                      [f"all {cov.units_total} unit(s) produced a usable text layer; no unit "
+                       "showed raster evidence"], [])
 
 
 def ocr_status() -> dict[str, object]:
-    """Report the real capability state; OCR is not installed until the quality gate runs."""
-    from ..models.registry import EVALUATION_REQUIRED, catalog
-    return {"capability": "documents.ocr", "status": EVALUATION_REQUIRED,
+    """Report the real capability state from the adapter, never from a status string.
+
+    The engine itself decides whether OCR can execute here (a validated binary plus a
+    working rasterizer). Coverage claims come from the engine's own language data, and
+    ACCURACY still only ever comes from the eval harness - executable is not measured.
+    """
+    from ..models.registry import AVAILABLE, catalog
+    from . import ocr_tesseract
+    st = catalog().status_for("documents.ocr")
+    adapter = ocr_tesseract.ocr_status()
+    executable = st["status"] == AVAILABLE
+    return {"capability": "documents.ocr",
+            "status": st["status"],
             "candidates": [m.id for m in catalog().for_capability("documents.ocr")],
-            "detail": "no OCR engine is pinned; Indic coverage is unverified, so none is claimed",
-            "human_step": "run the document/OCR quality gate, then pin the selected engine"}
+            "executable": executable,
+            "engine": {"binary": ocr_tesseract.engine_state()["binary"],
+                       "version": adapter.get("version", "") or ocr_tesseract.engine_state()["version"],
+                       "languages": adapter.get("languages", []),
+                       "languages_source": adapter.get("languages_source", ""),
+                       "rasterizer": ocr_tesseract.rasterizer_state()},
+            "detail": st["detail"],
+            "quality": adapter.get("quality", "accuracy is measured only by the document quality gate"),
+            "human_step": st.get("human_step", "") or adapter.get("human_step", "")}

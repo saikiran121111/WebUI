@@ -119,7 +119,16 @@ function worksheetText(xml: string, shared: string[]): string {
         }
         if (t === "b") val = val === "1" ? "TRUE" : "FALSE";
       }
-      if (val !== "") cells.push(`${ref}=${val.replace(/\s+/g, " ")}`);
+      if (val !== "") {
+        const flat = val.replace(/\s+/g, " ");
+        // The separator is always "REF=", so a formula cell reads as "A1==SUM(A2)" —
+        // the value's own leading "=" is what distinguishes a FORMULA from a text cell
+        // whose literal content happens to be "SUM(A2)". Collapsing the pair to a single
+        // "=" (tried and reverted) makes those two cases indistinguishable, which is a
+        // worse bug than an un-pasteable rendering: nothing here is meant to be pasted
+        // back into a cell, it is a citation of what the sheet contains.
+        cells.push(`${ref}=${flat}`);
+      }
     }
     if (cells.length) lines.push(cells.join("\t"));
   }

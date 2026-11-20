@@ -197,6 +197,24 @@ function pythonEnvReady(interpreterPath) {
   return String(probe.stdout || "").trim().split(/\s+/)[0] || "unknown";
 }
 
+function capabilityExtras() {
+  // Which optional families name code this backend can actually execute is declared in
+  // python-backend/pyproject.toml ([tool.ruke] capability_extras), not here: a new pinned
+  // extra becomes part of startup the moment it is declared, and the DECLARED-ONLY
+  // families (sentence-transformers, pyannote, qwen) are never synced, so startup cannot
+  // accidentally pull torch or claim a capability it has not run.
+  try {
+    const text = fs.readFileSync(path.join(pyProject, "pyproject.toml"), "utf8");
+    const block = text.match(/^capability_extras\s*=\s*\[([^\]]*)\]/m);
+    if (!block) return [];
+    return [...block[1].matchAll(/"([^"]*)"|'([^']*)'/g)]
+      .map((m) => (m[1] ?? m[2] ?? "").trim())
+      .filter((name) => /^[a-z0-9][a-z0-9_-]*$/.test(name));
+  } catch {
+    return [];
+  }
+}
+
 let pyInterpreter = (process.env.RUKE_PYTHON || "").trim();
 let mlSetupNote = "";
 if (!pyProjectExists) {
@@ -214,9 +232,18 @@ if (!pyProjectExists) {
   if (!pyInterpreter) {
     const uv = uvVersion();
     if (uv) {
-      console.log(`[dev-supervisor] syncing local Python environment (uv, fingerprint ${fp})...`);
+      const extras = capabilityExtras();
+      console.log(
+        `[dev-supervisor] syncing local Python environment (uv, fingerprint ${fp}, ` +
+          `capability extras: ${extras.length ? extras.join(", ") : "none declared"})...`,
+      );
       fs.mkdirSync(pyRuntimeDir, { recursive: true });
-      const sync = spawnSync("uv", ["sync", "--project", pyProject], { cwd: pyProject, stdio: "inherit" });
+      // --inexact matters: this venv is the one the pinned adapter stack was validated
+      // against, so sync adds/updates exactly what the lock declares for the extras above
+      // and never prunes a package the lock happens not to name.
+      const args = ["sync", "--project", pyProject, "--inexact"];
+      for (const name of extras) args.push("--extra", name);
+      const sync = spawnSync("uv", args, { cwd: pyProject, stdio: "inherit" });
       const probed = pythonEnvReady(venvPython);
       if (sync.status === 0 && probed) {
         fs.writeFileSync(
@@ -225,8 +252,19 @@ if (!pyProjectExists) {
         );
         pyInterpreter = venvPython;
         mlSetupNote = `uv sync OK - python ${probed}; heavy model families stay uninstalled until the quality gate selects them`;
+      } else if (probed) {
+        // The interpreter answers even though the lock/sync step failed. Reusing it is the
+        // truthful option; claiming "no usable .venv" when 197 tests run inside it is not.
+        // No stamp is written, so the next start retries the sync instead of freezing the
+        // degraded state into the offline fast path.
+        pyInterpreter = venvPython;
+        mlSetupNote =
+          `uv sync failed (uv exit ${sync.status}) but the project venv still imports ruke_ml - ` +
+          `reusing it with no setup stamp; fix the lock and this retry clears itself`;
       } else {
-        mlSetupNote = `uv sync failed (uv exit ${sync.status}) and no usable .venv - capability backend will be reported as not_configured`;
+        mlSetupNote =
+          `uv sync failed (uv exit ${sync.status}) and no project venv can import ruke_ml - ` +
+          `capability backend will be reported as not_configured`;
       }
     } else if (pythonEnvReady(venvPython)) {
       pyInterpreter = venvPython;

@@ -8,6 +8,7 @@ from __future__ import annotations
 import unittest
 
 from ruke_ml.speech import alignment, asr, diarization
+from ruke_ml.models.registry import catalog
 
 ENGLISH_ONLY = "Xenova/whisper-base.en"
 
@@ -107,6 +108,42 @@ class Timebase(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("-f") + 1], "s16le")
 
 
+class Coverage(unittest.TestCase):
+    """A run is complete when the decoded windows cover the source, at the resolution the
+    numbers are actually reported at. Both error directions are bugs: an 84 us resampler
+    tail is not "unexamined audio", and a real shortfall must never be hidden."""
+
+    def test_reporting_rounding_is_not_reported_as_unexamined_audio(self):
+        from ruke_ml.speech import whisper_ct2
+        # Measured in the F17 E03 run: a 6.543084 s track decoded end to end, and the
+        # span arithmetic left an 84 us "skipped" interval, so an honest complete run
+        # was reported as partial.
+        gaps = whisper_ct2.uncovered_gaps(6.543084, [(0.0, 6.543)])
+        self.assertEqual(gaps, [], "resampler drift was reported as unexamined audio")
+
+    def test_a_real_shortfall_is_still_reported_in_full(self):
+        from ruke_ml.speech import whisper_ct2
+        gaps = whisper_ct2.uncovered_gaps(120.0, [(0.0, 30.0), (35.0, 60.0)])
+        self.assertEqual([(round(a, 3), round(b, 3)) for a, b in gaps],
+                         [(30.0, 35.0), (60.0, 120.0)],
+                         "an undecoded middle and an undecoded tail must both survive")
+
+    def test_tolerance_is_documented_and_smaller_than_any_real_gap(self):
+        from ruke_ml.speech import whisper_ct2
+        self.assertLess(whisper_ct2.COVERAGE_TOLERANCE_S, 0.01,
+                        "a tolerance big enough to hide a tenth of a second is not a tolerance")
+        self.assertGreater(whisper_ct2.COVERAGE_TOLERANCE_S, 1.0 / asr.PCM_RATE_HZ)
+
+    def test_the_job_and_the_adapter_use_the_same_gap_rule(self):
+        # One rule, one place: the job's `skipped` field and the adapter's `complete`
+        # flag must never disagree about the same spans.
+        from ruke_ml.speech import whisper_ct2
+        from ruke_ml.workers import speech_jobs
+        spans = [(0.0, 6.543)]
+        self.assertEqual(speech_jobs._uncovered(6.543084, spans),
+                         whisper_ct2.uncovered_gaps(6.543084, spans))
+
+
 class WordTimes(unittest.TestCase):
     def test_absent_word_times_are_reported_as_segment_span_only(self):
         out = alignment.accept_word_timestamps({"start": 1.0, "end": 4.0, "text": "hello there"})
@@ -151,7 +188,69 @@ class WordTimes(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("no aligner", why)
         st = alignment.alignment_status()
-        self.assertEqual(st["exclusions"]["Qwen/Qwen3-ASR-1.7B"], ["hi", "te"])
+        # D-034 test law: exclusions are keyed by the REGISTERED ALIGNER, not by whichever
+        # ASR produced the transcript. The transcript family -> aligner map is published so
+        # the routing stays checkable.
+        self.assertEqual(st["exclusions"]["Qwen/Qwen3-ForcedAligner-0.6B"], ["hi", "te"])
+        self.assertEqual(st["aligner_for"]["Qwen/Qwen3-ASR-1.7B"], "Qwen/Qwen3-ForcedAligner-0.6B")
+        self.assertEqual(st["exclusions_by_transcript_family"]["Qwen/Qwen3-ASR-1.7B"], ["hi", "te"])
+
+
+class AlignerTruth(unittest.TestCase):
+    """Word timing belongs to the aligner, and its support claim is its own table."""
+
+    def test_the_aligners_table_decides_not_the_asrs(self):
+        # openai/whisper-large-v3 publishes Telugu as an ASR, but the aligner registered
+        # for that transcript family publishes no captured table at all, so word timing
+        # must be refused rather than borrowed from the ASR's multilingual claim.
+        got = alignment.decide("openai/whisper-large-v3", "te")
+        self.assertEqual(got["aligner"], "whisperx/whisper-alignment")
+        self.assertFalse(got["ok"])
+        self.assertEqual(got["kind"], alignment.KIND_UNSUPPORTED_LANGUAGE, got)
+        self.assertIn("language table", got["detail"])
+        self.assertTrue(got["human_step"])
+
+    def test_automatic_language_never_reaches_an_aligner(self):
+        for lang in ("", "auto", "unknown", "und", "mul", "-", "n/a"):
+            got = alignment.decide("Systran/faster-whisper-base", lang)
+            self.assertFalse(got["ok"], lang)
+            self.assertEqual(got["kind"], alignment.KIND_UNKNOWN_LANGUAGE,
+                             "%s must go through real detection first" % lang)
+            self.assertTrue(got["human_step"], lang)
+
+    def test_advertised_word_timing_and_executability_never_disagree(self):
+        rows = catalog().for_capability("speech.align")
+        self.assertTrue(rows, "speech.align must have registered rows to reason about")
+        seen_executable_case = False
+        for spec in rows:
+            tags = spec.claims.get("languages") or []
+            if not tags:
+                continue
+            lang = next((t for t in tags
+                         if t not in alignment.ALIGNER_EXCLUSIONS.get(spec.id, set())), "")
+            if not lang:
+                continue
+            got = alignment.decide(spec.id, lang)
+            executable = catalog().readiness(spec.id, "speech.align").executable
+            self.assertEqual(got["ok"], executable,
+                             "%s: word-timing support must equal readiness" % spec.id)
+            if not got["ok"]:
+                seen_executable_case = True
+                self.assertEqual(got["kind"], alignment.KIND_NOT_EXECUTABLE, got)
+                self.assertTrue(got["blockers"], "a refused row must name its blocker")
+                self.assertTrue(got["human_step"])
+        self.assertTrue(seen_executable_case or any(
+            catalog().readiness(s.id, "speech.align").executable for s in rows))
+
+    def test_status_reports_per_aligner_readiness_without_loading(self):
+        st = alignment.alignment_status()
+        self.assertEqual(st["capability"], "speech.align")
+        for a in st["aligners"]:
+            self.assertIsInstance(a["executable"], bool)
+            self.assertIsInstance(a["published_languages"], int)
+            if not a["executable"]:
+                self.assertTrue(a["blockers"], "%s must say why it cannot run" % a["id"])
+        self.assertIn("the aligner's table", st["detail"])
 
 
 class Speakers(unittest.TestCase):

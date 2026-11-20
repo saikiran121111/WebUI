@@ -1,0 +1,16 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/documents/artifact-reopen-parity.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/Projects/WebUI/WebUI[39m
+
+(node:24840) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[23:23:21.426] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ [32m✓[39m __tests__/documents/artifact-reopen-parity.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 2154[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m4 passed[39m[22m[90m (4)[39m
+[2m   Start at [22m 23:23:17
+[2m   Duration [22m 5.33s[2m (transform 143ms, setup 27ms, collect 2.90s, tests 2.15s, environment 0ms, prepare 82ms)[22m
+

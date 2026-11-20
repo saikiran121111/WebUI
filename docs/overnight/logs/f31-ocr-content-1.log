@@ -1,0 +1,109 @@
+
+==============================================================================
+PRECONDITIONS - host resources (measured)
+==============================================================================
+RAM free/total MiB   : 2657 / 65299
+commit used/total MiB: 74203 / 100115
+VRAM (nvidia-smi)    :
+NVIDIA GeForce RTX 3060, 12288 MiB, 9725 MiB, 2391 MiB
+
+==============================================================================
+PRECONDITIONS - OCR readiness (no model is loaded to answer this)
+==============================================================================
+primary engine   : paddleocr-vl-1.6  ready=True
+primary blockers : 
+runtime          : D:\Projects\WebUI\WebUI\python-backend\.venv-ocr\Scripts\python.exe (interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe)
+pinned pins      : opencv-contrib-python=4.10.0.84, paddleocr=3.6.0, paddlepaddle=3.2.1, paddlex=3.6.1
+asset snapshots  : PaddlePaddle/PaddleOCR-VL-1.6 present=True; PaddlePaddle/PP-DocLayoutV3 present=True
+declared peaks   : ram 3300 MiB (provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak); vram 6000 MiB (provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet))
+recovery engine  : available - languages eng,osd
+rasterizer       : pypdfium2 5.6.0
+policy           : primary=paddleocr-vl-1.6 allow_gpu=False allow_unload=False
+readiness exit    : 0 (non-zero = the PRIMARY engine cannot run here)
+
+==============================================================================
+PRECONDITIONS - shared coordination state
+==============================================================================
+LEASE  : none
+JOURNAL: none
+HEALTH : http://127.0.0.1:8080/health -> 200
+HEALTH : http://127.0.0.1:3101/api/ruke/health -> UNREACHABLE (Unable to connect to the remote server)
+
+Without -AllowUnload the primary pass is admitted only if OCR fits alongside the
+resident main model. If it does not, the run must end as a typed resource-limit
+result - that is a legitimate acceptance outcome, not a crash.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe -m ruke_ml.handoff --pdf D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\pdfs\d1_scanned.pdf --language eng --dpi 200 --lease-owner d1-content --out docs\overnight\logs\d1-engine-content-20261117-095639.json --max-free-mib 2048
+env    : RUKE_OCR_FAULT='' RUKE_DOCUMENT_OCR_LANGUAGE='eng' RUKE_OCR_ALLOW_UNLOAD=''
+engine pass content: exit 1; evidence docs\overnight\logs\d1-engine-content-20261117-095639.json
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py --pass content --base http://localhost:3000 --out docs\overnight\logs\d1-http-content-20261117-095639.json
+WARNING: the fault-injection environment has to be set in the environment of the tree that answers HTTP. Re-run with 
+-StartDev (this script then starts and stops its own tree), or restart npm run dev from a shell where these variables 
+are set. Whatever the probe records is what the tree really did.
+Traceback (most recent call last):
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\urllib\request.py", line 1357, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\client.py", line 1386, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\client.py", line 1432, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\client.py", line 1381, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\client.py", line 1141, in _send_output
+    self.send(msg)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\client.py", line 1085, in send
+    self.connect()
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\client.py", line 1051, in connect
+    self.sock = self._create_connection(
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socket.py", line 865, in create_connection
+    raise exceptions[0]
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socket.py", line 850, in create_connection
+    sock.connect(sa)
+ConnectionRefusedError: [WinError 10061] No connection could be made because the target machine actively refused it
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py", line 568, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py", line 524, in main
+    status, payload, raw = post_upload(args.base, name, att, pdf.read_bytes(), args.timeout_s)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py", line 182, in post_upload
+    with urllib.request.urlopen(req, timeout=timeout_s) as res:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\urllib\request.py", line 215, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\urllib\request.py", line 515, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\urllib\request.py", line 532, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\urllib\request.py", line 492, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\urllib\request.py", line 1386, in http_open
+    return self.do_open(http.client.HTTPConnection, req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\urllib\request.py", line 1360, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>
+production pass content: exit 1; evidence docs\overnight\logs\d1-http-content-20261117-095639.json
+
+==============================================================================
+SUMMARY (exit codes; 0 = the answer key passed, non-zero = a recorded miss or refusal)
+==============================================================================
+engine:content                   System.Object[]
+production:content               1
+
+Engine evidence is NOT production-path evidence. Both are needed before OCR is GREEN.
+D:\Projects\WebUI\WebUI\scripts\run-ocr-acceptance.ps1 : Cannot convert the "System.Object[]" value of type 
+"System.Object[]" to type "System.Int32".
+    + CategoryInfo          : InvalidArgument: (:) [run-ocr-acceptance.ps1], RuntimeException
+    + FullyQualifiedErrorId : ConvertToFinalInvalidCastException,run-ocr-acceptance.ps1
+ 

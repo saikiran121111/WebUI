@@ -1,0 +1,25 @@
+asset_ok=True detail=D:\Projects\WebUI\WebUI\.data\models\Xenova\ms-marco-MiniLM-L-6-v2\onnx\model.onnx verified against sha256:c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870
+model=Xenova/ms-marco-MiniLM-L-6-v2 upstream=cross-encoder/ms-marco-MiniLM-L-6-v2
+revision=sha256:c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870 commit=a09144355adeed5f58c8ed011d209bf8ee5a1fec provider=onnxruntime-cpu
+scoring=sigmoid of the single classification logit for the (query, passage) pair max_tokens=256 batch=16
+backend={'path': 'D:\\Projects\\WebUI\\WebUI\\.data\\models\\Xenova\\ms-marco-MiniLM-L-6-v2\\onnx\\model.onnx', 'digest': 'c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870', 'load_error': '', 'loaded': True, 'inputs': ['input_ids', 'attention_mask', 'token_type_ids'], 'providers': ['CPUExecutionProvider']}
+cold_load_plus_4_pairs_s=0.32
+lexical: ranks=[2, 1, 1, 1, 2, 1, 1, 1, 2, 1] top1=7/10 top3=10/10 mrr=0.850
+neural_biencoder_minilm: ranks=[2, 1, 1, 1, 1, 1, 1, 1, 1, 1] top1=9/10 top3=10/10 mrr=0.950
+neural_cross_encoder_minilm: ranks=[2, 1, 1, 1, 1, 1, 1, 1, 1, 1] top1=9/10 top3=10/10 mrr=0.950
+g04_numeric_case: cross_encoder_rank=2 biencoder_rank=2 lexical_rank=2
+peak_memory_unavailable=argument 1: OverflowError: int too long to convert
+peak_working_set_mib=0.0 (whole probe process, includes imports and the bi-encoder measured in the same process)
+total_rerank_time_ms=491 for 30 reranks of 4 candidates
+PASS  scores are finite probabilities in (0,1)
+PASS  session reports only CPUExecutionProvider
+PASS  ordering and scores reproducible on an identical second call
+PASS  asset digest pinned and re-verified at load
+PASS  a candidate longer than 256 tokens is reported as truncated
+PASS  a missing pinned asset raises instead of substituting
+PASS  an unknown/unpinned rerank mode is refused
+PASS  cross-encoder top-3 >= 9/10
+PASS  cross-encoder top-1 >= dense bi-encoder top-1 on this set
+FAIL  the g04 numeric case is answered by the cross-encoder
+SCOPE: n=10 hand-authored queries across 6 domains; proves the pinned cross-encoder executes on CPU with joint scoring and improves ordering on this set. It is not a benchmark, claims no quality parity, and states no non-English coverage.
+RESULT: failed checks=9/10

@@ -63,9 +63,16 @@ describe("decision skill loader — one skill per mode, zero cross-modality cont
     expect(block).not.toContain("<core_skill");
   });
 
-  it("standard_chat injects nothing at all", async () => {
+  it("standard_chat injects only the D-070 fence catalogue (no skill, no contract body)", async () => {
+    // Pre-D-070 this asserted null. The standard_chat block is now the always-on
+    // compact catalogue (D-070, DECISIONS.md): knowledge of live fences, never a
+    // skill body and never a mode contract. Mirrors the Rust skill_block.rs law.
     const block = await buildDecisionSkillBlock(envelope("standard_chat"), ROOT);
-    expect(block).toBeNull();
+    expect(block).not.toBeNull();
+    expect(block).toContain(`<decision_skill mode="standard_chat"`);
+    expect(block).toContain("<fence_catalogue>");
+    expect(block).not.toContain("<core_skill");
+    expect(block).not.toMatch(/<output_contract_/);
   });
 
   it("bundle reader refuses path-unsafe names and missing skills", async () => {

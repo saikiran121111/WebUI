@@ -1,0 +1,465 @@
+{
+  "ok": true,
+  "capability": "documents.ocr",
+  "phases": [
+    {
+      "phase": "unloading_main_model",
+      "at": 1794910441.228206,
+      "note": "neither device fits: free physical RAM is 2948 MiB, under the 3556 MiB this load needs (measured load peak 3300 MiB + 256 MiB margin); GPU: GPU execution is disabled for this run; the main model is resident and would have to be released first"
+    },
+    {
+      "phase": "processing",
+      "at": 1794910448.765151,
+      "note": "device=cpu est_peak_mib=3300"
+    },
+    {
+      "phase": "releasing_worker",
+      "at": 1794910478.2477238,
+      "note": "worker resources released by the adapter"
+    },
+    {
+      "phase": "restoring_main_model",
+      "at": 1794910478.2856069,
+      "note": "bringing the original model back"
+    },
+    {
+      "phase": "ready",
+      "at": 1794910499.3341188,
+      "note": "lease released"
+    }
+  ],
+  "original_main_model": {
+    "provider": "strata",
+    "endpoint": "http://127.0.0.1:8080",
+    "loaded": true,
+    "model": "qwen3.8-flash-next-iq3_s",
+    "busy": null,
+    "queued": null,
+    "auto_load": null,
+    "detail": "ok",
+    "reachable": true,
+    "checked_at": 1794910441.1882064,
+    "lifecycle_supported": true,
+    "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+  },
+  "measure_before": {
+    "free_physical_mib": 2943,
+    "commit_available_mib": 26135,
+    "free_vram_mib": 2613,
+    "vram_available": true
+  },
+  "plan": {
+    "capability": "documents.ocr",
+    "device": "none",
+    "fits": false,
+    "needs_handoff": true,
+    "reason": "neither device fits: free physical RAM is 2948 MiB, under the 3556 MiB this load needs (measured load peak 3300 MiB + 256 MiB margin); GPU: GPU execution is disabled for this run; the main model is resident and would have to be released first",
+    "evidence": {
+      "ram": {
+        "measured": true,
+        "fits": false,
+        "free_physical_mib": 2948,
+        "total_physical_mib": 65299,
+        "commit_available_mib": 26131,
+        "est_peak_mib": 3300,
+        "required_mib": 3556,
+        "reasons": [
+          "free physical RAM is 2948 MiB, under the 3556 MiB this load needs (measured load peak 3300 MiB + 256 MiB margin)"
+        ],
+        "estimate": "measured",
+        "floor_free_physical_mib": 1024,
+        "policy": "free-physical-plus-commit",
+        "sampled_at": 1794910441.228206
+      },
+      "vram": {
+        "available": true,
+        "free_mib": 2613,
+        "devices": [
+          {
+            "name": "NVIDIA GeForce RTX 3060",
+            "total_mib": 12288,
+            "used_mib": 9675,
+            "free_mib": 2613
+          }
+        ],
+        "detail": "1 GPU(s); most free: NVIDIA GeForce RTX 3060 2613 MiB of 12288 MiB",
+        "source": "nvidia-smi",
+        "sampled_at": 1794910441.1897056
+      },
+      "est_peak_mib": 3300,
+      "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+      "est_peak_vram_mib": 6000,
+      "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+      "margin_mib": 256,
+      "main_model": {
+        "provider": "strata",
+        "endpoint": "http://127.0.0.1:8080",
+        "loaded": true,
+        "model": "qwen3.8-flash-next-iq3_s",
+        "busy": null,
+        "queued": null,
+        "auto_load": null,
+        "detail": "ok",
+        "reachable": true,
+        "checked_at": 1794910441.1882064,
+        "lifecycle_supported": true,
+        "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+      }
+    }
+  },
+  "unload": {
+    "ok": true,
+    "status": "unloaded",
+    "detail": "engine reported 'unloaded'",
+    "http_status": 200,
+    "retry_after_s": null
+  },
+  "measure_after_unload": {
+    "free_physical_mib": 54022,
+    "commit_available_mib": 87799,
+    "free_vram_mib": 12096,
+    "vram_available": true
+  },
+  "freed_physical_mib": 51079,
+  "plan_after_unload": {
+    "capability": "documents.ocr",
+    "device": "cpu",
+    "fits": true,
+    "needs_handoff": false,
+    "reason": "CPU placement: GPU execution is disabled for this run; measured RAM and commit headroom are sufficient",
+    "evidence": {
+      "ram": {
+        "measured": true,
+        "fits": true,
+        "free_physical_mib": 54020,
+        "total_physical_mib": 65299,
+        "commit_available_mib": 87796,
+        "est_peak_mib": 3300,
+        "required_mib": 3556,
+        "reasons": [],
+        "estimate": "measured",
+        "floor_free_physical_mib": 1024,
+        "policy": "free-physical-plus-commit",
+        "sampled_at": 1794910448.7349596
+      },
+      "vram": {
+        "available": true,
+        "free_mib": 12096,
+        "devices": [
+          {
+            "name": "NVIDIA GeForce RTX 3060",
+            "total_mib": 12288,
+            "used_mib": 192,
+            "free_mib": 12096
+          }
+        ],
+        "detail": "1 GPU(s); most free: NVIDIA GeForce RTX 3060 12096 MiB of 12288 MiB",
+        "source": "nvidia-smi",
+        "sampled_at": 1794910448.7349596
+      },
+      "est_peak_mib": 3300,
+      "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+      "est_peak_vram_mib": 6000,
+      "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+      "margin_mib": 256,
+      "main_model": {
+        "provider": "strata",
+        "endpoint": "http://127.0.0.1:8080",
+        "loaded": false,
+        "model": "qwen3.8-flash-next-iq3_s",
+        "busy": null,
+        "queued": null,
+        "auto_load": null,
+        "detail": "ok",
+        "reachable": true,
+        "checked_at": 1794910448.7349596
+      }
+    }
+  },
+  "work": {
+    "peak": {
+      "working_set_mib": 0,
+      "commit_mib": 0
+    },
+    "device_used": "cpu",
+    "device_echo": {},
+    "pages": 1,
+    "recognised": 1,
+    "unresolved": []
+  },
+  "measure_after_work": {
+    "free_physical_mib": 53714,
+    "commit_available_mib": 87348,
+    "free_vram_mib": 12014,
+    "vram_available": true
+  },
+  "work_peak": {
+    "working_set_mib": 0,
+    "commit_mib": 0
+  },
+  "restore": {
+    "ok": true,
+    "status": "loaded",
+    "detail": "engine answered ok",
+    "http_status": 0,
+    "retry_after_s": null
+  },
+  "restore_ready": {
+    "ok": true,
+    "status": "loaded",
+    "detail": "qwen3.8-flash-next-iq3_s loaded and ready",
+    "http_status": 200,
+    "retry_after_s": null
+  },
+  "final_status": "ok",
+  "device_used": "cpu",
+  "lease_release": {
+    "released": true,
+    "detail": "own lease removed"
+  },
+  "work_detail": {
+    "pages": [
+      {
+        "page": 1,
+        "state": "recognised",
+        "text": "Section 4.2 Ground Water\nThe aquifer beneath the basin yields\n1.4 million cubic metres per month\nDownstream salinity rose to 3.1 ppt\nat the Kandla gauge in March 2019,\nwhich the committee attributed to",
+        "detail": "recovery after primary failure:",
+        "confidence": 0.9640472313690477,
+        "lines": [
+          {
+            "text": "Section 4.2 Ground Water",
+            "bbox": [
+              157,
+              66,
+              509,
+              90
+            ],
+            "confidence": 0.9644546875
+          },
+          {
+            "text": "The aquifer beneath the basin yields",
+            "bbox": [
+              156,
+              110,
+              647,
+              140
+            ],
+            "confidence": 0.964625
+          },
+          {
+            "text": "1.4 million cubic metres per month",
+            "bbox": [
+              159,
+              156,
+              619,
+              184
+            ],
+            "confidence": 0.96403169
+          },
+          {
+            "text": "Downstream salinity rose to 3.1 ppt",
+            "bbox": [
+              158,
+              200,
+              632,
+              229
+            ],
+            "confidence": 0.963894245
+          },
+          {
+            "text": "at the Kandla gauge in March 2019,",
+            "bbox": [
+              156,
+              245,
+              637,
+              274
+            ],
+            "confidence": 0.9624885657142858
+          },
+          {
+            "text": "which the committee attributed to",
+            "bbox": [
+              156,
+              289,
+              603,
+              311
+            ],
+            "confidence": 0.9647892
+          }
+        ],
+        "raster": {
+          "page": 1,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2"
+        },
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "provenance": "ocr"
+      }
+    ],
+    "cascade": {
+      "policy": {
+        "primary": "paddleocr-vl-1.6",
+        "allow_gpu": false,
+        "allow_gpu_default_reason": "the pinned OCR runtime is the CPU build: paddle.is_compiled_with_cuda() returned False on this host (measured 2026-11-17). GPU placement becomes available by preparing a CUDA-enabled pinned build in the isolated runtime and setting RUKE_OCR_ALLOW_GPU=1; it is never enabled by borrowing the main LLM's device.",
+        "allow_unload": true,
+        "allow_unload_default_reason": "unloading the resident main model is an exclusive, coordinated action; a normal upload path does not take it without an operator opting in via RUKE_OCR_ALLOW_UNLOAD",
+        "source": "env(RUKE_OCR_PRIMARY/RUKE_OCR_ALLOW_GPU/RUKE_OCR_ALLOW_UNLOAD)"
+      },
+      "units_requested": [
+        1
+      ],
+      "selection_note": "",
+      "primary": {
+        "engine": "paddleocr-vl-1.6",
+        "ready": true,
+        "blockers": [],
+        "runtime": {
+          "runtime": "paddle-ocr-cpu",
+          "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+          "found": true,
+          "inside_project": true,
+          "pinned": {
+            "paddlepaddle": "3.2.1",
+            "paddleocr": "3.6.0",
+            "paddlex": "3.6.1",
+            "opencv-contrib-python": "4.10.0.84"
+          },
+          "missing": [],
+          "mismatched": [],
+          "cpu_only_verified": true,
+          "detail": "interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe"
+        },
+        "assets": [
+          {
+            "model_id": "PaddlePaddle/PaddleOCR-VL-1.6",
+            "present": true,
+            "detail": "snapshot 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd found in the project cache root",
+            "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd"
+          },
+          {
+            "model_id": "PaddlePaddle/PP-DocLayoutV3",
+            "present": true,
+            "detail": "snapshot 241f8bdfc77a7c7bee915a5057aaee58c235a8d3 found in the project cache root",
+            "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PP-DocLayoutV3\\snapshots\\241f8bdfc77a7c7bee915a5057aaee58c235a8d3"
+          }
+        ],
+        "estimate": {
+          "est_peak_mib": 3300,
+          "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+          "est_peak_vram_mib": 6000,
+          "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)"
+        },
+        "run_refused": "load_failed: OCR worker failed to load the pipeline: VersionError: Detected incompatible Protobuf Gencode/Runtime versions when loading sentencepiece_model.proto: gencode 7.36.1 runtime 6.33.4. Runtime version cannot be older than the linked gencode version. See Protobuf version guarantees at https://protobuf.dev/support/cross-version-runtime-guarantee. | next step: verify the pinned runtime and the two model directories",
+        "run": {
+          "whole_run_failure": "load_failed"
+        }
+      },
+      "fallback": {
+        "reason": "load_failed: OCR worker failed to load the pipeline: VersionError: Detected incompatible Protobuf Gencode/Runtime versions when loading sentencepiece_model.proto: gencode 7.36.1 runtime 6.33.4. Runtime version cannot be older than the linked gencode version. See Protobuf version guarantees at https://protobuf.dev/support/cross-version-runtime-guarantee. | next step: verify the pinned runtime and the two model directories",
+        "attempted": [
+          1
+        ],
+        "fidelity_note": "Tesseract recovery does NOT claim equivalent table, formula or layout fidelity; the affected pages are labelled with the engine that read them",
+        "ran": true,
+        "recognized": 1,
+        "states": {
+          "1": "recognised"
+        }
+      },
+      "device_plan": {
+        "capability": "documents.ocr",
+        "device": "cpu",
+        "fits": true,
+        "needs_handoff": false,
+        "reason": "device 'cpu' was chosen by the lease holder; the plan recomputed inside the window says 'cpu'",
+        "evidence": {
+          "ram": {
+            "measured": true,
+            "fits": true,
+            "free_physical_mib": 54021,
+            "total_physical_mib": 65299,
+            "commit_available_mib": 87797,
+            "est_peak_mib": 3300,
+            "required_mib": 3556,
+            "reasons": [],
+            "estimate": "measured",
+            "floor_free_physical_mib": 1024,
+            "policy": "free-physical-plus-commit",
+            "sampled_at": 1794910448.7691534
+          },
+          "vram": {
+            "available": true,
+            "free_mib": 12096,
+            "devices": [
+              {
+                "name": "NVIDIA GeForce RTX 3060",
+                "total_mib": 12288,
+                "used_mib": 192,
+                "free_mib": 12096
+              }
+            ],
+            "detail": "1 GPU(s); most free: NVIDIA GeForce RTX 3060 12096 MiB of 12288 MiB",
+            "source": "nvidia-smi",
+            "sampled_at": 1794910448.7349596
+          },
+          "est_peak_mib": 3300,
+          "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+          "est_peak_vram_mib": 6000,
+          "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+          "margin_mib": 256,
+          "main_model": {
+            "provider": "strata",
+            "endpoint": "http://127.0.0.1:8080",
+            "loaded": false,
+            "model": "qwen3.8-flash-next-iq3_s",
+            "busy": null,
+            "queued": null,
+            "auto_load": null,
+            "detail": "ok",
+            "reachable": true,
+            "checked_at": 1794910448.7691534,
+            "lifecycle_supported": true,
+            "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+          }
+        }
+      },
+      "handoff": {},
+      "inside_handoff": true,
+      "engines_used": [
+        "tesseract v5.5.3.20260724"
+      ],
+      "units_read": 1,
+      "units_unresolved": [],
+      "units_not_read": []
+    }
+  },
+  "watchdog": {
+    "free_min": null,
+    "tripped": 0
+  },
+  "pages_requested": [
+    1
+  ],
+  "arguments": {
+    "pdf": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\fixtures\\d1\\pdfs\\d1_scanned.pdf",
+    "language": "eng",
+    "device": "auto",
+    "allow_unload": true,
+    "allow_gpu": false,
+    "pages": "1",
+    "dpi": 200,
+    "load_timeout": 420.0,
+    "page_timeout": 240.0,
+    "unload_wait": 60.0,
+    "ready_timeout": 300.0,
+    "max_free_mib": 0,
+    "inject_primary_failure_page": 0,
+    "recover": false,
+    "lease_owner": "d1-content"
+  }
+}

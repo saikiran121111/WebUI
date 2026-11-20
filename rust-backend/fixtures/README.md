@@ -39,7 +39,10 @@ a fixture silently promote a defect into a contract:
    contract change, never a bugfix: `decision/01–05` envelope bytes (incl. integer
    `confidence` serialization), `errors/*` full header sets, chat byte-exact bodies,
    `skills/06` sha256 hashes, `attachments/*` + `attachments/store/` on-disk bytes.
-   These replay byte-exact in Rust and were NEVER re-recorded for §5a–§5l.
+   These replay byte-exact in Rust and were NEVER re-recorded for §5a–§5l. A 2026-11-17 exception exists (D-068): `attachments/01`, `04`, `05` and `06`
+   WERE re-recorded through the sanctioned `RUKE_GOLDEN_UPDATE=1` harness, because the emitted
+   honesty block gained the `[ranking: ...]` line; the diff was reviewed character-by-character
+   and is a pure insertion. `attachments/store/` bytes were NOT touched.
 2. **Semantic expectation** — behavioral pins that record CURRENT correct semantics
    (`comparison: "semantic"`): `decision/06` intent vectors, the attach rules behind
    `attachments/*`, web tool-envelope ledgers. Re-recorded only when the underlying
@@ -233,6 +236,19 @@ SERP + pages via tool envelopes.
   `attachment_replay` 6/6 and `store_compat` 6/6 are byte-exact against the
   re-recorded fixtures; ruke-attach and TS `rules()` stay byte-identical.
 
+- **Re-recorded 2026-11-17 (D-068, the `[ranking:]` honesty line).** The retrieval owner now emits a
+  `[ranking: ...]` line next to the `[coverage: ...]` line, so the four fixtures carrying a
+  knowledge_index block (`01`, `04`, `05`, `06`) were re-recorded from the live TypeScript oracle
+  with `RUKE_GOLDEN_UPDATE=1 npx vitest run __tests__/rust-golden/attachments.test.ts` (never
+  hand-edited). A character-level diff review confirmed a pure insertion of that one line - 8
+  changed lines, because each fixture stores the block twice (`bodyText` + `bodyJson`).
+  `attachments/store/` was NOT re-recorded (turn text is not part of the on-disk index). Rust parity
+  landed first: `crates/ruke-attach/src/turn.rs` `rank_line()` + `NO_RERANK_ROUTE`, pinned by the
+  unit test `rank_line_mirrors_turn_ts_byte_for_byte` (ruke-attach lib 87 passed), then
+  `attachment_replay` 6/6 byte-identical against the re-recorded bytes. Documented divergence: the
+  TypeScript "fewer than two candidates were ranked" wording is not computable from Rust `Evidence`
+  (it carries no candidate-field size) and no fixture query reaches it.
+
 - **attachments/01–06: GREEN.** `crates/ruke-server/tests/attachment_replay.rs` (6/6) replays
   every fixture through the FULL Rust chat pipeline (`POST /api/chat` on the library router):
   `assert_response` (status, full header set, ms-normalized or byte-exact body, logical frames —
@@ -260,6 +276,18 @@ SERP + pages via tool envelopes.
 - Part-4 corpus re-verified alongside (golden_replay 19/19, scrubber 2/2) — attachment wiring did
   not regress chat/errors/sse fixtures.
 
+## media/ - cross-language numeric answer keys (TS <-> Python)
+
+`media/measured-prefix-v1.json` is NOT a wire-corpus fixture. It is the single shared answer
+key for the decoded-prefix rule (brief 3-D): how far a scene-cut decoder may honestly be said
+to have got. Producer side: `python-backend/ruke_ml/video/scenes.py::measured_prefix_end`,
+bound by `python-backend/tests/test_video_scan.py::MeasuredPrefixContractTests`. Consumer side:
+`lib/server/attachindex/timeline.ts::measuredPrefixEnd`, bound by
+`__tests__/attach-timeline-f04.test.ts`. Both suites read the SAME file, so the rule cannot be
+redefined on one side alone: an unmeasured prefix is always 0.0 (unknown), a duration is never a
+measurement, and a boolean is never a measurement. `contract_fields` documents the payload
+fields (`cut_scan.scanned_seconds` / `cut_scan.prefix_measured` / `cut_scan.truncated`) and
+the consumer rule that an ABSENT `prefix_measured` means unknown, never full coverage.
 ## Regenerating
 
 ```

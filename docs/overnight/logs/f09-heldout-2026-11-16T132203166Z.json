@@ -1,0 +1,45 @@
+{
+  "key_version": "f10-heldout-1",
+  "results": [
+    {
+      "name": "ho-hydro.pdf",
+      "error": "fixture missing",
+      "ok": false
+    },
+    {
+      "name": "ho-negate.pdf",
+      "error": "fixture missing",
+      "ok": false
+    },
+    {
+      "name": "ho-empty.pdf",
+      "error": "fixture missing",
+      "ok": false
+    },
+    {
+      "name": "ho-inventory.xlsx",
+      "error": "fixture missing",
+      "ok": false
+    },
+    {
+      "name": "ho-corrupt.xlsx",
+      "error": "fixture missing",
+      "ok": false
+    },
+    {
+      "name": "ho-badxml.xlsx",
+      "error": "fixture missing",
+      "ok": false
+    },
+    {
+      "name": "ho-catalog.docx",
+      "error": "fixture missing",
+      "ok": false
+    },
+    {
+      "name": "ho-slides.pptx",
+      "error": "fixture missing",
+      "ok": false
+    }
+  ]
+}

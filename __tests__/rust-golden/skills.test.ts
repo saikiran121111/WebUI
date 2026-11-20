@@ -170,17 +170,24 @@ describe("golden: skills (two-tier)", () => {
       scenario: "unknown slash command /nosuchskill",
       semantics:
         "Slash regex MATCHES but the scenario/skill does not exist -> applySlashSkillRouting returns " +
-        "null: NO prefix strip (user text keeps '/nosuchskill '), NO injection, NO X-Used-Skill header, " +
-        "NO skill stage frame. The literal text flows to the normal decision branch.",
+        "null: NO prefix strip (user text keeps '/nosuchskill '), NO slash-skill injection, NO " +
+        "X-Used-Skill header. Since D-070 (2026-11-20) a 'skill' stage frame and a decision_skill " +
+        "anchor ride EVERY turn (the catalogue block, UNNAMED — it names no skill and proves nothing " +
+        "about slash routing). The literal text flows to the normal decision branch.",
       comparison: "structural",
       rawBody: JSON.stringify({ messages: [{ role: "user", content: "/nosuchskill hello world" }] }),
     });
     expect(run.headers["x-used-skill"]).toBeUndefined();
-    expect(stageNames(logical.frames)).toEqual(["decision_done"]);
+    // D-070: the nameless skill frame + the catalogue anchor ride every turn;
+    // no SLASH skill is named anywhere on this path.
+    expect(stageNames(logical.frames)).toEqual(["decision_done", "skill"]);
     const userMsg = (upstreamCalls[0].bodyJson as { messages: { role: string; content: unknown }[] }).messages
       .filter((m) => m.role === "user").pop();
     expect(userMsg!.content).toBe("/nosuchskill hello world");
-    expect(upstreamCalls[0].anchors.length).toBe(0);
+    // D-070: the ONE anchor is the catalogue block — no slash skill was injected.
+    expect(upstreamCalls[0].anchors.length).toBe(1);
+    expect(upstreamCalls[0].anchors[0].kind).toBe("decision_skill");
+    expect(upstreamCalls[0].anchors[0].name).toBe("standard_chat");
   });
 
   it("04 core-tier skill via decision routing", async () => {

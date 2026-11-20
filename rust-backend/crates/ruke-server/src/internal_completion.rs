@@ -212,6 +212,17 @@ pub async fn completion_post(
         Err(ruke_core::admission::AdmissionError::Cancelled) => {
             return err(StatusCode::GATEWAY_TIMEOUT, "Timed out waiting for the model endpoint");
         }
+        Err(ruke_core::admission::AdmissionError::HandoffHeld) => {
+            // Distinct 503 so a TS helper can tell "a job parked the model"
+            // from generic overload and retry later instead of retry-looping.
+            tracing::warn!(
+                "internal completion rejected: a document/media job holds the endpoint lease"
+            );
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "A document or media job has the model parked; retry in a moment.",
+            );
+        }
     };
 
     let url = state.settings.llm_api_url();

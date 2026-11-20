@@ -1,0 +1,888 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/Projects/WebUI/WebUI[39m
+
+ [2m[90m↓[39m[22m __tests__/manual/mhr-g-model-eval.test.ts [2m([22m[2m16 tests[22m[2m | [22m[33m16 skipped[39m[2m)[22m
+ [32m✓[39m __tests__/server/upstream-admission.test.ts [2m([22m[2m20 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m __tests__/decision/task-scope.test.ts [2m([22m[2m86 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+ [32m✓[39m __tests__/attach-timeline-frameocr.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 23[2mms[22m[39m
+ [32m✓[39m __tests__/browser-client.test.ts [2m([22m[2m34 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m __tests__/attach-timeline-s60.test.ts [2m([22m[2m26 tests[22m[2m)[22m[90m 45[2mms[22m[39m
+ [32m✓[39m __tests__/attach-index.test.ts [2m([22m[2m28 tests[22m[2m)[22m[90m 61[2mms[22m[39m
+ [32m✓[39m __tests__/progress/capability-status.test.ts [2m([22m[2m31 tests[22m[2m)[22m[90m 26[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-index-tx.test.ts [2m([22m[2m18 tests[22m[2m)[22m[90m 243[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/decision-parity.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 84[2mms[22m[39m
+ [32m✓[39m __tests__/turn-progress.test.ts [2m([22m[2m27 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+[00:04:01.744] [33mWARN[39m (extract/audio): [36mnot unloading the LLM: a handoff job already owns the parked-model window[39m [90m{"lease":"ruke-python holds the lease (pid 27632, phase processing, heartbeat 0s ago)"}[39m
+ [32m✓[39m __tests__/think-splitter.test.ts [2m([22m[2m34 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+[00:04:01.874] [33mWARN[39m (extract/audio): [36mLLM unload hook failed; the model may still be resident[39m 
+    err: "unload endpoint exploded"
+(node:6628) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m __tests__/server/attach-rerank-neural.test.ts [2m([22m[2m17 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-intent-f07.test.ts [2m([22m[2m25 tests[22m[2m)[22m[90m 186[2mms[22m[39m
+[90mstderr[2m | __tests__/stream-terminal-ownership.test.ts[2m > [22m[2mF16 B - every ending is a distinct, explicit outcome[2m > [22m[2ma transport failure is an ERROR with its message, never a silent success
+[22m[39m[PARSER] error: TypeError: fetch failed: ECONNREFUSED 127.0.0.1:8080
+    at [90mD:\Projects\WebUI\WebUI\[39m__tests__\stream-terminal-ownership.test.ts:264:15
+    at mockCall [90m(file:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4m@vitest/spy[24m/dist/index.js:61:17[90m)[39m
+    at spy [90m(file:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+    at pump [90m(D:\Projects\WebUI\WebUI\[39mlib\stream\parser.ts:183:25[90m)[39m
+    at Module.createStreamParser [90m(D:\Projects\WebUI\WebUI\[39mlib\stream\parser.ts:367:3[90m)[39m
+    at settledOf [90m(D:\Projects\WebUI\WebUI\[39m__tests__\stream-terminal-ownership.test.ts:130:18[90m)[39m
+    at [90mD:\Projects\WebUI\WebUI\[39m__tests__\stream-terminal-ownership.test.ts:267:31
+    at [90mfile:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:146:14
+    at [90mfile:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:533:11
+    at runWithTimeout [90m(file:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:39:7[90m)[39m
+
+[90mstderr[2m | __tests__/stream-terminal-ownership.test.ts[2m > [22m[2mF16 B - every ending is a distinct, explicit outcome[2m > [22m[2mthe caller aborting mid-stream => cancelled
+[22m[39m[PARSER] error: DOMException [AbortError]: The operation was aborted
+[90m    at new DOMException (node:internal/per_context/domexception:79:18)[39m
+    at AbortSignal.<anonymous> [90m(D:\Projects\WebUI\WebUI\[39m__tests__\stream-terminal-ownership.test.ts:97:22[90m)[39m
+[90m    at AbortSignal.[nodejs.internal.kHybridDispatch] (node:internal/event_target:872:20)[39m
+[90m    at AbortSignal.dispatchEvent (node:internal/event_target:813:26)[39m
+[90m    at runAbort (node:internal/abort_controller:563:10)[39m
+[90m    at abortSignal (node:internal/abort_controller:527:3)[39m
+[90m    at AbortController.abort (node:internal/abort_controller:582:5)[39m
+    at Object.abort [90m(D:\Projects\WebUI\WebUI\[39mlib\stream\parser.ts:375:26[90m)[39m
+    at [90mD:\Projects\WebUI\WebUI\[39m__tests__\stream-terminal-ownership.test.ts:279:12
+    at [90mfile:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4m@vitest/runner[24m/dist/index.js:533:5
+
+ [32m✓[39m __tests__/stream-terminal-ownership.test.ts [2m([22m[2m13 tests[22m[2m)[22m[90m 45[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-speech-capability.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 544[2mms[22m[39m
+   [33m[2m✓[22m[39m the upload path actually calls the Python speech engine[2m > [22man audio upload is transcribed by the capability job when one answers [33m479[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/planner-law.test.ts [2m([22m[2m41 tests[22m[2m)[22m[90m 35[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/mhr-e-retrievable-evidence.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 728[2mms[22m[39m
+ [32m✓[39m __tests__/documents/recalc.test.ts [2m([22m[2m27 tests[22m[2m)[22m[90m 126[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-document-capability.test.ts [2m([22m[2m49 tests[22m[2m)[22m[90m 108[2mms[22m[39m
+ [32m✓[39m __tests__/server/llm-handoff-lease.test.ts [2m([22m[2m17 tests[22m[2m)[22m[33m 707[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/rich-results.test.ts [2m([22m[2m41 tests[22m[2m)[22m[90m 64[2mms[22m[39m
+[00:04:02.243] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+[00:04:02.326] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Who is the CEO of Acme Corp?"}[39m
+[00:04:02.330] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write Python code for binary search."}[39m
+[00:04:02.331] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"what are you doing today"}[39m
+[00:04:02.332] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"What are you doing now?"}[39m
+ [32m✓[39m __tests__/web-search/search-gate-universal.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 72[2mms[22m[39m
+[00:04:02.389] [33mWARN[39m (titles): [36mtitle model call failed[39m 
+    err: "connect ECONNREFUSED 127.0.0.1:8080"
+[00:04:02.394] [33mWARN[39m (titles): [36mtitle model call failed[39m 
+    err: "This operation was aborted"
+ [32m✓[39m __tests__/titles/title-generation.test.ts [2m([22m[2m21 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/decision-serialization.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 168[2mms[22m[39m
+ [32m✓[39m __tests__/persistence/research-journal.test.ts [2m([22m[2m23 tests[22m[2m)[22m[90m 74[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/retrieval-quality.test.ts [2m([22m[2m55 tests[22m[2m)[22m[90m 22[2mms[22m[39m
+[00:04:02.619] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+ [32m✓[39m __tests__/web-search/destination-affinity.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 25[2mms[22m[39m
+ [32m✓[39m __tests__/documents/powerbiEngine.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 151[2mms[22m[39m
+[00:04:02.627] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:02.628] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.629] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":1,"packets":1}[39m
+[00:04:02.632] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":2,"passages":1}[39m
+[00:04:02.634] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:02.635] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":2,"merged":3}[39m
+[00:04:02.638] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":3}[39m
+[00:04:02.640] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:02.641] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":2,"origins":["semantic","preferred"]}[39m
+[00:04:02.641] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.641] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:02.642] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:02.642] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:02.642] [32mINFO[39m (web-search/pipeline): [36mcross-boundary redirect wave packets dropped by the task-scope admission law[39m [90m{"wave":"gap","dropped":1}[39m
+[00:04:02.643] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":2,"merged":2}[39m
+[00:04:02.643] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":2}[39m
+[00:04:02.645] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:02.645] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:02.645] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.645] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:02.646] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:02.646] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:02.646] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":2,"merged":3}[39m
+[00:04:02.647] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":3}[39m
+[00:04:02.647] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:02.647] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:02.648] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.648] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:02.648] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:02.648] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:02.650] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":2,"followed":["https://docs.arborworks.example.com/redirect-deep","https://docs.arborworks.example.com/reference/model-catalog"],"hop":1}[39m
+[00:04:02.650] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":2,"coverage":1,"hop":1}[39m
+[00:04:02.650] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":3}[39m
+[00:04:02.651] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:02.652] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:02.652] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.652] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:02.652] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:02.652] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:02.653] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":2,"followed":["https://docs.arborworks.example.com/redirect-deep","https://docs.arborworks.example.com/reference/model-catalog"],"hop":1}[39m
+[00:04:02.653] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":2,"coverage":1,"hop":1}[39m
+[00:04:02.653] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":3}[39m
+[00:04:02.654] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:02.654] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:02.654] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.654] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:02.654] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:02.654] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:02.654] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":1,"merged":2}[39m
+[00:04:02.655] [32mINFO[39m (web-search/pipeline): [36mdeep demand wave fired[39m [90m{"queries":["foundation models arborworks support official","Which foundation models does ArborWorks support? 2026"],"missing":["fresh dated evidence"]}[39m
+[00:04:02.655] [32mINFO[39m (web-search/pipeline): [36mdemand wave merged[39m [90m{"wavePackets":2,"merged":4}[39m
+[00:04:02.656] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":4}[39m
+[00:04:02.656] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:02.656] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:02.656] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":2,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.657] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":2}[39m
+[00:04:02.657] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":2}[39m
+[00:04:02.658] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:02.658] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:02.658] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:02.658] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:02.658] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:02.658] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:02.659] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":1,"merged":2}[39m
+[00:04:02.659] [32mINFO[39m (web-search/pipeline): [36mdeep demand wave fired[39m [90m{"queries":["foundation models arborworks support official","Which foundation models does ArborWorks support? 2026"],"missing":["fresh dated evidence","additional independent sources"]}[39m
+[00:04:02.659] [32mINFO[39m (web-search/pipeline): [36mdemand wave merged[39m [90m{"wavePackets":2,"merged":4}[39m
+[00:04:02.660] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":4}[39m
+ [32m✓[39m __tests__/web-search/scope-wave-admission.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 44[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/net-cookies-caps.test.ts [2m([22m[2m19 tests[22m[2m)[22m[33m 355[2mms[22m[39m
+   [33m[2m✓[22m[39m installed got chain carries cookies (brief §8 NO_COOKIE repro)[2m > [22m302→302→200: every hop replays the cookies earned upstream [33m319[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/domain-constraints-f03.test.ts [2m([22m[2m45 tests[22m[2m)[22m[90m 27[2mms[22m[39m
+[90mstderr[2m | __tests__/compact-abort-refs.test.ts[2m > [22m[2mcompactConversation — cancellation guard (I28)[2m > [22m[2maborted mid-stream never promotes a partial <compacted_context>
+[22m[39m[PARSER] error: DOMException [AbortError]: The operation was aborted.
+[90m    at new DOMException (node:internal/per_context/domexception:79:18)[39m
+    at AbortSignal.sig.addEventListener.once [90m(D:\Projects\WebUI\WebUI\[39m__tests__\compact-abort-refs.test.ts:96:28[90m)[39m
+[90m    at AbortSignal.[nodejs.internal.kHybridDispatch] (node:internal/event_target:872:20)[39m
+[90m    at AbortSignal.dispatchEvent (node:internal/event_target:813:26)[39m
+[90m    at runAbort (node:internal/abort_controller:563:10)[39m
+[90m    at abortSignal (node:internal/abort_controller:527:3)[39m
+[90m    at AbortController.abort (node:internal/abort_controller:582:5)[39m
+    at AbortSignal.opts.signal.addEventListener.once [90m(D:\Projects\WebUI\WebUI\[39mlib\stream\parser.ts:71:65[90m)[39m
+[90m    at AbortSignal.[nodejs.internal.kHybridDispatch] (node:internal/event_target:872:20)[39m
+[90m    at AbortSignal.dispatchEvent (node:internal/event_target:813:26)[39m
+
+[90mstderr[2m | __tests__/compact-abort-refs.test.ts[2m > [22m[2mcompactConversation — cancellation guard (I28)[2m > [22m[2ma pre-aborted signal short-circuits without promoting anything
+[22m[39m[PARSER] error: DOMException [AbortError]: The operation was aborted.
+[90m    at new DOMException (node:internal/per_context/domexception:79:18)[39m
+    at Object.start [90m(D:\Projects\WebUI\WebUI\[39m__tests__\compact-abort-refs.test.ts:126:21[90m)[39m
+[90m    at setupReadableStreamDefaultController (node:internal/webstreams/readablestream:3025:23)[39m
+[90m    at setupReadableStreamDefaultControllerFromSource (node:internal/webstreams/readablestream:3080:3)[39m
+[90m    at new ReadableStream (node:internal/webstreams/readablestream:287:7)[39m
+    at [90mD:\Projects\WebUI\WebUI\[39m__tests__\compact-abort-refs.test.ts:123:20
+    at mockCall [90m(file:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4m@vitest/spy[24m/dist/index.js:61:17[90m)[39m
+    at spy [90m(file:///D:/Projects/WebUI/WebUI/[39mnode_modules/[4mtinyspy[24m/dist/index.js:45:80[90m)[39m
+    at pump [90m(D:\Projects\WebUI\WebUI\[39mlib\stream\parser.ts:183:25[90m)[39m
+    at Module.createStreamParser [90m(D:\Projects\WebUI\WebUI\[39mlib\stream\parser.ts:367:3[90m)[39m
+
+ [32m✓[39m __tests__/compact-abort-refs.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 63[2mms[22m[39m
+ [32m✓[39m __tests__/rust-proxy.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 229[2mms[22m[39m
+ [32m✓[39m __tests__/support/live-provider-guard.test.ts [2m([22m[2m19 tests[22m[2m)[22m[90m 33[2mms[22m[39m
+ [32m✓[39m __tests__/chat/route-tool-availability.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 37[2mms[22m[39m
+[00:04:02.908] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"strata-mock"}[39m
+[00:04:02.913] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-doxkezay","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[00:04:02.917] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[00:04:02.927] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"read_page"}[39m
+[00:04:02.968] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":3,"finish":"none","ms":55}[39m
+[00:04:02.976] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_legacy","title":"Video Timestamp Drift Fix","genCount":2,"attempt":0}[39m
+ [32m✓[39m __tests__/chat/web-tool-loop-release.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 23[2mms[22m[39m
+ [32m✓[39m __tests__/lifecycle/owned-resource.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 63[2mms[22m[39m
+ [32m✓[39m __tests__/chat/answer-release.test.ts [2m([22m[2m69 tests[22m[2m)[22m[90m 20[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/web-tools.test.ts [2m([22m[2m75 tests[22m[2m)[22m[90m 53[2mms[22m[39m
+[00:04:02.997] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_leg2","title":"Forced Title","genCount":2,"attempt":0}[39m
+ [32m✓[39m __tests__/rust-golden/contract-manifest.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m __tests__/chat/web-tool-loop-feedback.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 23[2mms[22m[39m
+ [32m✓[39m __tests__/server/provider-config.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 61[2mms[22m[39m
+[00:04:03.023] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_coal","title":"Title 1","genCount":2,"attempt":0}[39m
+[00:04:03.025] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_coal","title":"Title 2","genCount":2,"attempt":0}[39m
+[00:04:02.978] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"strata-mock"}[39m
+[00:04:02.979] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"strata-mock","mode":"standard_chat","url":"http://127.0.0.1:9/v1/chat/completions"}[39m
+[00:04:02.981] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"strata-mock","mode":"standard_chat","ms":2,"sseChunks":2}[39m
+[00:04:02.986] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"strata-mock"}[39m
+[00:04:02.986] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-0wcoh05i","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[00:04:02.987] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[00:04:02.990] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":2,"finish":"none","ms":4}[39m
+[00:04:02.993] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"strata-mock"}[39m
+[00:04:02.994] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-g1lxw8jd","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[00:04:02.994] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":1,"calls":"web_search"}[39m
+[00:04:02.995] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":2,"calls":"web_search"}[39m
+[00:04:02.997] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":1,"kept":4}[39m
+[00:04:02.998] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":3,"calls":"web_search"}[39m
+[00:04:02.999] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":2,"kept":3}[39m
+[00:04:03.000] [32mINFO[39m (chat/web-tool-loop): [36mweb round tool calls[39m [90m{"model":"strata-mock","round":4,"calls":"web_search"}[39m
+[00:04:03.001] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":5,"finish":"none","ms":8}[39m
+[00:04:03.016] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"strata-mock"}[39m
+[00:04:03.017] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-23bnfhh2","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[00:04:03.017] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":0}[39m
+[00:04:03.021] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"strata-mock"}[39m
+[00:04:03.022] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop start[39m [90m{"model":"strata-mock","depth":"standard","session":"ws-jwjofnss","budget":{"maxSearchCalls":3,"maxReadUrls":16,"maxToolRounds":8}}[39m
+[00:04:03.022] [32mINFO[39m (chat/web-tool-loop): [36mweb tool loop complete[39m [90m{"model":"strata-mock","round":1,"finish":"none","ms":1}[39m
+ [32m✓[39m __tests__/rust-golden/web.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 228[2mms[22m[39m
+ [32m✓[39m __tests__/decision/artifact-intent-f02.test.ts [2m([22m[2m49 tests[22m[2m)[22m[90m 124[2mms[22m[39m
+[00:04:03.067] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_s1","title":"Serial Title","genCount":2,"attempt":0}[39m
+[00:04:03.093] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ [32m✓[39m __tests__/chat/web-tool-loop.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 37[2mms[22m[39m
+[00:04:03.114] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_s2","title":"Serial Title","genCount":2,"attempt":0}[39m
+[00:04:03.120] [33mWARN[39m (titles/queue): [36mtitle generation produced nothing usable[39m [90m{"id":"c_retry","attempt":0}[39m
+ [32m✓[39m __tests__/web-search/search-gate-attachment.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 27[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/web-tools-rpc.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/chat-core.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 1759[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/media-hints-search.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 15[2mms[22m[39m
+ [2m[90m↓[39m[22m __tests__/server/attach-rerank-live-route.test.ts [2m([22m[2m5 tests[22m[2m | [22m[33m5 skipped[39m[2m)[22m
+ [32m✓[39m __tests__/web-search/section-window-retrieval.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m __tests__/browser-store.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/sse-vectors.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 1932[2mms[22m[39m
+[00:04:03.400] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.400] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.408] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.409] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.410] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":1,"packets":1}[39m
+[00:04:03.413] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":2,"passages":1}[39m
+[00:04:03.416] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":0.75,"missing":["support"],"gapQuery":"\"support\""}[39m
+[00:04:03.418] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":13,"followed":["https://docs.arborworks.example.com/reference/foundation-models","https://docs.arborworks.example.com/nav/home","https://docs.arborworks.example.com/nav/about"],"hop":1}[39m
+[00:04:03.420] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":3,"coverage":1,"hop":1}[39m
+[00:04:03.422] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":4}[39m
+[00:04:03.423] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.424] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.424] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.425] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:03.425] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:03.425] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":0.25,"missing":["foundation","models","support"],"gapQuery":"\"foundation\" \"models\" \"support\""}[39m
+[00:04:03.425] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/guide/docs-hub"],"hop":1}[39m
+[00:04:03.426] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":1}[39m
+[00:04:03.426] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/reference/foundation-models"],"hop":2}[39m
+[00:04:03.427] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":2}[39m
+[00:04:03.427] [32mINFO[39m (web-search/pipeline): [36mdeep demand wave fired[39m [90m{"queries":["Which foundation models does ArborWorks support? review"],"missing":["additional independent sources"]}[39m
+[00:04:03.427] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":3}[39m
+[00:04:03.428] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.428] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":0.25,"missing":["foundation","models","support"],"gapQuery":"\"foundation\" \"models\" \"support\""}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/guide/docs-hub"],"hop":1}[39m
+[00:04:03.430] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":1}[39m
+[00:04:03.430] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/reference/foundation-models"],"hop":2}[39m
+[00:04:03.430] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":2}[39m
+[00:04:03.430] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":3}[39m
+[00:04:03.431] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.431] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.431] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.431] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":0.25,"missing":["foundation","models","support"],"gapQuery":"\"foundation\" \"models\" \"support\""}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/guide/docs-hub"],"hop":1}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":1}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/reference/foundation-models"],"hop":2}[39m
+[00:04:03.433] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":2}[39m
+[00:04:03.433] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/reference/beyond-catalog"],"hop":3}[39m
+[00:04:03.433] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":3}[39m
+[00:04:03.433] [32mINFO[39m (web-search/pipeline): [36mdeep demand wave fired[39m [90m{"queries":["foundation models arborworks support official","Which foundation models does ArborWorks support? review"],"missing":["additional independent sources"]}[39m
+[00:04:03.434] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":4}[39m
+[00:04:03.408] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.409] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.410] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":1,"packets":1}[39m
+[00:04:03.413] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":2,"passages":1}[39m
+[00:04:03.415] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:03.417] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/reference/foundation-models"],"hop":1}[39m
+[00:04:03.419] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":1}[39m
+[00:04:03.422] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":2}[39m
+[00:04:03.425] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.425] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.426] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.426] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:03.426] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:03.426] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:03.427] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":1,"merged":2}[39m
+[00:04:03.427] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":2}[39m
+[00:04:03.428] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.428] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.428] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:03.429] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":1,"merged":2}[39m
+[00:04:03.430] [32mINFO[39m (web-search/pipeline): [36mdeep demand wave fired[39m [90m{"queries":["foundation models arborworks support official","Which foundation models does ArborWorks support? review"],"missing":["additional independent sources"]}[39m
+[00:04:03.430] [32mINFO[39m (web-search/pipeline): [36mdemand wave merged[39m [90m{"wavePackets":2,"merged":4}[39m
+[00:04:03.430] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":4}[39m
+[00:04:03.431] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.431] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":2,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":2}[39m
+[00:04:03.432] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":2}[39m
+[00:04:03.433] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:03.433] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:03.433] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":1,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:03.434] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":1}[39m
+[00:04:03.434] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":1}[39m
+[00:04:03.434] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:03.434] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example.com/reference/foundation-models"],"hop":1}[39m
+[00:04:03.434] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":1}[39m
+[00:04:03.435] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":1,"registered":2}[39m
+ [32m✓[39m __tests__/web-search/route-expansion.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 40[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/caption-formats.test.ts [2m([22m[2m20 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/admitted-packet-registry.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 39[2mms[22m[39m
+[00:04:03.493] [32mINFO[39m (internal/web-research): [36minternal research finished[39m [90m{"ms":3,"aborted":false}[39m
+[00:04:03.506] [32mINFO[39m (internal/web-research): [36minternal research finished[39m [90m{"ms":2,"aborted":false}[39m
+[00:04:03.509] [32mINFO[39m (internal/web-research): [36minternal research finished[39m [90m{"ms":0,"aborted":false}[39m
+[00:04:03.512] [32mINFO[39m (internal/web-research): [36minternal research finished[39m [90m{"ms":1,"aborted":false}[39m
+ [32m✓[39m __tests__/web-search/internal-web-research-journal.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 149[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-office-cells.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m __tests__/attach-timeline-f04.test.ts [2m([22m[2m24 tests[22m[2m)[22m[90m 23[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/attachments.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 2029[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/segment-canonical-recovery.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 494[2mms[22m[39m
+ [32m✓[39m __tests__/stream-byte-partition.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 281[2mms[22m[39m
+[00:04:03.654] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"hey please can you build me a 500-row transaction tracker in"}[39m
+[00:04:03.659] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"excel","by":"in-process-deliverable-match","skill":null,"skillBytes":4801,"model":"test"}[39m
+[00:04:03.660] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"excel","url":"http://127.0.0.1:63194/v1/chat/completions"}[39m
+ [32m✓[39m __tests__/render/html-srcdoc.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+[00:04:03.682] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"excel","ms":22,"sseChunks":1}[39m
+ [32m✓[39m __tests__/compact-pipeline.test.ts [2m([22m[2m22 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m __tests__/progress/current-activity.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/security.test.ts [2m([22m[2m18 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-coverage-honesty.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 114[2mms[22m[39m
+[00:04:03.858] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"why is my useEffect firing twice"}[39m
+[00:04:03.859] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:04:03.860] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:63194/v1/chat/completions"}[39m
+[00:04:03.862] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[00:04:03.879] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"what are you doing today"}[39m
+ [32m✓[39m __tests__/web-search/sufficiency-axes.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m __tests__/ui/scroll-follow.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/persistence/data-root.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 28[2mms[22m[39m
+[00:04:03.996] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"hello there"}[39m
+[00:04:03.997] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:04:03.997] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:63194/v1/chat/completions"}[39m
+[00:04:04.000] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":3,"sseChunks":1}[39m
+ [32m✓[39m __tests__/web-search/presentation.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+[00:04:03.886] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"How are you feeling currently?"}[39m
+[00:04:03.909] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Thanks for your latest reply!","gateMs":22}[39m
+[00:04:03.911] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"What are you up to right now?"}[39m
+[00:04:03.912] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"Hello!"}[39m
+[00:04:03.912] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"Who are you?"}[39m
+[00:04:03.913] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"clock_question","search_required":false,"prompt":"What is today's date?"}[39m
+[00:04:03.915] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"clock_question","search_required":false,"prompt":"What day is it today?"}[39m
+[00:04:03.918] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Tell me the current date.","gateMs":2}[39m
+[00:04:03.927] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a poem about the weather."}[39m
+[00:04:03.929] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Write a fictional news headline about a dragon.","gateMs":1}[39m
+[00:04:03.931] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a fictional story about Alice and Bob."}[39m
+[00:04:03.931] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Translate this text into Hindi: The price is high today."}[39m
+[00:04:03.933] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Proofread this sentence: The website is down today.","gateMs":1}[39m
+[00:04:03.933] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Rewrite this paragraph: Our latest release is ready."}[39m
+[00:04:03.934] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize this supplied text without opening links: Our port"}[39m
+[00:04:03.934] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Explain this code: const url = \"https://example.com\";"}[39m
+[00:04:03.935] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a function that returns the string \"current weather\"."}[39m
+[00:04:03.935] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a Python function to compute an average of supplied st"}[39m
+[00:04:03.935] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write Python code for binary search."}[39m
+[00:04:03.937] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain the syntax of this Python 3.10 match statement.","gateMs":1}[39m
+[00:04:03.937] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"What is 15 * 17?"}[39m
+[00:04:03.939] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain Newton's first law.","gateMs":1}[39m
+[00:04:03.940] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain Binary Search.","gateMs":1}[39m
+[00:04:03.942] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"explain binary search","gateMs":1}[39m
+[00:04:03.944] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Who wrote Pride and Prejudice?","gateMs":2}[39m
+[00:04:03.945] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize the latest paragraph in the attached document."}[39m
+[00:04:03.947] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Transcribe the attached video.","gateMs":1}[39m
+[00:04:03.947] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. Explain the concept of current price "}[39m
+[00:04:03.948] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not browse. What is the current milk price? State if you "}[39m
+[00:04:03.948] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. Count the characters in https://examp"}[39m
+[00:04:03.949] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"what are you doing today"}[39m
+[00:04:03.951] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain the phrase \"current affairs\" without fetching any news.","gateMs":2}[39m
+[00:04:03.951] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize the supplied article about NASA. It says the missi"}[39m
+[00:04:03.954] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the current milk price in Zepto?"}[39m
+[00:04:03.954] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the current price in the website I named?"}[39m
+[00:04:03.955] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is today's weather in Hyderabad?"}[39m
+[00:04:03.956] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the latest version of Node.js?"}[39m
+[00:04:03.957] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Who is the CEO of Acme Corp?"}[39m
+[00:04:03.957] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Check whether the National Scholarship Portal application se"}[39m
+[00:04:03.958] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Find open backend engineering jobs in Hyderabad."}[39m
+[00:04:03.958] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Search the web for sources on protein folding."}[39m
+[00:04:03.959] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Verify the claim that ArborWorks supports the Boreal-X17 mod"}[39m
+[00:04:03.959] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"url","search_required":true,"prompt":"Read https://docs.example.com/start and explain its instruct"}[39m
+[00:04:03.960] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"url","search_required":true,"prompt":"Summarize https://www.youtube.com/watch?v=dQw4w9WgXcQ."}[39m
+[00:04:03.960] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Summarize the attached report and verify its current prices "}[39m
+[00:04:03.960] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Who won the cricket match today?"}[39m
+[00:04:03.961] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Research government websites and cite sources for the licens"}[39m
+[00:04:03.961] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Find peer-reviewed studies that validate the result in the a"}[39m
+[00:04:03.961] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Find independent citations for the claims in the attached pa"}[39m
+[00:04:03.962] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Compare this attached resume with open positions at Acme."}[39m
+[00:04:03.962] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"what are you doing today"}[39m
+[00:04:03.963] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"How are you feeling currently?"}[39m
+[00:04:03.964] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.964] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.964] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Thanks for your latest reply!","gateMs":2}[39m
+[00:04:03.965] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"What are you up to right now?"}[39m
+[00:04:03.965] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"Hello!"}[39m
+[00:04:03.966] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"Who are you?"}[39m
+[00:04:03.966] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"clock_question","search_required":false,"prompt":"What is today's date?"}[39m
+[00:04:03.967] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"clock_question","search_required":false,"prompt":"What day is it today?"}[39m
+[00:04:03.968] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.968] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.968] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Tell me the current date.","gateMs":1}[39m
+[00:04:03.969] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a poem about the weather."}[39m
+[00:04:03.970] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.970] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.970] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Write a fictional news headline about a dragon.","gateMs":1}[39m
+[00:04:03.971] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a fictional story about Alice and Bob."}[39m
+[00:04:03.971] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Translate this text into Hindi: The price is high today."}[39m
+[00:04:03.972] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.973] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.973] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Proofread this sentence: The website is down today.","gateMs":1}[39m
+[00:04:03.973] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Rewrite this paragraph: Our latest release is ready."}[39m
+[00:04:03.974] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize this supplied text without opening links: Our port"}[39m
+[00:04:03.974] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Explain this code: const url = \"https://example.com\";"}[39m
+[00:04:03.974] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a function that returns the string \"current weather\"."}[39m
+[00:04:03.975] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a Python function to compute an average of supplied st"}[39m
+[00:04:03.975] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write Python code for binary search."}[39m
+[00:04:03.978] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.978] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.978] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain the syntax of this Python 3.10 match statement.","gateMs":1}[39m
+ [32m✓[39m __tests__/web-search/search-gate-audit-matrix.test.ts [2m([22m[2m155 tests[22m[2m)[22m[90m 184[2mms[22m[39m
+[00:04:03.979] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"What is 15 * 17?"}[39m
+[00:04:03.981] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.981] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.981] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain Newton's first law.","gateMs":1}[39m
+[00:04:03.982] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.982] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.983] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain Binary Search.","gateMs":1}[39m
+[00:04:03.984] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.984] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.985] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"explain binary search","gateMs":1}[39m
+[00:04:03.986] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.986] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.986] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Who wrote Pride and Prejudice?","gateMs":1}[39m
+[00:04:03.986] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize the latest paragraph in the attached document."}[39m
+[00:04:03.988] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.988] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.988] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Transcribe the attached video.","gateMs":1}[39m
+[00:04:03.989] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. Explain the concept of current price "}[39m
+[00:04:03.989] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not browse. What is the current milk price? State if you "}[39m
+[00:04:03.990] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. Count the characters in https://examp"}[39m
+[00:04:03.990] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"what are you doing today"}[39m
+[00:04:03.992] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "Controlled unavailable gate model"
+[00:04:03.992] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:03.992] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain the phrase \"current affairs\" without fetching any news.","gateMs":1}[39m
+[00:04:03.992] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize the supplied article about NASA. It says the missi"}[39m
+[00:04:03.992] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the current milk price in Zepto?"}[39m
+[00:04:03.993] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the current price in the website I named?"}[39m
+[00:04:03.993] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is today's weather in Hyderabad?"}[39m
+[00:04:03.993] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the latest version of Node.js?"}[39m
+[00:04:03.994] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Who is the CEO of Acme Corp?"}[39m
+[00:04:03.994] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Check whether the National Scholarship Portal application se"}[39m
+[00:04:03.994] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Find open backend engineering jobs in Hyderabad."}[39m
+[00:04:03.995] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Search the web for sources on protein folding."}[39m
+[00:04:03.995] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Verify the claim that ArborWorks supports the Boreal-X17 mod"}[39m
+[00:04:03.995] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"url","search_required":true,"prompt":"Read https://docs.example.com/start and explain its instruct"}[39m
+[00:04:03.995] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"url","search_required":true,"prompt":"Summarize https://www.youtube.com/watch?v=dQw4w9WgXcQ."}[39m
+[00:04:03.996] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Summarize the attached report and verify its current prices "}[39m
+[00:04:03.996] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Who won the cricket match today?"}[39m
+[00:04:03.996] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Research government websites and cite sources for the licens"}[39m
+[00:04:03.996] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Find peer-reviewed studies that validate the result in the a"}[39m
+[00:04:03.997] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Find independent citations for the claims in the attached pa"}[39m
+[00:04:03.997] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Compare this attached resume with open positions at Acme."}[39m
+[00:04:03.997] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"what are you doing today"}[39m
+[00:04:03.999] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"How are you feeling currently?"}[39m
+[00:04:04.000] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Thanks for your latest reply!","gateMs":1}[39m
+[00:04:04.000] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"What are you up to right now?"}[39m
+[00:04:04.001] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"Hello!"}[39m
+[00:04:04.001] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"Who are you?"}[39m
+[00:04:04.001] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"clock_question","search_required":false,"prompt":"What is today's date?"}[39m
+[00:04:04.001] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"clock_question","search_required":false,"prompt":"What day is it today?"}[39m
+[00:04:04.002] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Tell me the current date.","gateMs":1}[39m
+[00:04:04.002] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a poem about the weather."}[39m
+[00:04:04.003] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Write a fictional news headline about a dragon.","gateMs":1}[39m
+[00:04:04.003] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a fictional story about Alice and Bob."}[39m
+[00:04:04.004] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Translate this text into Hindi: The price is high today."}[39m
+[00:04:04.005] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Proofread this sentence: The website is down today.","gateMs":1}[39m
+[00:04:04.005] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Rewrite this paragraph: Our latest release is ready."}[39m
+[00:04:04.006] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize this supplied text without opening links: Our port"}[39m
+[00:04:04.006] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Explain this code: const url = \"https://example.com\";"}[39m
+[00:04:04.006] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a function that returns the string \"current weather\"."}[39m
+[00:04:04.006] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write a Python function to compute an average of supplied st"}[39m
+[00:04:04.007] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Write Python code for binary search."}[39m
+[00:04:04.008] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain the syntax of this Python 3.10 match statement.","gateMs":1}[39m
+[00:04:04.008] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"What is 15 * 17?"}[39m
+[00:04:04.010] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain Newton's first law.","gateMs":1}[39m
+[00:04:04.011] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain Binary Search.","gateMs":1}[39m
+[00:04:04.013] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"explain binary search","gateMs":1}[39m
+[00:04:04.016] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Who wrote Pride and Prejudice?","gateMs":2}[39m
+[00:04:04.016] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize the latest paragraph in the attached document."}[39m
+[00:04:04.017] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Transcribe the attached video.","gateMs":1}[39m
+[00:04:04.018] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. Explain the concept of current price "}[39m
+[00:04:04.018] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not browse. What is the current milk price? State if you "}[39m
+[00:04:04.018] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. Count the characters in https://examp"}[39m
+[00:04:04.019] [32mINFO[39m (web-search/search-gate): [36mtrivial prompt → skip (no search, zero latency)[39m [90m{"prompt":"what are you doing today"}[39m
+[00:04:04.020] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain the phrase \"current affairs\" without fetching any news.","gateMs":1}[39m
+[00:04:04.020] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Summarize the supplied article about NASA. It says the missi"}[39m
+[00:04:04.021] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the current milk price in Zepto?"}[39m
+[00:04:04.021] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the current price in the website I named?"}[39m
+[00:04:04.021] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is today's weather in Hyderabad?"}[39m
+[00:04:04.022] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the latest version of Node.js?"}[39m
+[00:04:04.022] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Who is the CEO of Acme Corp?"}[39m
+[00:04:04.023] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Check whether the National Scholarship Portal application se"}[39m
+[00:04:04.023] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Find open backend engineering jobs in Hyderabad."}[39m
+[00:04:04.023] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Search the web for sources on protein folding."}[39m
+[00:04:04.023] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Verify the claim that ArborWorks supports the Boreal-X17 mod"}[39m
+[00:04:04.024] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"url","search_required":true,"prompt":"Read https://docs.example.com/start and explain its instruct"}[39m
+[00:04:04.024] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"url","search_required":true,"prompt":"Summarize https://www.youtube.com/watch?v=dQw4w9WgXcQ."}[39m
+[00:04:04.024] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Summarize the attached report and verify its current prices "}[39m
+[00:04:04.025] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Who won the cricket match today?"}[39m
+[00:04:04.025] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Research government websites and cite sources for the licens"}[39m
+[00:04:04.025] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Find peer-reviewed studies that validate the result in the a"}[39m
+[00:04:04.026] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Find independent citations for the claims in the attached pa"}[39m
+[00:04:04.026] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"Compare this attached resume with open positions at Acme."}[39m
+[00:04:04.026] [32mINFO[39m (web-search/search-gate): [36msearch gate disabled → deterministic plan[39m [90m{"prompt":"What is its price now?"}[39m
+[00:04:04.049] [32mINFO[39m (web-search/search-gate): [36msearch gate disabled → deterministic plan[39m [90m{"prompt":"東京で牛乳 price today"}[39m
+ [32m✓[39m __tests__/chat/compaction-durability.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/skills.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 1543[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-coverage-metrics.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 131[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/time-kinds.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/net-pinned-redirect-cookies.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 415[2mms[22m[39m
+[00:04:04.138] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"Your previous ```xlsx fence failed validation: #REF!"}[39m
+[00:04:04.138] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"excel","by":"repair-passthrough","skill":null,"skillBytes":4791,"model":"test"}[39m
+[00:04:04.139] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"excel","url":"http://127.0.0.1:63194/v1/chat/completions"}[39m
+[00:04:04.141] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"excel","ms":3,"sseChunks":1}[39m
+[00:04:04.138] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+ [32m✓[39m __tests__/server/attach-retrieve-honest.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+[00:04:04.146] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:04.147] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":2,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:04.148] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":1,"packets":2}[39m
+[00:04:04.151] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":2,"passages":2}[39m
+[00:04:04.151] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:04.152] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":1,"merged":3}[39m
+[00:04:04.155] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":2,"registered":3}[39m
+ [32m✓[39m __tests__/web-search/coverage-answer-support.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 27[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/locale-scope.test.ts [2m([22m[2m17 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+[00:04:04.245] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ [32m✓[39m __tests__/documents/value-model.test.ts [2m([22m[2m18 tests[22m[2m)[22m[90m 19[2mms[22m[39m
+[00:04:04.288] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"explain recursion"}[39m
+[00:04:04.289] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":"test-skill","skillBytes":0,"model":"test"}[39m
+[00:04:04.289] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:63194/v1/chat/completions"}[39m
+[00:04:04.291] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+[00:04:04.334] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:04.334] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:04.384] [32mINFO[39m (web-search/pipeline): [36mstage-0 direct hop cancelled with the turn — proceeding with the SERP pool[39m
+[00:04:04.384] [32mINFO[39m (web-search/pipeline): [36mfirst hop settled after cancellation — late SERP state discarded, no cache write[39m
+[00:04:04.384] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":2,"results":0,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:04.355] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:04.355] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:04.405] [32mINFO[39m (web-search/pipeline): [36mstage-0 direct hop cancelled with the turn — proceeding with the SERP pool[39m
+[00:04:04.405] [32mINFO[39m (web-search/pipeline): [36mfirst hop settled after cancellation — late SERP state discarded, no cache write[39m
+[00:04:04.405] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":1,"results":0,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:04.357] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:04.357] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:04.407] [32mINFO[39m (web-search/pipeline): [36mstage-0 direct hop cancelled with the turn — proceeding with the SERP pool[39m
+[00:04:04.407] [32mINFO[39m (web-search/pipeline): [36mfirst hop settled after cancellation — late SERP state discarded, no cache write[39m
+[00:04:04.407] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":0,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:04.359] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:04.359] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:04.409] [32mINFO[39m (web-search/pipeline): [36mstage-0 direct hop cancelled with the turn — proceeding with the SERP pool[39m
+[00:04:04.409] [32mINFO[39m (web-search/pipeline): [36mfirst hop settled after cancellation — late SERP state discarded, no cache write[39m
+[00:04:04.409] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":0,"directResults":0,"freshnessRecoveryUsed":false}[39m
+ [32m✓[39m __tests__/web-search/research-cancellation.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 28[2mms[22m[39m
+ [32m✓[39m __tests__/decision/generalization-f02b.test.ts [2m([22m[2m19 tests[22m[2m)[22m[90m 29[2mms[22m[39m
+[00:04:04.364] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"/disabled-skill hello"}[39m
+[00:04:04.365] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:04:04.365] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:63194/v1/chat/completions"}[39m
+[00:04:04.366] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":1,"sseChunks":1}[39m
+[00:04:04.441] [32mINFO[39m (api/chat): [36mweb research disabled (WEB_SEARCH_GATE_DISABLED) — no web tools this turn[39m [90m{"prompt":"please summarize this report for me"}[39m
+[00:04:04.442] [32mINFO[39m (api/chat): [36mturn decision[39m [90m{"mode":"standard_chat","by":"in-process-deliverable-none","skill":null,"skillBytes":1655,"model":"test"}[39m
+[00:04:04.442] [32mINFO[39m (api/chat): [36mllm stream start[39m [90m{"model":"test","mode":"standard_chat","url":"http://127.0.0.1:63194/v1/chat/completions"}[39m
+[00:04:04.444] [32mINFO[39m (api/chat): [36mllm stream complete[39m [90m{"model":"test","mode":"standard_chat","ms":2,"sseChunks":1}[39m
+ [32m✓[39m __tests__/skills/chatEngine.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 2402[2mms[22m[39m
+   [33m[2m✓[22m[39m POST /api/chat — Decision Engine pipeline[2m > [22mspreads deliverable-intent word → injects the matched core-skill block + studio fence [33m1630[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/source-ranking.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/exact-url-preservation.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 41[2mms[22m[39m
+ [32m✓[39m __tests__/sse-stage-events.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m __tests__/hardening-payload.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 803[2mms[22m[39m
+   [33m[2m✓[22m[39m keyframes stay inside the user turn, never the system block[2m > [22mevidence is a system string block; image_url parts are appended to the user message [33m795[2mms[22m[39m
+ [32m✓[39m __tests__/render/treeParse.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m __tests__/annotationPrompt.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m __tests__/render/schemas.test.ts [2m([22m[2m18 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/errors.test.ts [2m([22m[2m8 tests[22m[2m)[22m[33m 1779[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/multilingual-provider-recovery.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/language-normalization.test.ts [2m([22m[2m19 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/domain-policy-f03b.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m __tests__/chat/web-tool-loop-terminal-ownership.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/cache-keys.test.ts [2m([22m[2m13 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/domain-ambiguity.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-boundary-heldout.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 31[2mms[22m[39m
+ [32m✓[39m __tests__/citation-pills.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+[00:04:05.066] [33mWARN[39m (extract/audio): [36mnot calling the provider reload endpoint[39m [90m{"reason":"a test process may not call the live provider lifecycle endpoint (set RUKE_ALLOW_LIVE_LIFECYCLE=1 to allow it)"}[39m
+ [32m✓[39m __tests__/server/extract-archive-coverage.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 388[2mms[22m[39m
+[00:04:05.103] [33mWARN[39m (extract/audio): [36mGPU whisper unavailable — falling back to CPU[39m 
+    err: "CUDAExecutionProvider is not available in this ONNX build"
+ [32m✓[39m __tests__/web-search/token-identity.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 15[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-office-structure.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+[00:04:05.141] [33mWARN[39m (extract/audio): [36mGPU whisper unavailable — falling back to CPU[39m 
+    err: "CUDAExecutionProvider is not available in this ONNX build"
+ [32m✓[39m __tests__/decision/multi-deliverable-injection.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 26[2mms[22m[39m
+ [32m✓[39m __tests__/hardening-audio.test.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 367[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/task-scope-planner.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/skills/registry.test.ts [2m([22m[2m10 tests[22m[2m | [22m[33m1 skipped[39m[2m)[22m[90m 72[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-notebook.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/tool-operation-freshness.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/surface-corroboration.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m __tests__/chat/clock-context.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 25[2mms[22m[39m
+[00:04:05.268] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Does the Boreal-X17 model support function calling?","gateMs":1}[39m
+[00:04:05.283] [33mWARN[39m (upstream-bridge): [36mupstream unreachable[39m [90m{"label":"search-gate-plan","outcome":"upstream"}[39m
+    err: "gate model down"
+[00:04:05.284] [33mWARN[39m (web-search/search-gate): [36mgate non-200 / busy / unreachable[39m [90m{"status":null,"timeoutMs":35000}[39m
+[00:04:05.285] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain Newton's first law.","gateMs":2}[39m
+[00:04:05.288] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"freshness","search_required":true,"prompt":"What is the latest version of Node.js?"}[39m
+ [32m✓[39m __tests__/web-search/search-gate-evidence-basis.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 55[2mms[22m[39m
+ [32m✓[39m __tests__/render/fenceRepair.test.ts [2m([22m[2m13 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m __tests__/skills/modality.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+[00:04:05.364] [33mWARN[39m (extract/audio): [36mGPU whisper unavailable — falling back to CPU[39m 
+    err: "Unsupported device: \"cuda\". Should be one of: dml, webgpu, cpu."
+ [32m✓[39m __tests__/server/attach-notes-version.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 79[2mms[22m[39m
+ [32m✓[39m __tests__/titles/policy.test.ts [2m([22m[2m17 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/token-meter.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-turn-budget.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 75[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/engines-gap-recovery.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/audit-fixes-2026-11-04.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 22[2mms[22m[39m
+ [32m✓[39m __tests__/documents/pptxIds.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 114[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/url-detector-page-identity.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/documents/render-lifecycle.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 152[2mms[22m[39m
+ [32m✓[39m __tests__/documents/artifact-reopen-parity.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 2186[2mms[22m[39m
+ [32m✓[39m __tests__/documents/pptxEngine.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 4164[2mms[22m[39m
+   [33m[2m✓[22m[39m pptx engine (PHASE 5A: native motion via @office-kit/pptx)[2m > [22memits native Morph transitions + animations + structural pairs, and the package re-validates [33m1535[2mms[22m[39m
+   [33m[2m✓[22m[39m pptx engine (PHASE 5A: native motion via @office-kit/pptx)[2m > [22mmotion.reveal:"none" drops every entrance animation while the transition survives [33m1117[2mms[22m[39m
+   [33m[2m✓[22m[39m pptx engine (PHASE 5A: native motion via @office-kit/pptx)[2m > [22mthe exported file carries EXACTLY the plan the preview plays (durations + click gates) [33m1410[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/caption-coverage.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-index-cancel.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 35[2mms[22m[39m
+[00:04:06.132] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_retry","title":"Recovered Title","genCount":2,"attempt":1}[39m
+[00:04:06.134] [33mWARN[39m (titles/queue): [36mtitle generation produced nothing usable[39m [90m{"id":"c_fail","attempt":0}[39m
+[00:04:06.191] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ [32m✓[39m __tests__/documents/temp-files.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/documents/pptxMotion.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/segment-preservation.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/persistence/data-root-tracer.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 31[2mms[22m[39m
+[00:04:06.792] [32mINFO[39m (internal/web-research): [36minternal research finished[39m [90m{"ms":1,"aborted":false}[39m
+ [32m✓[39m __tests__/server/extract-encoding.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m __tests__/omniboxSuggest.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+[00:04:06.878] [32mINFO[39m (internal/web-research): [36minternal research finished[39m [90m{"ms":42,"aborted":true}[39m
+ [32m✓[39m __tests__/web-search/web-research-abort.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 482[2mms[22m[39m
+ [32m✓[39m __tests__/parser-multi-chunk.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 3[2mms[22m[39m
+[00:04:07.025] [33mWARN[39m (extract/audio): [36mLLM unload hook failed; the model may still be resident[39m 
+    err: "unload endpoint hung up"
+[00:04:07.058] [33mWARN[39m (extract/audio): [36mLLM reload hook failed — chat may need to warm the model back up[39m 
+    err: "reload hook down"
+ [32m✓[39m __tests__/server/audio-stage-guard.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 179[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/adblock-engine-vectors.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/attach-retrieval-integration.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 1792[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/store-fixture.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 269[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/lexical-relevance.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/panelShortcuts.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+[00:04:07.247] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not browse. What is the current milk price? State if you "}[39m
+[00:04:07.252] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not browse. What is the latest version of Node.js? State "}[39m
+[00:04:07.252] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. What is the weather in Hyderabad now?"}[39m
+[00:04:07.256] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not browse. What is the current milk price? State if you "}[39m
+[00:04:07.256] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. Count the characters in https://examp"}[39m
+ [32m✓[39m __tests__/web-search/search-gate-no-browse.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 54[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-identity.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 699[2mms[22m[39m
+   [33m[2m✓[22m[39m content sniffing — I09[2m > [22ma PNG renamed report.pdf is treated as the IMAGE it is (strong magic wins) [33m592[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/route-adblock-law.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/url-detector.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/extractor-provenance.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 52[2mms[22m[39m
+ [32m✓[39m __tests__/activity-closure.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [2m[90m↓[39m[22m __tests__/web-search/adblock-live-probe.test.ts [2m([22m[2m2 tests[22m[2m | [22m[33m2 skipped[39m[2m)[22m
+ [32m✓[39m __tests__/server/attach-router-phrase.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/caption-probe.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 210[2mms[22m[39m
+[00:04:07.446] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Tell me about accenture's ai foundary from accenture's doume"}[39m
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mveto: independently recognizes external source needs: Tell me about accenture's ai foundary from accenture's doument
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"veto","prompt":"Tell me about accenture's ai foundary from accenture's doument","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"accenture's foundary accenture's doument","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mveto: independently recognizes external source needs: Tell me about ArborWorks' Boreal platform from their documentation.
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"veto","prompt":"Tell me about ArborWorks' Boreal platform from their documentation.","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"arborworks boreal platform their documentation","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mveto: independently recognizes external source needs: Which foundation models does ArborWorks support?
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"veto","prompt":"Which foundation models does ArborWorks support?","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"which foundation models does arborworks support","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mveto: independently recognizes external source needs: What are the eligibility requirements in the Government of India's PM-KISAN guidelines?
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"veto","prompt":"What are the eligibility requirements in the Government of India's PM-KISAN guidelines?","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"are eligibility requirements government india's pm-kisan guidelines","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2munavailable: independently recognizes external source needs: Tell me about accenture's ai foundary from accenture's doument
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"unavailable","prompt":"Tell me about accenture's ai foundary from accenture's doument","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"accenture's foundary accenture's doument","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2munavailable: independently recognizes external source needs: Tell me about ArborWorks' Boreal platform from their documentation.
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"unavailable","prompt":"Tell me about ArborWorks' Boreal platform from their documentation.","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"arborworks boreal platform their documentation","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2munavailable: independently recognizes external source needs: Which foundation models does ArborWorks support?
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"unavailable","prompt":"Which foundation models does ArborWorks support?","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"which foundation models does arborworks support","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2munavailable: independently recognizes external source needs: What are the eligibility requirements in the Government of India's PM-KISAN guidelines?
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"unavailable","prompt":"What are the eligibility requirements in the Government of India's PM-KISAN guidelines?","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"are eligibility requirements government india's pm-kisan guidelines","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mmalformed: independently recognizes external source needs: Tell me about accenture's ai foundary from accenture's doument
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"malformed","prompt":"Tell me about accenture's ai foundary from accenture's doument","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"accenture's foundary accenture's doument","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mmalformed: independently recognizes external source needs: Tell me about ArborWorks' Boreal platform from their documentation.
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"malformed","prompt":"Tell me about ArborWorks' Boreal platform from their documentation.","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"arborworks boreal platform their documentation","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[00:04:07.495] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Tell me about ArborWorks' Boreal platform from their documen"}[39m
+[00:04:07.496] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Which foundation models does ArborWorks support?"}[39m
+[00:04:07.497] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"What are the eligibility requirements in the Government of I"}[39m
+[00:04:07.497] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Tell me about accenture's ai foundary from accenture's doume"}[39m
+[00:04:07.498] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Tell me about ArborWorks' Boreal platform from their documen"}[39m
+[00:04:07.498] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Which foundation models does ArborWorks support?"}[39m
+[00:04:07.498] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"What are the eligibility requirements in the Government of I"}[39m
+[00:04:07.499] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Tell me about accenture's ai foundary from accenture's doume"}[39m
+[00:04:07.499] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Tell me about ArborWorks' Boreal platform from their documen"}[39m
+[00:04:07.500] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Which foundation models does ArborWorks support?"}[39m
+[00:04:07.500] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"What are the eligibility requirements in the Government of I"}[39m
+[00:04:07.518] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Explain what a foundation model is.","gateMs":15}[39m
+[00:04:07.521] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Translate “Which foundation models does ArborWorks support?” into Hindi.","gateMs":1}[39m
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mmalformed: independently recognizes external source needs: Which foundation models does ArborWorks support?
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"malformed","prompt":"Which foundation models does ArborWorks support?","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"which foundation models does arborworks support","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+[90mstdout[2m | __tests__/web-search/research-depth-gate.test.ts[2m > [22m[2mmalformed: independently recognizes external source needs: What are the eligibility requirements in the Government of India's PM-KISAN guidelines?
+[22m[39mIMPLICIT_SOURCE_NEED {"mode":"malformed","prompt":"What are the eligibility requirements in the Government of India's PM-KISAN guidelines?","result":{"decision":{"search_required":true,"reason":"deterministic_url_or_intent","freshness":"any","depth":"standard","queries":[{"query":"are eligibility requirements government india's pm-kisan guidelines","intent":"general"}]},"source":"deterministic","gateMs":0}}
+
+ [32m✓[39m __tests__/web-search/research-depth-gate.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 86[2mms[22m[39m
+ [32m✓[39m __tests__/server/audio-asr-chunking.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 171[2mms[22m[39m
+ [32m✓[39m __tests__/documents/lazyLoad.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 28[2mms[22m[39m
+ [32m✓[39m __tests__/server/attachment-frame-labels.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 3[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/agent-browser-ssrf.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/net-cancellation.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 3425[2mms[22m[39m
+   [33m[2m✓[22m[39m WS16 — cancellation propagates through every transport[2m > [22mcontrol: un-aborted slow reads still succeed (abort wiring must not break normal reads) [33m2530[2mms[22m[39m
+ [32m✓[39m __tests__/render/languages.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/server/token-image-cost.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 3[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/search-more-dto.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 155[2mms[22m[39m
+[00:04:08.557] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+ [32m✓[39m __tests__/server/extract-pdf-coverage.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 177[2mms[22m[39m
+[90mstdout[2m | __tests__/web-search/research-depth-pipeline.test.ts[2m > [22m[2mstandard: follows a provided catalog route when overview pages do not answer the model-list question
+[22m[39mPIPELINE_DEPTH_TRACE {"depth":"standard","reads":["https://docs.arborworks.example/overview-0","https://industry.example.org/overview-1","https://press.example.net/overview-2","https://docs.arborworks.example/overview-0","https://industry.example.org/overview-1","https://press.example.net/overview-2","https://docs.arborworks.example/reference/model-catalog"],"coverage":1,"sufficiency":{"enoughSources":true,"keyClaimsSupported":true,"claimSupport":"supported","listCompleteness":"addressed","freshnessOk":true,"primaryPresent":true,"independentDomains":true,"contradictionSuspected":false,"pagesUseful":true,"stopEarly":true,"sourceDomains":["docs.arborworks.example","industry.example.org","press.example.net"],"contradictionMetrics":[]},"gapSearchFired":true,"demandWaveFired":false}
+
+[90mstdout[2m | __tests__/web-search/research-depth-pipeline.test.ts[2m > [22m[2mdeep: follows a provided catalog route when overview pages do not answer the model-list question
+[22m[39mPIPELINE_DEPTH_TRACE {"depth":"deep","reads":["https://docs.arborworks.example/overview-0","https://industry.example.org/overview-1","https://press.example.net/overview-2","https://docs.arborworks.example/overview-0","https://industry.example.org/overview-1","https://press.example.net/overview-2","https://docs.arborworks.example/reference/model-catalog"],"coverage":1,"sufficiency":{"enoughSources":true,"keyClaimsSupported":true,"claimSupport":"supported","listCompleteness":"addressed","freshnessOk":true,"primaryPresent":true,"independentDomains":true,"contradictionSuspected":false,"pagesUseful":true,"stopEarly":true,"sourceDomains":["docs.arborworks.example","industry.example.org","press.example.net"],"contradictionMetrics":[]},"gapSearchFired":true,"demandWaveFired":false}
+
+ [32m✓[39m __tests__/web-search/research-depth-pipeline.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 48[2mms[22m[39m
+[00:04:08.575] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:08.576] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":3,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:08.577] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":1,"packets":3}[39m
+[00:04:08.581] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":3,"passages":3}[39m
+[00:04:08.583] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:08.583] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":3,"merged":6}[39m
+[00:04:08.586] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example/reference/model-catalog"],"hop":1}[39m
+[00:04:08.587] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":1}[39m
+[00:04:08.589] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":3,"registered":7}[39m
+[00:04:08.591] [32mINFO[39m (web-search/pipeline): [36msearch gate passed[39m [90m{"gateMs":0,"source":"rules","queries":1}[39m
+[00:04:08.591] [32mINFO[39m (web-search/pipeline): [36mquery plan built[39m [90m{"planned":1,"origins":["semantic"]}[39m
+[00:04:08.592] [32mINFO[39m (web-search/pipeline): [36mmetasearch complete[39m [90m{"ms":0,"results":3,"directResults":0,"freshnessRecoveryUsed":false}[39m
+[00:04:08.595] [32mINFO[39m (web-search/pipeline): [36mextract all complete[39m [90m{"ms":0,"packets":3}[39m
+[00:04:08.596] [32mINFO[39m (web-search/pipeline): [36mrerank complete[39m [90m{"ms":0,"passages":3}[39m
+[00:04:08.596] [32mINFO[39m (web-search/pipeline): [36mgap search triggered[39m [90m{"coverage":1,"missing":[],"gapQuery":"foundation models arborworks support"}[39m
+[00:04:08.597] [32mINFO[39m (web-search/pipeline): [36mgap search merged[39m [90m{"gapResults":3,"merged":6}[39m
+[00:04:08.597] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop fired[39m [90m{"harvested":1,"followed":["https://docs.arborworks.example/reference/model-catalog"],"hop":1}[39m
+[00:04:08.598] [32mINFO[39m (web-search/pipeline): [36mroute-follow hop merged[39m [90m{"routePackets":1,"coverage":1,"hop":1}[39m
+[00:04:08.600] [32mINFO[39m (web-search/pipeline): [36madmitted packet registry merged recovery-wave packets for citation serialization[39m [90m{"initial":3,"registered":7}[39m
+ [32m✓[39m __tests__/web-search/youtube-transcript-length-gate.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 2[2mms[22m[39m
+[00:04:08.672] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Take your time do the through search and give me models beca"}[39m
+[00:04:08.718] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"web_intent","search_required":true,"prompt":"Search again and verify the supported models."}[39m
+ [32m✓[39m __tests__/web-search/audit-probes-routing.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 63[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/research-depth-tools.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m __tests__/server/attach-chunk-punct.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/sse.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/extractor-tls-provenance.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 62[2mms[22m[39m
+(node:27768) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[00:04:09.181] [33mWARN[39m (titles/queue): [36mtitle generation produced nothing usable[39m [90m{"id":"c_fail","attempt":1}[39m
+ [32m✓[39m __tests__/progress/turn-fence.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 3[2mms[22m[39m
+ [32m✓[39m __tests__/persistence-save.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/cache-degradation.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 2065[2mms[22m[39m
+   [33m[2m✓[22m[39m web-search cache outage degradation (brief §10)[2m > [22mquery read degrades to a miss, never rejects [33m2005[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/block-context.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 105[2mms[22m[39m
+ [32m✓[39m __tests__/skills/installer.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/net-wreq.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 532[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-rtf-strings.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/render/highlight.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 992[2mms[22m[39m
+   [33m[2m✓[22m[39m shiki highlighting[2m > [22mpreserves tabs, unicode and emoji exactly [33m480[2mms[22m[39m
+ [32m✓[39m __tests__/documents/print-css-page-size.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 2[2mms[22m[39m
+[90mstdout[2m | __tests__/web-search/research-depth-policy.test.ts[2m > [22m[2mdoes not mistake two topical overviews for coverage of the requested model identifiers
+[22m[39mTOPICAL_OVERVIEW {"coverage":1,"missingEntities":[],"needsGapSearch":true,"gapQuery":"foundation models arborworks support","answerSupport":"unsupported","enumerativeAsk":true}
+
+[90mstdout[2m | __tests__/web-search/research-depth-policy.test.ts[2m > [22m[2mdoes not declare key claims supported merely because three sources repeat the question vocabulary
+[22m[39mUNSUPPORTED_NAMES_SUFFICIENCY {"enoughSources":true,"keyClaimsSupported":false,"claimSupport":"unsupported","listCompleteness":"not_addressed","freshnessOk":true,"primaryPresent":true,"independentDomains":true,"contradictionSuspected":false,"pagesUseful":true,"stopEarly":false,"sourceDomains":["official.example.com","press.example.net","specialist.example.org"],"contradictionMetrics":[]}
+
+ [32m✓[39m __tests__/web-search/research-depth-policy.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/agent-browser-challenge.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 3[2mms[22m[39m
+[90mstdout[2m | __tests__/server/tmp-dbg.test.ts[2m > [22m[2mdbg[2m > [22m[2mprints
+[22m[39mSTRIP {"text":"A1= \tA2=only string\tA3= \nB1= ","dropped":3}
+COVERAGE {"lostTokens":["b1"],"newTokens":27,"rebuiltLines":1,"lostLines":1,"groupedLines":0,"tsItems":6,"tsLines":2,"capLines":2,"droppedArtifacts":3}
+NOTE [document capability documents.parse (ruke-ml xlsx reader); body: ruke-ml xlsx reader refused as the body: it loses 1 content item(s) the TS reader read (b1), so promoting it would be a regression whatever its 178 characters suggest plus structure: capability 2 structural fact(s) [cells unreadable-by-reference 2] vs TS 0 [none stated]; measured on the reader's own structure-preserving rendering; 3 reader artifact rendering(s) (placeholder/error text, not document content) excluded from the loss measurement on both sides; body_source: ts:office-reader; units: 1 of 1 read; 1 TS content line(s) were not carried by the capability reader]
+
+ [32m✓[39m __tests__/server/tmp-dbg.test.ts [2m([22m[2m1 test[22m[2m)[22m[90m 5[2mms[22m[39m
+[00:04:09.965] [32mINFO[39m (web-search/general-pool): [36mevidence-gap recovery: Google answered but its result text never touches the query vocabulary — asking Brave[39m [90m{"results":3}[39m
+[00:04:09.969] [32mINFO[39m (web-search/general-pool): [36mengine 0-result outcome — breaker not tripped yet (single zero may be query-specific)[39m [90m{"engine":"yahoo","reason":"both regions returned 0 results","streak":1}[39m
+[00:04:09.969] [33mWARN[39m (web-search/general-pool): [36mbing: both stages returned 0 results[39m [90m{"query":"queued.example pages"}[39m
+[00:04:09.970] [32mINFO[39m (web-search/general-pool): [36mengine 0-result outcome — breaker not tripped yet (single zero may be query-specific)[39m [90m{"engine":"duckduckgo","reason":"both endpoints returned 0 results for this query","streak":1}[39m
+[00:04:09.971] [33mWARN[39m (web-search/general-pool): [36mreddit: all 3 stages returned 0 results[39m [90m{"query":"queued.example pages"}[39m
+[00:04:09.975] [32mINFO[39m (web-search/metasearch): [36mmetasearch: relevance floor would starve the pool — keeping unfiltered ranking[39m [90m{"dropped":2,"kept":1}[39m
+ [32m✓[39m __tests__/web-search/extractor-cancellation.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 4571[2mms[22m[39m
+   [33m[2m✓[22m[39m WS16 — the provider fan-out honors cancellation[2m > [22mcontrol: metasearch with a LIVE signal still dispatches engines [33m4555[2mms[22m[39m
+ [32m✓[39m __tests__/render/registry.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 2[2mms[22m[39m
+[00:04:10.020] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ [32m✓[39m __tests__/server/audio-capability-note.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 145[2mms[22m[39m
+[00:04:10.080] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not browse. What is the latest version of Node.js? State "}[39m
+[00:04:10.086] [32mINFO[39m (web-search/search-gate): [36msearch gate STAGE 0 hard bypass[39m [90m{"matched":"local_task","search_required":false,"prompt":"Do not search the web. What is the weather in Hyderabad now?"}[39m
+[00:04:10.106] [33mWARN[39m (web-search/search-gate): [36mmain model unreachable — rules plan (same evidence-need standard)[39m [90m{"prompt":"Translate “What is the current weather?” into Hindi.","gateMs":17}[39m
+ [32m✓[39m __tests__/web-search/search-gate-audit-boundaries.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 38[2mms[22m[39m
+ [32m✓[39m __tests__/render/mathDetect.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 2[2mms[22m[39m
+[00:04:10.240] [32mINFO[39m (titles/queue): [36mtitle generated[39m [90m{"id":"c_defer","title":"Deferred Title","genCount":2,"attempt":0}[39m
+[00:04:10.254] [32mINFO[39m (titles/queue): [36mtitle job yielded to user inference[39m [90m{"id":"c_yield"}[39m
+ [32m✓[39m __tests__/titles/queue.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 7413[2mms[22m[39m
+   [33m[2m✓[22m[39m title queue[2m > [22mbounded retry: one null attempt, then success; the title survives both failures [33m3016[2mms[22m[39m
+   [33m[2m✓[22m[39m title queue[2m > [22mgives up after MAX attempts and keeps the last valid title [33m3077[2mms[22m[39m
+   [33m[2m✓[22m[39m title queue[2m > [22mdefers the job while a user turn owns the shared inference slot [33m1013[2mms[22m[39m
+[00:04:10.267] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ [32m✓[39m __tests__/server/extract-image-ffmpeg.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 2898[2mms[22m[39m
+   [33m[2m✓[22m[39m ffmpeg image decode — I07[2m > [22man extreme portrait image is capped to <=1280 BOTH sides, aspect intact [33m2828[2mms[22m[39m
+ [32m✓[39m __tests__/render/mathPlugins.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 1[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-keyframe-coverage.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 3517[2mms[22m[39m
+   [33m[2m✓[22m[39m keyframe coverage spans the whole timeline (I17)[2m > [22mlong video with early cuts still yields keyframes near its end under a 6-frame cap [33m3516[2mms[22m[39m
+ [32m✓[39m __tests__/web-search/ws20-access-recovery-wording.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+[00:04:10.485] [33mWARN[39m (extract/audio): [36mGPU whisper unavailable — falling back to CPU[39m 
+    err: "Unsupported device: \"cuda\". Should be one of: dml, webgpu, cpu."
+ [32m✓[39m __tests__/web-search/extractor-page-budget.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 2[2mms[22m[39m
+ [32m✓[39m __tests__/documents/pdf-egress-canary.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 5776[2mms[22m[39m
+   [33m[2m✓[22m[39m PDF export egress boundary (finding 7)[2m > [22ma model artifact cannot reach the network, loopback or a local file — and cannot leak the document [33m2492[2mms[22m[39m
+   [33m[2m✓[22m[39m PDF export egress boundary (finding 7)[2m > [22man artifact that reaches for nothing exports with a clean guard count [33m1176[2mms[22m[39m
+   [33m[2m✓[22m[39m PDF export egress boundary (finding 7)[2m > [22ma hanging endpoint cannot stall the export to the 45 s render timeout [33m1041[2mms[22m[39m
+   [33m[2m✓[22m[39m PDF export egress boundary (finding 7)[2m > [22mthe guarded chart path still loads its own temp file and screenshots it [33m1051[2mms[22m[39m
+ [32m✓[39m __tests__/video-narration.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 6886[2mms[22m[39m
+   [33m[2m✓[22m[39m video extraction keeps the audio track[2m > [22mnarrated video yields frames AND a whisper transcript of the speech [33m5491[2mms[22m[39m
+   [33m[2m✓[22m[39m video extraction keeps the audio track[2m > [22msilent video still extracts frames and reports no transcript [33m639[2mms[22m[39m
+   [33m[2m✓[22m[39m audio decode has no duration cap[2m > [22mdecodes a 200 s track whole — past the old 180 s ceiling [33m753[2mms[22m[39m
+ [32m✓[39m __tests__/server/video-asr-failure-coverage.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 4749[2mms[22m[39m
+   [33m[2m✓[22m[39m video with unreadable speech keeps its visual evidence (I16)[2m > [22msilent audio track → coverage note + indexed keyframes + frames dir kept [33m4748[2mms[22m[39m
+ [32m✓[39m __tests__/documents/docxEngine.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 2633[2mms[22m[39m
+   [33m[2m✓[22m[39m docx engine[2m > [22membeds 2 chart screenshots, keeps heading hierarchy and deletes every temp file [33m2633[2mms[22m[39m
+ [32m✓[39m __tests__/documents/pdfEngine.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 2275[2mms[22m[39m
+   [33m[2m✓[22m[39m pdf engine[2m > [22mrenders a multi-page A4 PDF with the mandatory print CSS applied [33m1543[2mms[22m[39m
+   [33m[2m✓[22m[39m pdf engine[2m > [22mchart screenshot returns a real PNG at 2x scale and cleans up its temp html [33m731[2mms[22m[39m
+ [32m✓[39m __tests__/documents/xlsxEngine.test.ts [2m([22m[2m11 tests[22m[2m)[22m[33m 9505[2mms[22m[39m
+   [33m[2m✓[22m[39m UI_Stress_Test.xlsx (PART 2 extreme workbook)[2m > [22mbuilds the 6-sheet workbook: 500 rows, 0 nulls, 0 recalc errors, validations, CF, 3 chart images [33m3517[2mms[22m[39m
+   [33m[2m✓[22m[39m UI_Stress_Test.xlsx (PART 2 extreme workbook)[2m > [22mdeterministic generator: two builds produce identical Transactions data [33m5842[2mms[22m[39m
+ [32m✓[39m __tests__/render/allLanguages.test.ts [2m([22m[2m142 tests[22m[2m)[22m[33m 3967[2mms[22m[39m
+   [33m[2m✓[22m[39m every registry language highlights[2m > [22mcpp produces line spans without throwing [33m1217[2mms[22m[39m
+   [33m[2m✓[22m[39m every registry language highlights[2m > [22mtypst produces line spans without throwing [33m353[2mms[22m[39m
+ [32m✓[39m __tests__/server/extract-zip.test.ts [2m([22m[2m17 tests[22m[2m)[22m[33m 66570[2mms[22m[39m
+   [33m[2m✓[22m[39m readZip — fflate reader contract[2m > [22mignores declared member sizes and inflates the real stream (fflate does not check CRCs) [33m1174[2mms[22m[39m
+   [33m[2m✓[22m[39m readZip — fflate reader contract[2m > [22mdrops members over MAX_MEMBER_INFLATED_BYTES instead of failing the container [33m4046[2mms[22m[39m
+   [33m[2m✓[22m[39m Zip64 and the 7za fallback[2m > [22mreads a genuine 66k-member Zip64 archive back IN FULL (the hand-rolled parser capped at 65,535) [33m324[2mms[22m[39m
+   [33m[2m✓[22m[39m Zip64 and the 7za fallback[2m > [22msurfaces the LAST member of a Zip64 archive through the archive reader [33m534[2mms[22m[39m
+   [33m[2m✓[22m[39m Zip64 and the 7za fallback[2m > [22mfalls back to the bundled 7za when fflate refuses a valid non-deflate method (LZMA) [33m309[2mms[22m[39m
+   [33m[2m✓[22m[39m Zip64 and the 7za fallback[2m > [22mfails a password-protected zip honestly (7za also refuses without the password) [33m60111[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m196 passed[39m[22m[2m | [22m[33m3 skipped[39m[90m (199)[39m
+[2m      Tests [22m [1m[32m2535 passed[39m[22m[2m | [22m[33m24 skipped[39m[90m (2559)[39m
+[2m   Start at [22m 00:04:00
+[2m   Duration [22m 67.73s[2m (transform 13.80s, setup 5.03s, collect 93.56s, tests 160.35s, environment 32ms, prepare 25.78s)[22m
+

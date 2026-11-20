@@ -1,0 +1,4 @@
+state failed
+reason model_unavailable
+detail load_failed: RuntimeError: mkl_malloc: failed to allocate memory
+payload state None model None device None compute None text 

@@ -1,0 +1,28 @@
+python-backend\.venv\Scripts\python.exe : Traceback (most recent call last):
+At line:2 char:29
++ ... ebUI\WebUI; python-backend\.venv\Scripts\python.exe docs\overnight\fi ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\ocr_docs.py", line 291, in <module>
+    key = build()
+          ^^^^^^^
+  File "D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\ocr_docs.py", line 196, in build
+    rasters = rasterize(native_pdf)
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\ocr_docs.py", line 173, in rasterize
+    for page in pdf:
+                ^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\.venv\Lib\site-packages\pypdfium2\_helpers\document.py", line 123, in 
+__iter__
+    yield self[i]
+          ~~~~^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\.venv\Lib\site-packages\pypdfium2\_helpers\document.py", line 126, in 
+__getitem__
+    return self.get_page(i)
+           ^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\.venv\Lib\site-packages\pypdfium2\_helpers\document.py", line 366, in 
+get_page
+    raise PdfiumError("Failed to load page.")
+pypdfium2._helpers.misc.PdfiumError: Failed to load page.

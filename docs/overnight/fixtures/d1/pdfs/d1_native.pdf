@@ -1,0 +1,113 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<</Type/Catalog/Pages 2 0 R>>
+endobj
+2 0 obj
+<</Type/Pages/Count 6/Kids[7 0 R 9 0 R 11 0 R 13 0 R 15 0 R 17 0 R]/Lang(en-US) >>
+endobj
+3 0 obj
+<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>
+endobj
+4 0 obj
+<</Type/Font/Subtype/Type1/BaseFont/Courier>>
+endobj
+5 0 obj
+<</Producer(Ruke d1 fixture generator)/CreationDate(D:20261117000000)>>
+endobj
+6 0 obj
+<</Length 387>>
+stream
+BT /F1 11 Tf 56 760 Td (Section 4.2 Ground Water) Tj ET
+BT /F1 11 Tf 56 744 Td (The aquifer beneath the basin yields) Tj ET
+BT /F1 11 Tf 56 728 Td (1.4 million cubic metres per month) Tj ET
+BT /F1 11 Tf 56 712 Td (Downstream salinity rose to 3.1 ppt) Tj ET
+BT /F1 11 Tf 56 696 Td (at the Kandla gauge in March 2019,) Tj ET
+BT /F1 11 Tf 56 680 Td (which the committee attributed to) Tj ET
+endstream
+endobj
+7 0 obj
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R/F2 4 0 R>>>>/Contents 6 0 R>>
+endobj
+8 0 obj
+<</Length 328>>
+stream
+BT /F1 11 Tf 56 760 Td (measured across eleven observation wells.) Tj ET
+BT /F1 11 Tf 56 744 Td (Extraction permits were capped at 62%) Tj ET
+BT /F1 11 Tf 56 728 Td (of the recharge estimate for 2019.) Tj ET
+BT /F1 11 Tf 56 712 Td (reduced dry-season flow rather than) Tj ET
+BT /F1 11 Tf 56 696 Td (tidal intrusion alone.) Tj ET
+endstream
+endobj
+9 0 obj
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R/F2 4 0 R>>>>/Contents 8 0 R>>
+endobj
+10 0 obj
+<</Length 227>>
+stream
+BT /F1 11 Tf 56 760 Td (Station   Flow m3/s   Turbidity NTU) Tj ET
+BT /F1 11 Tf 56 744 Td (Kandla   18.4   12.7) Tj ET
+BT /F1 11 Tf 56 728 Td (Gandhi Dham   44.0   3.9) Tj ET
+BT /F1 11 Tf 56 712 Td (Aranjes   12.6   51.2) Tj ET
+endstream
+endobj
+11 0 obj
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R/F2 4 0 R>>>>/Contents 10 0 R>>
+endobj
+12 0 obj
+<</Length 275>>
+stream
+BT /F1 10 Tf 56 760 Td (def recharge\(precip_mm, area_km2\):) Tj ET
+BT /F1 10 Tf 56 744 Td (    runoff = precip_mm * 0.18 * area_km2) Tj ET
+BT /F1 10 Tf 56 728 Td (    return round\(runoff * 1000, 1\)  # m3) Tj ET
+BT /F1 10 Tf 56 712 Td (print\(recharge\(740, 12.5\)\)) Tj ET
+endstream
+endobj
+13 0 obj
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R/F2 4 0 R>>>>/Contents 12 0 R>>
+endobj
+14 0 obj
+<</Length 239>>
+stream
+BT /F1 8 Tf 56 760 Td (Q = W x b x sqrt\(2 g h\)) Tj ET
+BT /F1 8 Tf 56 744 Td (T = 25 degC, pH = 7.4, EC = 0.84 dS/m) Tj ET
+BT /F1 8 Tf 56 728 Td (Appendix note: the borehole log for well BH-07 was transcribed from a field notebook.) Tj ET
+endstream
+endobj
+15 0 obj
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R/F2 4 0 R>>>>/Contents 14 0 R>>
+endobj
+16 0 obj
+<</Length 199>>
+stream
+BT /F1 10 Tf 56 760 Td (Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum.) Tj ET
+endstream
+endobj
+17 0 obj
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 3 0 R/F2 4 0 R>>>>/Contents 16 0 R>>
+endobj
+xref
+0 18
+0000000000 65535 f 
+0000000015 00000 n 
+0000000060 00000 n 
+0000000158 00000 n 
+0000000246 00000 n 
+0000000307 00000 n 
+0000000394 00000 n 
+0000000830 00000 n 
+0000000951 00000 n 
+0000001328 00000 n 
+0000001449 00000 n 
+0000001726 00000 n 
+0000001849 00000 n 
+0000002174 00000 n 
+0000002297 00000 n 
+0000002586 00000 n 
+0000002709 00000 n 
+0000002958 00000 n 
+trailer
+<</Size 18/Root 1 0 R/Info 5 0 R>>
+startxref
+3081
+%%EOF

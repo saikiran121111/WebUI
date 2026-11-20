@@ -1,7 +1,9 @@
 """Hybrid candidate fusion: BM25 plus the hashed lexical vector view.
 
-Both views are lexical and both are labelled honestly. A neural embedder or
-reranker is a gated upgrade: asking for one raises instead of quietly ranking
+In `hybrid_lexical` both views are lexical and both are labelled as such. In
+`hybrid_neural` the dense view comes from the pinned MiniLM ONNX embedder (nn_embed),
+and the reported method plus coverage say which embedder actually ran. Asking for a
+mode whose backend cannot execute raises a typed failure instead of quietly ranking
 worse and calling it the same quality.
 
 The fusion is reciprocal-rank, not a weighted sum, because the two view scores
@@ -30,6 +32,18 @@ MAX_CANDIDATES = 4000
 # most of what the user asked (an identifier, a name, a code). If it covers only
 # a minority of a longer query, it is incidental glue, not evidence.
 MIN_UNIQUE_TERM_QUERY_COVERAGE = 0.5
+# Dense-view evidence rule, stated as what it is: a DISTRIBUTION-RELATIVE check on the
+# similarities this corpus actually produced, not a calibrated confidence. A dense hit
+# counts as evidence only when the top cosine clears this corpus's median cosine by the
+# margin below. The numbers are an auditable heuristic floor, not a probability; whether
+# the mode is actually better is decided by the eval harness, not by this constant.
+DENSE_TOP_SIM_MIN = 0.20
+DENSE_MARGIN_MIN = 0.05
+# The modes this module actually implements. `hybrid_neural` had to be added here on
+# 2026-11-17: the branch existed and was measured by the eval harness, but the guard
+# still rejected the mode, so the neural dense view was unreachable from any caller.
+# Anything else is refused rather than silently served by a different embedder.
+_MODES = ("lexical", "hybrid_lexical", "hybrid_neural")
 
 
 @dataclass(slots=True)
@@ -40,6 +54,8 @@ class Retrieval:
     abstained: bool = False
     reasons: list[str] = field(default_factory=list)
     coverage: dict[str, Any] = field(default_factory=dict)
+    # Which embedder produced the dense view, so a report can never blur the two.
+    dense_view: str = "hashed-lexical-vector"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +64,7 @@ class Retrieval:
             "abstained": self.abstained,
             "reasons": list(self.reasons),
             "coverage": dict(self.coverage),
+            "dense_view": self.dense_view,
         }
 
 
@@ -117,8 +134,9 @@ def hybrid_retrieve(query: str, chunks: Sequence[Chunk], top_k: int = 5,
     caller must NOT present these chunks as relevant evidence. Top-K exhausted is
     still not proof that nothing exists - it is coverage, not completeness.
     """
-    if mode not in ("lexical", "hybrid_lexical"):
-        raise ValueError(f"retrieval mode {mode!r} is not installed (evaluation_required)")
+    if mode not in _MODES:
+        raise ValueError(f"retrieval mode {mode!r} is not a mode this process runs "
+                         f"(installed modes: {', '.join(sorted(_MODES))})")
     if not chunks or top_k <= 0:
         return Retrieval(method=mode, abstained=True,
                          reasons=["empty_corpus" if not chunks else "invalid_top_k"],
@@ -132,6 +150,8 @@ def hybrid_retrieve(query: str, chunks: Sequence[Chunk], top_k: int = 5,
     lexical_ids = [s.chunk.chunk_id for s in lexical]
 
     dense_ids: list[str] = []
+    dense_view = "hashed-lexical-vector"
+    dense_stats: dict[str, float] = {}
     if mode == "hybrid_lexical":
         qvec = lexical_embed(query)
         scored = []
@@ -141,6 +161,26 @@ def hybrid_retrieve(query: str, chunks: Sequence[Chunk], top_k: int = 5,
                 scored.append((sim, c.chunk_id))
         scored.sort(key=lambda x: (-x[0], x[1]))
         dense_ids = [cid for _, cid in scored]
+    elif mode == "hybrid_neural":
+        # The dense view is the pinned checkpoint, run for real. No fallback to hashed
+        # vectors here: a caller that asked for neural and cannot get it must see the
+        # failure (nn_embed raises a typed NeuralEmbeddingError).
+        from .nn_embed import MODEL_ID, PINNED_REVISION, neural_embed_texts
+        vectors, _meta, embed_info = neural_embed_texts([query] + [c.text for c in pool])
+        qvec, dense_vectors = vectors[0], vectors[1:]
+        sims = [(sum(a * b for a, b in zip(qvec, dv)), c) for c, dv in zip(pool, dense_vectors)]
+        scored = [(sim, c.chunk_id) for sim, c in sims if sim > 0.0]
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        dense_ids = [cid for _, cid in scored]
+        values = sorted(sim for sim, _ in sims)
+        top = values[-1] if values else 0.0
+        median = values[len(values) // 2] if values else 0.0
+        dense_stats = {"dense_top_similarity": round(top, 4),
+                       "dense_median_similarity": round(median, 4),
+                       "dense_margin_over_median": round(top - median, 4),
+                       "dense_chunks_truncated_at_max_tokens": float(
+                           embed_info.get("truncated", 0) or 0)}
+        dense_view = f"{MODEL_ID}@{PINNED_REVISION.split(':', 1)[-1][:12]} onnxruntime-cpu"
 
     weights = [LEXICAL_WEIGHT, DENSE_WEIGHT] if dense_ids else [LEXICAL_WEIGHT]
     views = [lexical_ids, dense_ids] if dense_ids else [lexical_ids]
@@ -186,6 +226,13 @@ def hybrid_retrieve(query: str, chunks: Sequence[Chunk], top_k: int = 5,
         "pool_truncated": truncated,
         "exhaustive": bool(truncated),
     }
+    coverage["dense_view"] = dense_view
+    if dense_stats:
+        coverage.update(dense_stats)
+        coverage["dense_evidence_rule"] = (f"dense hit counts only when top cosine >= "
+                                           f"{DENSE_TOP_SIM_MIN} AND it clears the corpus median "
+                                           f"by >= {DENSE_MARGIN_MIN}; distribution-relative, "
+                                           "not a calibrated confidence")
     coverage["coverage_note"] = ("top_k exhausted is not proof that no further match exists; "
                                  "the run reports what it inspected, not what the corpus contains")
 
@@ -211,5 +258,17 @@ def hybrid_retrieve(query: str, chunks: Sequence[Chunk], top_k: int = 5,
 
     abstain_notes = {f"candidate_pool_capped_at_{MAX_CANDIDATES}_chunks"}
     abstain_reasons = [r for r in reasons if r not in abstain_notes]
+    # Term-overlap reasons are LEXICAL evidence tests. In hybrid_neural they stay in the
+    # report, but a dense view that clears its own margin rule is independent evidence, so
+    # a paraphrase that shares no query term is not automatically treated as "nothing found".
+    dense_evidence = bool(dense_stats) and (
+        dense_stats["dense_top_similarity"] >= DENSE_TOP_SIM_MIN
+        and dense_stats["dense_margin_over_median"] >= DENSE_MARGIN_MIN)
+    coverage["dense_evidence"] = dense_evidence
+    lexical_evidence_failed = bool(abstain_reasons)
+    if mode == "hybrid_neural" and dense_evidence and results:
+        abstain_reasons = []
+    if mode == "hybrid_neural" and lexical_evidence_failed and not dense_evidence:
+        reasons.append("dense_view_gave_no_independent_evidence")
     return Retrieval(results=results, method=mode, abstained=bool(not results or abstain_reasons),
-                     reasons=reasons, coverage=coverage)
+                     reasons=reasons, coverage=coverage, dense_view=dense_view)

@@ -1,0 +1,112 @@
+test_a_corrupt_persisted_record_is_rejected_as_corrupt_not_as_absent (tests.test_handoff_devices.CascadeMechanics.test_a_corrupt_persisted_record_is_rejected_as_corrupt_not_as_absent) ... ok
+test_a_failed_unit_is_never_replayed_as_an_answer (tests.test_handoff_devices.CascadeMechanics.test_a_failed_unit_is_never_replayed_as_an_answer) ... ok
+test_a_job_that_does_not_fit_asks_for_one_window_covering_the_whole_operation (tests.test_handoff_devices.CascadeMechanics.test_a_job_that_does_not_fit_asks_for_one_window_covering_the_whole_operation)
+The configured default is the automatic handoff, and it wraps the ENTIRE operation: ... ok
+test_a_unit_no_engine_read_stays_visible_as_unresolved (tests.test_handoff_devices.CascadeMechanics.test_a_unit_no_engine_read_stays_visible_as_unresolved) ... ok
+test_an_unmeasured_peak_is_reported_as_unknown_and_never_as_zero (tests.test_handoff_devices.CascadeMechanics.test_an_unmeasured_peak_is_reported_as_unknown_and_never_as_zero) ... ok
+test_cancellation_skips_the_fallback_entirely (tests.test_handoff_devices.CascadeMechanics.test_cancellation_skips_the_fallback_entirely) ... ok
+test_changed_source_content_makes_the_persisted_units_a_different_question (tests.test_handoff_devices.CascadeMechanics.test_changed_source_content_makes_the_persisted_units_a_different_question) ... ok
+test_inside_a_handoff_the_cascade_never_requests_a_nested_lease (tests.test_handoff_devices.CascadeMechanics.test_inside_a_handoff_the_cascade_never_requests_a_nested_lease) ... ok
+test_only_unread_units_go_to_recovery_after_the_primary_is_released (tests.test_handoff_devices.CascadeMechanics.test_only_unread_units_go_to_recovery_after_the_primary_is_released) ... ok
+test_primary_and_recovery_both_run_inside_ONE_resource_window (tests.test_handoff_devices.CascadeMechanics.test_primary_and_recovery_both_run_inside_ONE_resource_window)
+The defect this closes: the window used to wrap only the primary attempt. ... ok
+test_primary_reads_all_and_no_fallback_runs (tests.test_handoff_devices.CascadeMechanics.test_primary_reads_all_and_no_fallback_runs) ... ok
+test_production_cancel_callable_reaches_the_real_tesseract_engine (tests.test_handoff_devices.CascadeMechanics.test_production_cancel_callable_reaches_the_real_tesseract_engine)
+The worker hands the cascade a CALLABLE cancel; the engine takes an Event. ... ok
+test_resource_limit_with_the_handoff_policy_off_refuses_the_primary (tests.test_handoff_devices.CascadeMechanics.test_resource_limit_with_the_handoff_policy_off_refuses_the_primary)
+Policy OFF is an operator configuration, not a script flag: RUKE_LLM_AUTOMATIC_HANDOFF=0 ... ok
+test_the_injected_fault_is_recovered_by_the_cascade_itself (tests.test_handoff_devices.CascadeMechanics.test_the_injected_fault_is_recovered_by_the_cascade_itself)
+The CLI and the upload path both ask the cascade for the fault, so acceptance exercises ... ok
+test_the_operator_readiness_report_names_both_engines_and_never_claims_quality (tests.test_handoff_devices.CascadeMechanics.test_the_operator_readiness_report_names_both_engines_and_never_claims_quality) ... ok
+test_the_result_is_durable_and_a_resume_reuses_it_without_an_engine (tests.test_handoff_devices.CascadeMechanics.test_the_result_is_durable_and_a_resume_reuses_it_without_an_engine) ... ok
+test_unavailable_primary_sends_every_unit_to_recovery_with_the_reason (tests.test_handoff_devices.CascadeMechanics.test_unavailable_primary_sends_every_unit_to_recovery_with_the_reason) ... ok
+test_a_malformed_browser_lock_still_blocks_a_handoff (tests.test_handoff_devices.CoordinationRecordIntegrity.test_a_malformed_browser_lock_still_blocks_a_handoff) ... ok
+test_a_record_that_cannot_be_parsed_is_never_stolen (tests.test_handoff_devices.CoordinationRecordIntegrity.test_a_record_that_cannot_be_parsed_is_never_stolen) ... ok
+test_absent_unreadable_and_malformed_are_three_different_answers (tests.test_handoff_devices.CoordinationRecordIntegrity.test_absent_unreadable_and_malformed_are_three_different_answers) ... ok
+test_an_oversized_record_is_refused_and_never_truncated (tests.test_handoff_devices.CoordinationRecordIntegrity.test_an_oversized_record_is_refused_and_never_truncated) ... ok
+test_an_unverifiable_record_ages_out_on_its_own_age_and_only_when_asked (tests.test_handoff_devices.CoordinationRecordIntegrity.test_an_unverifiable_record_ages_out_on_its_own_age_and_only_when_asked) ... ok
+test_release_never_deletes_a_record_it_cannot_verify_as_ours (tests.test_handoff_devices.CoordinationRecordIntegrity.test_release_never_deletes_a_record_it_cannot_verify_as_ours) ... ok
+test_cpu_fallback_that_does_not_fit_reports_handoff (tests.test_handoff_devices.DevicePlacement.test_cpu_fallback_that_does_not_fit_reports_handoff)
+The point of amendment 5: CPU is not automatically cheaper on a RAM-starved host. ... ok
+test_gpu_globally_disabled_is_stated_not_hidden (tests.test_handoff_devices.DevicePlacement.test_gpu_globally_disabled_is_stated_not_hidden) ... ok
+test_gpu_only_when_both_ram_and_vram_measurably_fit (tests.test_handoff_devices.DevicePlacement.test_gpu_only_when_both_ram_and_vram_measurably_fit) ... ok
+test_insufficient_vram_falls_to_cpu_but_ram_still_decides (tests.test_handoff_devices.DevicePlacement.test_insufficient_vram_falls_to_cpu_but_ram_still_decides) ... ok
+test_no_vram_estimate_never_guesses_the_gpu (tests.test_handoff_devices.DevicePlacement.test_no_vram_estimate_never_guesses_the_gpu) ... ok
+test_provisional_estimates_are_charged_by_the_placement_too (tests.test_handoff_devices.DevicePlacement.test_provisional_estimates_are_charged_by_the_placement_too)
+A provisional peak must not buy a GPU/CPU placement on measured-grade arithmetic. ... ok
+test_unmeasured_vram_basis_is_visible_in_the_evidence (tests.test_handoff_devices.DevicePlacement.test_unmeasured_vram_basis_is_visible_in_the_evidence) ... ok
+test_a_live_browser_window_outranks_the_handoff (tests.test_handoff_devices.LeaseAndHandoff.test_a_live_browser_window_outranks_the_handoff) ... ok
+test_a_model_that_was_never_loaded_is_never_loaded_by_us (tests.test_handoff_devices.LeaseAndHandoff.test_a_model_that_was_never_loaded_is_never_loaded_by_us) ... ok
+test_a_record_without_a_live_pid_is_provable_stale (tests.test_handoff_devices.LeaseAndHandoff.test_a_record_without_a_live_pid_is_provable_stale) ... ok
+test_journal_recovery_only_loads_a_model_that_was_loaded (tests.test_handoff_devices.LeaseAndHandoff.test_journal_recovery_only_loads_a_model_that_was_loaded) ... ok
+test_lease_is_refused_while_a_foreign_holder_is_live (tests.test_handoff_devices.LeaseAndHandoff.test_lease_is_refused_while_a_foreign_holder_is_live) ... ok
+test_no_unload_when_the_measured_fit_is_already_enough (tests.test_handoff_devices.LeaseAndHandoff.test_no_unload_when_the_measured_fit_is_already_enough) ... ok
+test_refused_unload_stops_the_job_and_is_reported (tests.test_handoff_devices.LeaseAndHandoff.test_refused_unload_stops_the_job_and_is_reported) ... ok
+test_release_never_removes_a_foreign_lease (tests.test_handoff_devices.LeaseAndHandoff.test_release_never_removes_a_foreign_lease) ... ok
+test_resource_limit_is_typed_and_does_not_unload_without_permission (tests.test_handoff_devices.LeaseAndHandoff.test_resource_limit_is_typed_and_does_not_unload_without_permission) ... ok
+test_run_exclusive_refreshes_the_lease_and_stops_before_releasing_it (tests.test_handoff_devices.LeaseAndHandoff.test_run_exclusive_refreshes_the_lease_and_stops_before_releasing_it) ... ok
+test_second_acquirer_is_refused_without_touching_the_holder (tests.test_handoff_devices.LeaseAndHandoff.test_second_acquirer_is_refused_without_touching_the_holder) ... ok
+test_stale_by_pid_reuse_breaks_the_record_and_touches_no_process (tests.test_handoff_devices.LeaseAndHandoff.test_stale_by_pid_reuse_breaks_the_record_and_touches_no_process) ... ok
+test_the_lease_heartbeat_advances_during_a_slow_unit_and_stops_cleanly (tests.test_handoff_devices.LeaseAndHandoff.test_the_lease_heartbeat_advances_during_a_slow_unit_and_stops_cleanly) ... ok
+test_the_lease_module_has_no_process_termination_path (tests.test_handoff_devices.LeaseAndHandoff.test_the_lease_module_has_no_process_termination_path) ... ok
+test_unload_then_restore_when_the_handoff_is_authorised (tests.test_handoff_devices.LeaseAndHandoff.test_unload_then_restore_when_the_handoff_is_authorised) ... ok
+test_worker_crash_still_restores_the_model_and_releases_the_lease (tests.test_handoff_devices.LeaseAndHandoff.test_worker_crash_still_restores_the_model_and_releases_the_lease) ... ok
+test_a_child_whose_bytes_never_became_readable_reports_unknown_peaks (tests.test_handoff_devices.PaddleWorkerProtocol.test_a_child_whose_bytes_never_became_readable_reports_unknown_peaks)
+Production path, not a hand-built dict: the sampler only ever sees an unreadable tree. ... ok
+test_a_device_contradiction_is_refused_not_reported_as_success (tests.test_handoff_devices.PaddleWorkerProtocol.test_a_device_contradiction_is_refused_not_reported_as_success) ... ok
+test_a_hung_page_is_killed_and_the_remaining_pages_are_marked (tests.test_handoff_devices.PaddleWorkerProtocol.test_a_hung_page_is_killed_and_the_remaining_pages_are_marked) ... ok
+test_an_empty_page_is_an_answer_not_a_failure_to_retry (tests.test_handoff_devices.PaddleWorkerProtocol.test_an_empty_page_is_an_answer_not_a_failure_to_retry) ... ok
+test_cancellation_before_a_page_is_distinct_from_a_backend_failure (tests.test_handoff_devices.PaddleWorkerProtocol.test_cancellation_before_a_page_is_distinct_from_a_backend_failure) ... ok
+test_exactly_one_deterministic_repair_pass_is_allowed (tests.test_handoff_devices.PaddleWorkerProtocol.test_exactly_one_deterministic_repair_pass_is_allowed) ... ok
+test_expired_deadline_stops_before_sending_more_pages (tests.test_handoff_devices.PaddleWorkerProtocol.test_expired_deadline_stops_before_sending_more_pages) ... ok
+test_gpu_request_is_refused_before_anything_spawns (tests.test_handoff_devices.PaddleWorkerProtocol.test_gpu_request_is_refused_before_anything_spawns) ... ok
+test_missing_pinned_assets_are_asset_failures_with_the_prepare_command (tests.test_handoff_devices.PaddleWorkerProtocol.test_missing_pinned_assets_are_asset_failures_with_the_prepare_command) ... ok
+test_repair_also_failing_is_recorded_on_the_failed_unit (tests.test_handoff_devices.PaddleWorkerProtocol.test_repair_also_failing_is_recorded_on_the_failed_unit) ... ok
+test_round_trip_records_protocol_device_and_two_separate_peaks (tests.test_handoff_devices.PaddleWorkerProtocol.test_round_trip_records_protocol_device_and_two_separate_peaks) ... ok
+test_worker_crash_leaves_the_rest_unresolved_rather_than_empty_success (tests.test_handoff_devices.PaddleWorkerProtocol.test_worker_crash_leaves_the_rest_unresolved_rather_than_empty_success) ... ok
+test_worker_that_dies_before_ready_reports_its_log (tests.test_handoff_devices.PaddleWorkerProtocol.test_worker_that_dies_before_ready_reports_its_log) ... ok
+test_worker_that_never_loads_is_a_typed_load_failure (tests.test_handoff_devices.PaddleWorkerProtocol.test_worker_that_never_loads_is_a_typed_load_failure) ... ok
+test_control_calls_send_json_and_never_a_browser_origin (tests.test_handoff_devices.StrataHttpContract.test_control_calls_send_json_and_never_a_browser_origin) ... ok
+test_inspect_reports_the_resident_state (tests.test_handoff_devices.StrataHttpContract.test_inspect_reports_the_resident_state) ... ok
+test_provider_selection_by_the_server_s_own_answers (tests.test_handoff_devices.StrataHttpContract.test_provider_selection_by_the_server_s_own_answers) ... ok
+test_unload_statuses_are_typed_and_never_fabricated (tests.test_handoff_devices.StrataHttpContract.test_unload_statuses_are_typed_and_never_fabricated) ... ok
+test_wait_ready_polls_the_provider_s_own_answer (tests.test_handoff_devices.StrataHttpContract.test_wait_ready_polls_the_provider_s_own_answer) ... ok
+test_ceiling_rejects_an_allocation_that_exceeds_it (tests.test_job_limits.JobObjectMechanism.test_ceiling_rejects_an_allocation_that_exceeds_it)
+The whole point: the child's allocation fails, its work does not silently proceed. ... ok
+test_live_charge_is_measured_per_member (tests.test_job_limits.JobObjectMechanism.test_live_charge_is_measured_per_member)
+The extended block reports the peak but no live value, so the live sum is measured. ... ok
+test_peak_evidence_is_reported_in_mib (tests.test_job_limits.JobObjectMechanism.test_peak_evidence_is_reported_in_mib) ... ok
+test_positive_limit_required (tests.test_job_limits.JobObjectMechanism.test_positive_limit_required) ... ok
+test_attach_child_needs_a_job_or_a_limit (tests.test_job_limits.RuntimeTreeJob.test_attach_child_needs_a_job_or_a_limit) ... ok
+test_install_is_idempotent_and_children_inherit (tests.test_job_limits.RuntimeTreeJob.test_install_is_idempotent_and_children_inherit) ... ok
+test_limits_match_the_agreed_budget (tests.test_job_limits.RuntimeTreeJob.test_limits_match_the_agreed_budget) ... ok
+test_self_assignment_reports_the_mechanism_honestly (tests.test_job_limits.RuntimeTreeJob.test_self_assignment_reports_the_mechanism_honestly) ... ok
+test_ocr_cascade (unittest.loader._FailedTest.test_ocr_cascade) ... ERROR
+test_ocr_paddle (unittest.loader._FailedTest.test_ocr_paddle) ... ERROR
+
+======================================================================
+ERROR: test_ocr_cascade (unittest.loader._FailedTest.test_ocr_cascade)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_ocr_cascade
+Traceback (most recent call last):
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'tests.test_ocr_cascade'
+
+
+======================================================================
+ERROR: test_ocr_paddle (unittest.loader._FailedTest.test_ocr_paddle)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_ocr_paddle
+Traceback (most recent call last):
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'tests.test_ocr_paddle'
+
+
+----------------------------------------------------------------------
+Ran 75 tests in 16.773s
+
+FAILED (errors=2)

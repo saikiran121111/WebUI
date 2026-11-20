@@ -396,9 +396,10 @@ describe("golden: model-directed web tool loop", () => {
         "pages actually read mint them), round 2 calls read_page on a SERP URL (extractor cascade REAL, mints [S1] for the page), " +
         "round 3 answers. Tool results travel as role:\"tool\" messages with the exact envelope JSON, and each tool round appends an " +
         "assistant message carrying tool_calls {id,type:'function',function:{name,arguments}} — never an injected evidence block. " +
-        "Message chain for the FIRST call (F01/F08 2026-11-15 layout): guidance (skill slot, FIRST " +
-        "system block), response_policy, runtime_clock, then the user turn; roles [system,system,system," +
-        "user]. Each later round appends its assistant/tool turns after the user turn. payload.tools = " +
+        "Message chain for the FIRST call (F01/F08 2026-11-15 layout + D-070 2026-11-20): guidance " +
+        "FIRST (the loop injects at the ORIGINAL skill slot, ahead of every pipeline block), then the " +
+        "D-070 catalogue decision_skill block, response_policy, runtime_clock, then the user turn; " +
+        "roles [system,system,system,system,user]. Each later round appends its assistant/tool turns after the user turn. payload.tools = " +
         "[web_search,read_page] on every round. Stage grammar: " +
         "decision_done, then per tool round ONE 'web:tools' census frame (detail = called names, done/total rounds) immediately " +
         "followed by that round's ledger-gated web_meta frame — NO web:gate/planning/searching/reading/reranking/done frames " +
@@ -429,7 +430,8 @@ describe("golden: model-directed web tool loop", () => {
     // Stage grammar: census frames ONLY on tool rounds, each round opening and
     // closing its web:activity pair (2026-11-12 law); no prefetch chain.
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done", "web:tools", "web:activity", "web:activity", "web_meta", "web:tools", "web:activity", "web:activity", "web_meta", "web_meta"]);
+    // D-070: the nameless 'skill' frame rides every standard_chat turn now.
+    expect(seq).toEqual(["decision_done", "skill", "web:tools", "web:activity", "web:activity", "web_meta", "web:tools", "web:activity", "web:activity", "web_meta", "web_meta"]);
     const census = stageFrames(logical.frames).filter((o) => o.stage === "web:tools");
     expect(census.map((f) => f.detail)).toEqual(["web_search", "read_page"]);
     expect(census.map((f) => [f.done, f.total])).toEqual([[1, 8], [2, 8]]); // standard budget: maxToolRounds 8 (2026-11-07 re-tune)
@@ -469,21 +471,23 @@ describe("golden: model-directed web tool loop", () => {
     // Three upstream calls: the tool loop, not the harness, drove retrieval.
     expect(upstreamCalls.length).toBe(3);
 
-    // Round 1 request: guidance, response policy, clock, then the user turn.
+    // Round 1 request: guidance, the D-070 catalogue block, response policy,
+    // clock, then the user turn.
     const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
-    expect(p0.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
+    expect(p0.messages.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user"]);
     expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
-    expect(String(p0.messages[1].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
-    expect(p0.messages[3].content).toBe("what is the latest roadmap news for project nimbus");
-    expect(String(p0.messages[2].content).startsWith("<runtime_clock>")).toBe(true);
+    expect(String(p0.messages[1].content)).toBe("<decision_skill_block id=\"decision_skill:standard_chat\">");
+    expect(String(p0.messages[2].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
+    expect(p0.messages[4].content).toBe("what is the latest roadmap news for project nimbus");
+    expect(String(p0.messages[3].content).startsWith("<runtime_clock>")).toBe(true);
     expect(p0.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
     expect(p0.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
 
     // Round 2 request: the assistant's tool call survives VERBATIM and the
     // tool envelope (masked) comes back as the role:"tool" turn.
     const p1 = upstreamCalls[1]!.bodyJson as { messages: Record<string, unknown>[] };
-    expect(p1.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user", "assistant", "tool"]);
-    const asst1 = p1.messages[4] as { content: unknown; tool_calls: { id: string; type: string; function: { name: string; arguments: string } }[] };
+    expect(p1.messages.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user", "assistant", "tool"]);
+    const asst1 = p1.messages[5] as { content: unknown; tool_calls: { id: string; type: string; function: { name: string; arguments: string } }[] };
     expect(asst1.content).toBeNull();
     expect(asst1.tool_calls).toEqual([{ id: "call-a1", type: "function", function: { name: "web_search", arguments: JSON.stringify(R1_ARGS) } }]);
     const [env1] = toolEnvelopes(p1);
@@ -495,8 +499,8 @@ describe("golden: model-directed web tool loop", () => {
 
     // Round 3 request: both tool rounds on the transcript; the model answers.
     const p2 = upstreamCalls[2]!.bodyJson as { messages: Record<string, unknown>[]; tools?: unknown[] };
-    expect(p2.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user", "assistant", "tool", "assistant", "tool"]);
-    const asst2 = p2.messages[6] as { tool_calls: { id: string; type: string; function: { name: string; arguments: string } }[] };
+    expect(p2.messages.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user", "assistant", "tool", "assistant", "tool"]);
+    const asst2 = p2.messages[7] as { tool_calls: { id: string; type: string; function: { name: string; arguments: string } }[] };
     expect(asst2.tool_calls).toEqual([{ id: "call-a2", type: "function", function: { name: "read_page", arguments: JSON.stringify(R2_ARGS) } }]);
     const env2 = toolEnvelopes(p2)[1];
     expect(env2).toMatchObject({ ok: true, tool: "read_page", searchSessionId: "ws-<sid>" });
@@ -516,7 +520,8 @@ describe("golden: model-directed web tool loop", () => {
       semantics:
         "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the header-pair scenario): the gate-era X-Web-Citations/X-Search-Gate " +
         "pair existed ONLY because the gate prefetched. Post-repair NOTHING is prefetched on any chat path, so the legacy tail is a " +
-        "PLAIN FORWARD: runTurnPipeline still runs (skill slot + task-scope + response_policy + clock " +
+        "PLAIN FORWARD: runTurnPipeline still runs (the D-070 catalogue block at the skill slot + " +
+        "task-scope + response_policy + clock " +
         "injection; stage callbacks dropped) but NO web " +
         "tool loop runs (it belongs to the progress path), so payload.tools is absent, no guidance block is injected and no evidence " +
         "block exists. Response: ZERO ruke_stage/web_meta frames, headers carry NEITHER x-web-citations NOR x-search-gate, and the " +
@@ -531,9 +536,12 @@ describe("golden: model-directed web tool loop", () => {
 
     expect(upstreamCalls.length).toBe(1);
     const payload = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: unknown[] };
-    expect(payload.messages.map((m) => m.role)).toEqual(["system", "system", "user"]);
-    expect(String(payload.messages[0].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
-    expect(payload.messages[2].content).toBe("what is the latest roadmap news for project nimbus");
+    // D-070: the catalogue block now leads even the legacy chain (no guidance —
+    // the web tool loop belongs to the progress path).
+    expect(payload.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
+    expect(String(payload.messages[0].content)).toBe("<decision_skill_block id=\"decision_skill:standard_chat\">");
+    expect(String(payload.messages[1].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
+    expect(payload.messages[3].content).toBe("what is the latest roadmap news for project nimbus");
     expect(payload.messages.some((m) => m.content === WEB_TOOL_GUIDANCE)).toBe(false);
     expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
     expect(payload.messages.some((m) => String(m.content).includes("No web evidence"))).toBe(false);
@@ -561,7 +569,8 @@ describe("golden: model-directed web tool loop", () => {
     });
     expect(ENGINE_CALLS.n).toBeGreaterThanOrEqual(1); // the search genuinely ran
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done", "web:tools", "web:activity", "web:activity", "web_meta", "web_meta"]);
+    // D-070: the nameless 'skill' frame rides every standard_chat turn now.
+    expect(seq).toEqual(["decision_done", "skill", "web:tools", "web:activity", "web:activity", "web_meta", "web_meta"]);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     expect(logical.done).toBe(true);
 
@@ -576,8 +585,9 @@ describe("golden: model-directed web tool loop", () => {
 
     expect(upstreamCalls.length).toBe(2);
     const p0 = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
-    expect(p0.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
+    expect(p0.messages.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user"]);
     expect(p0.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
+    expect(String(p0.messages[1].content)).toBe("<decision_skill_block id=\"decision_skill:standard_chat\">");
     // No sentinel block, no evidence block — the loop injects NOTHING at turn start:
     expect(p0.messages.some((m) => String(m.content).includes("No web evidence"))).toBe(false);
     expect(p0.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
@@ -623,6 +633,7 @@ describe("golden: model-directed web tool loop", () => {
     const seq = stages(logical.frames);
     expect(seq).toEqual([
       "decision_done",
+      "skill", // D-070: catalogue block rides every standard_chat turn
       "web:tools", "web:activity", "web:activity", "web_meta",
       "web:tools", "web:activity", "web:activity", "web_meta",
       "web:tools", "web:activity", "web:activity", "web_meta",
@@ -682,7 +693,7 @@ describe("golden: model-directed web tool loop", () => {
         "MHR (2026-11-05 — DELIBERATE FIXTURE EVOLUTION from the image-intent-gate scenario): the gate no longer sits on the chat " +
         "path, so there is no image-intent hard bypass and NO prefetched evidence — the turn behaves like any other: guidance " +
         "(skill slot) + user + clock, payload.tools armed, model decides. The scripted model answers directly, so the honest " +
-        "report is EMPTY: zero web: frames beyond decision_done (web:tools rides ONLY tool rounds), zero web_meta frames " +
+        "report is EMPTY: zero web: frames beyond decision_done + the D-070 nameless skill frame (web:tools rides ONLY tool rounds), zero web_meta frames " +
         "(empty ledger — WS18: frames report ACTIONS, not intent), zero engine legs (ENGINE_CALLS=0) and exactly ONE upstream " +
         "fetch (installUpstream throws on any extra fetch ⇒ the zero-search-traffic proof). CONTRACT DISCOVERY still pinned: " +
         "runVisionEntityPrepass is DEAD (zero call sites) — no vision completion ever precedes the chat forward. The user turn " +
@@ -698,7 +709,8 @@ describe("golden: model-directed web tool loop", () => {
     expect(run.status).toBe(200);
     expect(ENGINE_CALLS.n).toBe(0);
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done"]); // no prefetch chain, no tool census
+    // No prefetch chain, no tool census — only the D-070 nameless skill frame.
+    expect(seq).toEqual(["decision_done", "skill"]);
     expect(webMeta(logical.frames).length).toBe(0);
     expect(logical.frames.some((f) => f.kind === "error")).toBe(false);
     expect(run.headers["x-web-citations"]).toBeUndefined();
@@ -713,8 +725,9 @@ describe("golden: model-directed web tool loop", () => {
     const payload = upstreamCalls[0]!.bodyJson as { messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] };
     const userTurn = payload.messages.find((m) => m.role === "user");
     expect(userTurn!.content).toEqual(content); // parts + data URL untouched
-    expect(payload.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
+    expect(payload.messages.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user"]);
     expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE); // ARMED, unused — capability ≠ prefetch
+    expect(String(payload.messages[1].content)).toBe("<decision_skill_block id=\"decision_skill:standard_chat\">");
     expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
     expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
   });
@@ -757,7 +770,8 @@ describe("golden: pure clock turn (brief §5 — quiet clock, zero search traffi
     expect(calls.length).toBe(1);
     expect(ENGINE_CALLS.n).toBe(0);
     const seq = stages(logical.frames);
-    expect(seq).toEqual(["decision_done"]);
+    // D-070: the catalogue block makes the nameless 'skill' frame ride too.
+    expect(seq).toEqual(["decision_done", "skill"]);
     expect(seq.some((s) => s?.startsWith("web:"))).toBe(false);
     expect(logical.frames.some((f) => f.kind === "stage" && (f.obj as { stage?: string }).stage === "web_meta")).toBe(false);
     expect(run.headers["x-web-citations"]).toBeUndefined();
@@ -795,14 +809,19 @@ describe("golden: pure clock turn (brief §5 — quiet clock, zero search traffi
       tools?: { function: { name: string } }[];
     };
     // The user turn is never rewritten. MHR (2026-11-05): the turn NOW arms
-    // the tool loop — guidance leads (skill slot), the clock follows the
-    // user turn, payload.tools is present (capability, never an action);
-    // still NO evidence block and no retrieval happened.
-    expect(payload.messages.map((m) => m.role)).toEqual(["system", "system", "system", "user"]);
-    expect(String(payload.messages[1].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
+    // the tool loop — guidance leads (original skill slot), the D-070
+    // catalogue block follows, payload.tools is present (capability, never an
+    // action); still NO evidence block and no retrieval happened.
+    expect(payload.messages.map((m) => m.role)).toEqual(["system", "system", "system", "system", "user"]);
     expect(payload.messages[0].content).toBe(WEB_TOOL_GUIDANCE);
-    expect(payload.messages[3].content).toBe("What time is it?");
-    expect(String(payload.messages[2].content).startsWith("<runtime_clock>")).toBe(true);
+    // The fence catalogue reaches the ANSWERING MODEL's request: asserted on
+    // the RAW body text (the anchor helper masks the block CONTENT into the
+    // marker slot, so the payload slot carries the marker, not the bytes).
+    expect(body.includes("<fence_catalogue>")).toBe(true);
+    expect(String(payload.messages[1].content)).toBe("<decision_skill_block id=\"decision_skill:standard_chat\">");
+    expect(String(payload.messages[2].content).startsWith("RESPONSE POLICY FOR THIS ASSISTANT:")).toBe(true);
+    expect(payload.messages[4].content).toBe("What time is it?");
+    expect(String(payload.messages[3].content).startsWith("<runtime_clock>")).toBe(true);
     expect(payload.messages.some((m) => String(m.content).includes("<evidence>"))).toBe(false);
     expect(payload.tools?.map((t) => t.function.name)).toEqual(["web_search", "read_page"]);
     // And no answer-content fabrication: the scripted answer streams through.

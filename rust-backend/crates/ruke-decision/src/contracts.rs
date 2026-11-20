@@ -2,12 +2,14 @@
 //! (`lib/decision/contracts.ts`). The exact bytes live in
 //! `contracts_generated.rs`, emitted by importing the live TS module in
 //! `rust-backend/scripts/gen-mode-contracts.mjs`; NEVER hand-edit or
-//! hand-copy them. `standard_chat` maps to `null` in the TS table → `None`.
+//! hand-copy them. `standard_chat` carries the D-070 fence CATALOGUE (a
+//! contract-shaped knowledge block, not a required-fence contract).
 
 use ruke_contracts::decision::RendererMode;
 
 use crate::contracts_generated::{
-    CONTRACT_CHART, CONTRACT_DOCS, CONTRACT_EXCEL, CONTRACT_HTML_RENDER, CONTRACT_PDF, CONTRACT_PPT,
+    CONTRACT_CHART, CONTRACT_DOCS, CONTRACT_EXCEL, CONTRACT_HTML_RENDER, CONTRACT_PDF,
+    CONTRACT_PPT, CONTRACT_STANDARD_CHAT,
 };
 
 /// `MODE_CONTRACTS[mode]` lookup.
@@ -19,6 +21,6 @@ pub fn mode_contract(mode: RendererMode) -> Option<&'static str> {
         RendererMode::Ppt => Some(CONTRACT_PPT),
         RendererMode::Chart => Some(CONTRACT_CHART),
         RendererMode::HtmlRender => Some(CONTRACT_HTML_RENDER),
-        RendererMode::StandardChat => None,
+        RendererMode::StandardChat => Some(CONTRACT_STANDARD_CHAT),
     }
 }

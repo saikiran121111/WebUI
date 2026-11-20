@@ -1,0 +1,10 @@
+[OK] executable - D:\Projects\WebUI\WebUI\.data\tools\tesseract\tesseract.exe -> tesseract v5.5.3.20260724 (run in place; its DLLs resolve from the project directory)
+[OK] language coverage - installed: eng, osd - reported live from --list-langs, no other language is claimed
+rasterised 1700 x 2200 channels 3
+tesseract.exe : Estimating resolution as 277
+At D:\Projects\WebUI\WebUI\scripts\prepare-tesseract-runtime.ps1:127 char:10
++   $out = & $exe @argv 2>&1
++          ~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Estimating resolution as 277:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

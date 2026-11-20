@@ -1,0 +1,73 @@
+warning: function `resolve_with` is never used
+   --> crates\ruke-core\src\settings.rs:256:4
+    |
+256 | fn resolve_with(
+    |    ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ruke-core` (lib) generated 1 warning
+   Compiling ruke-server v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.44s
+     Running unittests src\lib.rs (rust-backend\target\debug\deps\ruke_server-3f746aa18cb4f52f.exe)
+
+running 36 tests
+test chat::scrubber::tests::code_span_inside_a_reasoning_block_protects_the_close_spelling ... ok
+test chat::scrubber::tests::blockquote_markers_never_disable_a_live_tag_in_quoted_prose ... ok
+test chat::scrubber::tests::code_span_on_one_line_never_disables_live_tags_on_the_next ... ok
+test chat::scrubber::tests::blank_line_does_not_close_a_fence ... ok
+test chat::scrubber::tests::blockquoted_fence_opens_protects_contents_and_closes ... ok
+test chat::scrubber::tests::four_space_indent_is_never_a_fence ... ok
+test chat::scrubber::tests::flush_releases_held_partial_open_as_literal_content ... ok
+test chat::scrubber::tests::backtick_fence_info_with_backtick_is_not_a_fence ... ok
+test chat::scrubber::tests::flush_inside_a_block_releases_nothing_extra ... ok
+test chat::scrubber::tests::fence_inside_a_reasoning_block_protects_close_tag ... ok
+test chat::scrubber::tests::longer_close_run_closes_the_fence ... ok
+test chat::scrubber::tests::every_char_cut_routes_identically ... ok
+test chat::scrubber::tests::flush_releases_held_partial_close_as_reasoning ... ok
+test chat::scrubber::tests::incomplete_fence_opener_flushes_as_literal ... ok
+test chat::scrubber::tests::fence_literal_tag_stays_content_never_reasoning ... ok
+test chat::scrubber::tests::indented_fence_up_to_three_spaces_opens_and_closes ... ok
+test chat::scrubber::tests::indented_code_block_keeps_tags_literal_and_ends_where_markdown_ends_it ... ok
+test chat::scrubber::tests::inline_code_span_keeps_tag_spelling_in_the_answer ... ok
+test chat::scrubber::tests::lazy_unprefixed_closer_still_closes_a_blockquoted_fence ... ok
+test chat::scrubber::tests::every_char_cut_of_a_fenced_text_routes_identically ... ok
+test chat::scrubber::tests::live_tag_after_a_closed_span_on_the_same_line_still_switches ... ok
+test chat::scrubber::tests::four_piece_delimiter_split_leaks_nothing ... ok
+test chat::scrubber::tests::longer_backtick_run_delimits_the_span_tags_inside_stay_literal ... ok
+test chat::scrubber::tests::partial_close_tag_is_held_not_emitted ... ok
+test chat::scrubber::tests::partial_open_tag_is_held_not_emitted ... ok
+test chat::scrubber::tests::shorter_close_run_does_not_close_the_fence ... ok
+test chat::scrubber::tests::single_delta_routes_four_sections ... ok
+test chat::scrubber::tests::tab_indented_code_block_keeps_tags_literal ... ok
+test chat::scrubber::tests::tags_never_swallowed_inside_unclosed_fence_flush_keeps_all ... ok
+test chat::scrubber::tests::trailing_spaces_after_close_run_still_close ... ok
+test chat::scrubber::tests::multibyte_text_survives_char_at_a_time_feeding ... ok
+test chat::scrubber::tests::unterminated_opener_routes_to_reasoning_never_deletes ... ok
+test chat::scrubber::tests::real_delimiter_wins_over_held_text ... ok
+test chat::scrubber::tests::unmatched_backtick_on_a_finished_line_is_literal_punctuation ... ok
+test chat::scrubber::tests::tilde_fence_with_info_holds_tags_literal ... ok
+test chat::scrubber::tests::every_code_form_keeps_its_own_chunking_invariance ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 227 filtered out; finished in 0.00s
+
+warning: function `resolve_with` is never used
+   --> crates\ruke-core\src\settings.rs:256:4
+    |
+256 | fn resolve_with(
+    |    ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ruke-core` (lib) generated 1 warning
+   Compiling ruke-server v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.62s
+     Running tests\scrubber_vectors.rs (rust-backend\target\debug\deps\scrubber_vectors-760d90c1dbd07eec.exe)
+
+running 3 tests
+test utf8_transport_matrix_records_zero_mangling ... ok
+test unterminated_think_tail_survives_as_reasoning ... ok
+test think_field_split_matrix_replays_cross_engine_vectors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

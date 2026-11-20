@@ -1,0 +1,25 @@
+﻿node.exe : npm notice run webui-chat@0.2.0 npx
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\Ruku\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm notice run webui-chat@0.2.0 npx:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice run vitest run __tests__/server/attach-retrieve-honest.test.ts 
+__tests__/server/attach-coverage-metrics.test.ts __tests__/server/attach-turn-budget.test.ts 
+__tests__/server/attach-boundary-heldout.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See 
+https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ✓ __tests__/server/attach-retrieve-honest.test.ts (11 tests) 4ms
+ ✓ __tests__/server/attach-boundary-heldout.test.ts (7 tests) 19ms
+ ✓ __tests__/server/attach-turn-budget.test.ts (2 tests) 29ms
+ ✓ __tests__/server/attach-coverage-metrics.test.ts (6 tests) 90ms
+
+ Test Files  4 passed (4)
+      Tests  26 passed (26)
+   Start at  13:41:10
+   Duration  735ms (transform 196ms, setup 0ms, collect 1.32s, tests 142ms, environment 0ms, prepare 279ms)
+

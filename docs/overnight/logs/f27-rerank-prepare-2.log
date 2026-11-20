@@ -1,0 +1,33 @@
+Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|##########| 6/6 [00:00<00:00, 1090.89it/s]
+{
+  "ok": true,
+  "assets": [
+    {
+      "model_id": "Xenova/ms-marco-MiniLM-L-6-v2",
+      "ok": true,
+      "detail": "project-local asset directory D:\\Projects\\WebUI\\WebUI\\.data\\models\\Xenova\\ms-marco-MiniLM-L-6-v2 holds the required files",
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\models\\Xenova\\ms-marco-MiniLM-L-6-v2",
+      "revision": "a09144355adeed5f58c8ed011d209bf8ee5a1fec",
+      "required_files": 4,
+      "capability": "rerank",
+      "pipeline": "Xenova/ms-marco-MiniLM-L-6-v2",
+      "layout": "project-local checkout",
+      "manifest_ok": true,
+      "files": [
+        "config.json",
+        "onnx/model.onnx",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.txt"
+      ],
+      "weights_sha256": "c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870",
+      "problems": []
+    }
+  ],
+  "prepared_for": "Xenova/ms-marco-MiniLM-L-6-v2",
+  "layout": "project-local checkout",
+  "pipelines": [
+    "Xenova/ms-marco-MiniLM-L-6-v2"
+  ]
+}

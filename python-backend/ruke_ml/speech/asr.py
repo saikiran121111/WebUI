@@ -9,9 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from .. import processes
 from ..contracts import StructuredError
 from ..models.registry import (AVAILABLE, EVALUATION_REQUIRED, LICENSE_REQUIRED,
                                NOT_INSTALLED, catalog)
+from .languages import (UNKNOWN_TAGS, is_known_language, language_is_supported,
+                        normalize_language)
 
 PCM_RATE_HZ = 16000           # what current ASR front-ends expect; a law, not a default
 PCM_CHANNELS = 1
@@ -38,7 +41,11 @@ def pcm_command(src: str, *, start_s: float | None = None, duration_s: float | N
     The caller must therefore keep start_s and add it back; that offset is explicit
     in pcm_window() below rather than hidden in a flag.
     """
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+    # -nostdin comes before the first input: ffmpeg must never read the stdin it
+    # inherits. Inside a capability worker that stdin is the owner's request pipe (see
+    # ruke_ml/processes.py); a tool that reads it cannot be relied on to exit, and the
+    # control channel it steals from is the one the worker answers on.
+    cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
     if start_s is not None and not accurate_seek:
         cmd += ["-ss", f"{start_s:.3f}"]
     cmd += ["-i", src]
@@ -52,7 +59,11 @@ def pcm_command(src: str, *, start_s: float | None = None, duration_s: float | N
         # No explicit track: let ffmpeg apply its own best-stream rule rather than
         # blindly taking track 0 or concatenating every audio track together.
         cmd += ["-vn", "-sn", "-dn"]
-    cmd += ["-ac", str(PCM_CHANNELS), "-ar", str(rate), "-f", "s16le"]
+    # The output target is part of the command, not something a caller may forget: with
+    # `-f s16le` and no target, ffmpeg exits 1 with "At least one output file must be
+    # specified" (measured F14, first real decode run). `-` writes the PCM to stdout,
+    # which is what every caller here captures.
+    cmd += ["-ac", str(PCM_CHANNELS), "-ar", str(rate), "-f", "s16le", "-"]
     return cmd
 
 
@@ -155,46 +166,118 @@ def _maybe_int(v: Any) -> int | None:
         return None
 
 
+def probe_media(path: str, ffprobe: str = "") -> dict[str, Any]:
+    """Stream/duration inventory from ffprobe, with no inference about content.
+
+    The result separates the facts a caller must not confuse: container duration, the
+    per-stream start offset, whether an audio stream EXISTS at all, rotation, and which
+    track was selected. A missing track is not silence, and a stream offset is not zero.
+    """
+    import json
+    import subprocess
+    from ..models import binaries
+    exe = ffprobe or binaries.path_for("ffprobe") or "ffprobe"
+    cmd = ffprobe_command(str(path))
+    cmd[0] = exe
+    try:
+        done = processes.run_captured(cmd, timeout=60.0)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": f"ffprobe could not run: {type(exc).__name__}: {exc}",
+                "human_step": "install/validate ffprobe before probing media"}
+    if done.returncode != 0:
+        return {"ok": False,
+                "error": f"ffprobe exited {done.returncode}: {(done.stderr or b'')[-300:]!r}",
+                "human_step": "the file could not be probed; it may be corrupt or unsupported"}
+    try:
+        data = json.loads((done.stdout or b"").decode("utf-8", "replace") or "{}")
+    except json.JSONDecodeError as exc:
+        return {"ok": False, "error": f"ffprobe output was not JSON: {exc}", "human_step": ""}
+    streams = data.get("streams") or []
+    format_ = data.get("format") or {}
+    duration = _maybe_float(format_.get("duration")) or 0.0
+    offsets: dict[str, float] = {}
+    for s in streams:
+        start = _maybe_float(s.get("start_time"))
+        if start:
+            offsets[f"{s.get('codec_type', '?')}:{s.get('index', '?')}"] = start
+    rotation = 0
+    for s in streams:
+        if str(s.get("codec_type", "")) != "video":
+            continue
+        for side in s.get("side_data_list") or []:
+            rot = _maybe_int(side.get("rotation"))
+            if rot:
+                rotation = abs(int(rot))
+        tags = s.get("tags") or {}
+        rotation = rotation or (_maybe_int(tags.get("rotate")) or 0)
+    audio_choice = select_audio_stream(streams)
+    subtitles = [{"index": s.get("index"),
+                  "language": str(((s.get("tags") or {}).get("language", "") or ""))}
+                 for s in streams if str(s.get("codec_type", "")) == "subtitle"]
+    return {"ok": True, "error": "", "duration": float(duration),
+            "ffprobe": exe, "audio_streams": audio_choice["audio_streams"],
+            "has_audio": audio_choice["selected"] is not None,
+            "audio_state": audio_choice["state"], "audio_reason": audio_choice["reason"],
+            "selected_audio": audio_choice["selected"], "streams": streams[:64],
+            "stream_start_offsets": offsets, "rotation_deg": abs(int(rotation)),
+            "subtitle_tracks": subtitles,
+            "video_streams": sum(1 for s in streams if str(s.get("codec_type", "")) == "video")}
+
+
 # ---------------------------------------------------------------- language routing
 def language_route(language: str) -> dict[str, Any]:
-    """Pick the least-bad candidate for a language using CLAIMS plus measured flags.
+    """Pick the least-bad candidate from EXPLICIT language tags plus measured flags.
 
-    The old default, whisper-base.en, is English-only: routing Telugu through it
-    produces confident garbage, which is worse than an honest not_configured.
+    Two rules drive this: a `languages` claim that is not a list of tags says nothing, so
+    it is reported as a metadata fault rather than searched for substrings; and automatic
+    detection is a real capability of some backends, so "auto" routes only to a model that
+    publishes detection, never to whatever happens to be installed.
     """
-    lang = (language or "").strip().lower() or "unknown"
+    raw = (language or "").strip()
+    lang = normalize_language(raw) or "unknown"
+    detecting = lang in UNKNOWN_TAGS
+    status = catalog().status_for("speech.asr")
+    metadata_problems: list[str] = []
     candidates: list[dict[str, Any]] = []
     for spec in catalog().for_capability("speech.asr"):
-        claims = [str(x).lower() for x in (spec.claims.get("languages") or [])]
-        multi = "multilingual" in " ".join(claims) or "registry" in " ".join(claims)
-        explicit = lang in claims
-        if lang == "en":
-            ok = explicit or multi
-            why = "English is inside the published coverage"
-        elif claims and not multi:
-            ok = explicit
-            why = ("language-specific model lists this language" if explicit
-                   else "model is language-restricted and does not list this language")
-        else:
-            ok = multi
-            why = "multilingual claim covers it on paper; quality on this host is unverified"
-        status = catalog().status_for("speech.asr")
+        try:
+            if detecting:
+                ok = bool(spec.claims.get("language_detection"))
+                why = ("automatic identification is a published capability of this backend"
+                       if ok else "this backend does not publish automatic language detection")
+            else:
+                ok = language_is_supported(spec.claims.get("languages", []), lang)
+                why = ("the model's published tag list contains this language" if ok
+                       else "the model's published tag list does not contain this language")
+        except ValueError as exc:                      # malformed manifest metadata, reported
+            ok = False
+            why = f"unusable language metadata on this row: {exc}"
+            metadata_problems.append(f"{spec.id}: {exc}")
+        detected_ok = bool(spec.claims.get("language_detection"))
         entry_status = next((e["status"] for e in status["models"] if e["id"] == spec.id), NOT_INSTALLED)
         candidates.append({
             "id": spec.id, "status": entry_status, "acceptable": bool(ok), "reason": why,
             "verified_for_language": bool(spec.verified.get(lang, False)),
-            "claims_language": bool(explicit or multi),
+            "claims_language": bool(ok),
+            "supports_detection": detected_ok,
+            "publishes_tag_count": len(spec.claims.get("languages") or [])
+                                   if isinstance(spec.claims.get("languages"), (list, tuple)) else 0,
             "notes": spec.notes,
         })
+    if detecting:
+        # Automatic detection must never resolve to a single-language checkpoint.
+        return _route_detection(lang, candidates, metadata_problems)
     usable = [c for c in candidates if c["acceptable"] and c["status"] == AVAILABLE]
     measured = [c for c in usable if c["verified_for_language"]]
     if measured:
         return {"language": lang, "decision": "route", "model": measured[0]["id"],
                 "quality_mode": "measured_on_this_host", "candidates": candidates,
+                "metadata_problems": metadata_problems,
                 "note": "quality for this language was measured on this machine"}
     if usable:
         return {"language": lang, "decision": "route_with_warning", "model": usable[0]["id"],
                 "quality_mode": "published_claim_only", "candidates": candidates,
+                "metadata_problems": metadata_problems,
                 "note": "published support is not quality evidence; transcriptions must be reported as unverified"}
     blocked = [c for c in candidates if c["acceptable"]]
     if blocked:
@@ -202,23 +285,65 @@ def language_route(language: str) -> dict[str, Any]:
         if st in (EVALUATION_REQUIRED, NOT_INSTALLED):
             return {"language": lang, "decision": "not_configured", "model": None,
                     "quality_mode": "none", "candidates": candidates,
+                    "metadata_problems": metadata_problems,
                     "note": "no installed model credibly covers this language",
                     "human_step": "install and evaluate a candidate that lists "
                                   + lang + " (for example a multilingual Whisper checkpoint), then re-run the quality gate"}
         return {"language": lang, "decision": st, "model": None, "quality_mode": "none",
                 "candidates": candidates, "note": "coverage exists but access is not configured",
+                "metadata_problems": metadata_problems,
                 "human_step": "accept the provider licence and provide the access token"}
+    if metadata_problems:
+        return {"language": lang, "decision": "not_configured", "model": None,
+                "quality_mode": "none", "candidates": candidates,
+                "metadata_problems": metadata_problems,
+                "note": "the registered rows carry unreadable language metadata, so nothing "
+                        "can be routed on it; the supervisor stays up and the metadata is reported",
+                "human_step": "replace the prose language claim with the backend's explicit tag list"}
     return {"language": lang, "decision": "unsupported", "model": None, "quality_mode": "none",
             "candidates": candidates,
             "note": "no candidate lists this language; refusing to route it through an English-only model",
             "human_step": "add a model that credibly covers " + lang}
 
 
+def _route_detection(lang: str, candidates: list[dict[str, Any]],
+                     metadata_problems: list[str]) -> dict[str, Any]:
+    """Automatic language means REAL detection, run at job time by the selected model."""
+    able = [c for c in candidates if c["supports_detection"]]
+    ready = [c for c in able if c["status"] == AVAILABLE]
+    if ready:
+        return {"language": lang, "decision": "detect", "model": ready[0]["id"],
+                "quality_mode": "published_claim_only", "candidates": candidates,
+                "metadata_problems": metadata_problems,
+                "note": "the model identifies the language at decode time; the identified tag "
+                        "is reported with its probability, and detection quality is unmeasured"}
+    if able:
+        return {"language": lang, "decision": "detect_not_configured", "model": None,
+                "quality_mode": "none", "candidates": candidates,
+                "metadata_problems": metadata_problems,
+                "note": "a detection-capable backend is registered but is not executable here "
+                        "(missing dependency, missing asset or missing access)",
+                "human_step": "make one detection-capable row executable: "
+                              + "; ".join(f"{c['id']}={c['status']}" for c in able)}
+    return {"language": lang, "decision": "unsupported", "model": None, "quality_mode": "none",
+            "candidates": candidates, "metadata_problems": metadata_problems,
+            "note": "no registered backend publishes automatic language detection; a "
+                    "single-language checkpoint is never used as the default",
+            "human_step": "register a multilingual backend that publishes language identification"}
+
+
 def speech_status() -> dict[str, Any]:
     """Capability report without loading or downloading anything."""
     st = catalog().status_for("speech.asr")
+    from . import whisper_ct2
     return {"capability": "speech.asr", "status": st["status"], "models": st["models"],
             "pcm_contract": {"rate_hz": PCM_RATE_HZ, "channels": PCM_CHANNELS, "width_bytes": PCM_WIDTH_BYTES},
+            "language_table": {"source": "pinned backend capture",
+                               "count": len(whisper_ct2.published_languages()),
+                               "provenance": whisper_ct2.language_table_provenance()},
+            "known_language_tags": sorted(t for t in whisper_ct2.published_languages()
+                                          if is_known_language(t)),
+            "metadata_problems": st.get("metadata_problems", []),
             "detail": ("no ASR weights are loaded at startup; transcription runs in an owned worker"
                        if st["status"] != AVAILABLE else "weights load only inside an owned worker"),
             "human_step": ("" if st["status"] == AVAILABLE else

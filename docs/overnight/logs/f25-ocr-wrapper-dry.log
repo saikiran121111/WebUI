@@ -1,0 +1,76 @@
+
+==============================================================================
+PRECONDITIONS - host resources (measured)
+==============================================================================
+RAM free/total MiB   : 7486 / 65299
+commit used/total MiB: 75774 / 100115
+VRAM (nvidia-smi)    :
+NVIDIA GeForce RTX 3060, 12288 MiB, 9483 MiB, 2633 MiB
+
+==============================================================================
+PRECONDITIONS - OCR readiness (no model is loaded to answer this)
+==============================================================================
+primary engine   : paddleocr-vl-1.6  ready=True
+primary blockers : 
+runtime          : D:\Projects\WebUI\WebUI\python-backend\.venv-ocr\Scripts\python.exe (interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe)
+pinned pins      : opencv-contrib-python=4.10.0.84, paddleocr=3.6.0, paddlepaddle=3.2.1, paddlex=3.6.1
+asset snapshots  : PaddlePaddle/PaddleOCR-VL-1.6 present=True; PaddlePaddle/PP-DocLayoutV3 present=True
+declared peaks   : ram 3300 MiB (provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak); vram 6000 MiB (provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet))
+recovery engine  : available - languages eng,osd
+rasterizer       : pypdfium2 5.6.0
+policy           : primary=paddleocr-vl-1.6 allow_gpu=False allow_unload=False
+readiness exit    : 0 (non-zero = the PRIMARY engine cannot run here)
+
+==============================================================================
+PRECONDITIONS - shared coordination state
+==============================================================================
+LEASE  : none
+JOURNAL: none
+HEALTH : http://127.0.0.1:8080/health -> 200
+HEALTH : http://127.0.0.1:3101/api/ruke/health -> UNREACHABLE (Unable to connect to the remote server)
+
+Without -AllowUnload the primary pass is admitted only if OCR fits alongside the
+resident main model. If it does not, the run must end as a typed resource-limit
+result - that is a legitimate acceptance outcome, not a crash.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe -m ruke_ml.handoff --pdf D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\pdfs\d1_scanned.pdf --language eng --dpi 200 --lease-owner d1-content --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-engine-content-20261117-000710.json
+env    : RUKE_OCR_FAULT='' RUKE_DOCUMENT_OCR_LANGUAGE='eng' RUKE_OCR_ALLOW_UNLOAD=''
+DRY RUN - not executed.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe -m ruke_ml.handoff --pdf D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\pdfs\d1_scanned.pdf --language eng --dpi 200 --lease-owner d1-fallback_primary --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-engine-fallback_primary-20261117-000710.json
+env    : RUKE_OCR_FAULT='unavailable' RUKE_DOCUMENT_OCR_LANGUAGE='eng' RUKE_OCR_ALLOW_UNLOAD=''
+DRY RUN - not executed.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe -m ruke_ml.handoff --pdf D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\pdfs\d1_scanned.pdf --language eng --dpi 200 --lease-owner d1-fallback_crash --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-engine-fallback_crash-20261117-000710.json
+env    : RUKE_OCR_FAULT='crash' RUKE_DOCUMENT_OCR_LANGUAGE='eng' RUKE_OCR_ALLOW_UNLOAD=''
+DRY RUN - not executed.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe -m ruke_ml.handoff --pdf D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\pdfs\d1_scan_nolang.pdf --language  --dpi 200 --lease-owner d1-no_language --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-engine-no_language-20261117-000710.json
+env    : RUKE_OCR_FAULT='' RUKE_DOCUMENT_OCR_LANGUAGE='' RUKE_OCR_ALLOW_UNLOAD=''
+DRY RUN - not executed.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py --pass content --base http://localhost:3000 --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-http-content-20261117-000710.json
+DRY RUN - not executed.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py --pass fallback_primary --base http://localhost:3000 --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-http-fallback_primary-20261117-000710.json
+DRY RUN - not executed.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py --pass fallback_crash --base http://localhost:3000 --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-http-fallback_crash-20261117-000710.json
+DRY RUN - not executed.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py --pass no_language --base http://localhost:3000 --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-http-no_language-20261117-000710.json
+DRY RUN - not executed.
+
+==============================================================================
+SUMMARY (exit codes; 0 = the answer key passed, non-zero = a recorded miss or refusal)
+==============================================================================
+engine:content                   0
+engine:fallback_primary          0
+engine:fallback_crash            0
+engine:no_language               0
+production:content               0
+production:fallback_primary      0
+production:fallback_crash        0
+production:no_language           0
+
+Engine evidence is NOT production-path evidence. Both are needed before OCR is GREEN.

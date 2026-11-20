@@ -1,0 +1,91 @@
+==== dev supervisor launch 16-11-2026 18:58:15.14 ==== 
+npm notice run webui-chat@0.2.0 dev
+npm notice run node scripts/dev-supervisor.mjs
+[dev-supervisor] python: project venv reused (offline start, python 3.12.15)
+[dev-supervisor] Building Rust backend (cargo build)...
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.27s
+[dev-supervisor] Rust backend build OK.
+ruke-ml supervisor ready on 127.0.0.1:54565 pid=25632
+18:58:18 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[dev-supervisor] Python supervisor ready on 127.0.0.1:54565 (pid 6568, state ready, heavy imports at startup: 0, idle TTL 120s).
+[dev-supervisor] starting ruke-server rust-backend\target\debug\ruke-server.exe (pid 25816) on 127.0.0.1:3101...
+2026-11-16T13:28:19.274092Z  INFO ruke_server: attachment query-embedder configured (Node ONNX loopback RPC)
+2026-11-16T13:28:19.274807Z  INFO ruke_server: web-research bridge configured (Next-owned TS search via loopback RPC)
+2026-11-16T13:28:19.281524Z  INFO ruke_server: capability backend rendezvous resolved (python supervisor; status on GET /api/ruke/ml-status) endpoint=http://127.0.0.1:54565 source="discovery" supervisor_pid=Some(25632)
+2026-11-16T13:28:19.282504Z  INFO ruke_server: ruke-server listening (health + isolated /api/chat) — Next :3000 remains authoritative addr=127.0.0.1:3101 root=D:\Projects\WebUI\WebUI
+[dev-supervisor] Rust backend ready.
+[dev-supervisor] starting next dev (pid 18032) on 127.0.0.1:3000...
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+[dev-supervisor] Next.js ready (listening).
+[dev-supervisor] Ready
+  UI:      http://localhost:3000
+  Backend: http://127.0.0.1:3101
+  proxy delegation ON · bridge secret armed
+Press Ctrl+C to stop RUKE.
+ ✓ Compiled /instrumentation in 220ms (154 modules)
+ ✓ Ready in 1979ms
+ ✓ Compiled /api/files/extract in 191ms (231 modules)
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-hydro.pdf 200 in 495ms
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-negate.pdf 200 in 23ms
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+[18:58:50.619] [31mERROR[39m (api/files/extract): [36mextraction failed: ho-empty.pdf has no text layer — all 2 page(s) are scanned images. the document capability backend also refused (contract_mismatch): the capability backend reported a successful document parse that carries no readable units, which is refused rather than treated as an empty document - report this: the payload shape and the reader version must match send the page you care about as an image and the vision model can read it.[39m [90m{"file":"ho-empty.pdf"}[39m
+ POST /api/files/extract?name=ho-empty.pdf 422 in 12ms
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-inventory.xlsx 200 in 21ms
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-corrupt.xlsx 200 in 12ms
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-badxml.xlsx 200 in 11ms
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-catalog.docx 200 in 18ms
+18:58:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-slides.pptx 200 in 20ms
+19:06:53 127.0.0.1 "GET /health HTTP/1.1" 200 -
+19:06:53 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+ ✓ Compiled in 187ms (142 modules)
+ ✓ Compiled /api/files/extract in 217ms (231 modules)
+19:45:40 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-hydro.pdf 200 in 612ms
+19:45:40 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-negate.pdf 200 in 21ms
+19:45:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-empty.pdf 200 in 14ms
+19:45:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-inventory.xlsx 200 in 20ms
+19:45:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-corrupt.xlsx 200 in 15ms
+19:45:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-badxml.xlsx 200 in 14ms
+19:45:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-catalog.docx 200 in 20ms
+19:45:41 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-slides.pptx 200 in 21ms
+ ✓ Compiled in 86ms (142 modules)
+19:56:53 127.0.0.1 "GET /health HTTP/1.1" 200 -
+19:56:53 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+ ✓ Compiled /api/files/extract in 125ms (231 modules)
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-hydro.pdf 200 in 317ms
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-negate.pdf 200 in 17ms
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-empty.pdf 200 in 12ms
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-inventory.xlsx 200 in 18ms
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-corrupt.xlsx 200 in 14ms
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-badxml.xlsx 200 in 12ms
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-catalog.docx 200 in 18ms
+19:57:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=ho-slides.pptx 200 in 20ms
+ ✓ Compiled in 138ms (142 modules)

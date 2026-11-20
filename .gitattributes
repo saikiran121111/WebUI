@@ -5,3 +5,4 @@ rust-backend/fixtures/**/*.json text eol=lf
 rust-backend/fixtures/**/*.jsonl text eol=lf
 rust-backend/fixtures/**/*.txt text eol=lf
 rust-backend/fixtures/**/*.md text eol=lf
+graphify-out/graph.json merge=graphify

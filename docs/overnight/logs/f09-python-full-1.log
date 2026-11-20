@@ -1,0 +1,280 @@
+test_binary_outside_the_repo_is_reduced_to_its_file_name (tests.test_binaries.ProvenancePayload.test_binary_outside_the_repo_is_reduced_to_its_file_name) ... ok
+test_registry_reports_not_installed_when_nothing_validates (tests.test_binaries.ProvenancePayload.test_registry_reports_not_installed_when_nothing_validates) ... ok
+test_registry_status_carries_the_provenance_that_made_it_available (tests.test_binaries.ProvenancePayload.test_registry_status_carries_the_provenance_that_made_it_available) ... ok
+test_repo_local_binary_is_shown_relative_to_the_repo (tests.test_binaries.ProvenancePayload.test_repo_local_binary_is_shown_relative_to_the_repo) ... ok
+test_a_path_like_name_is_refused (tests.test_binaries.Resolution.test_a_path_like_name_is_refused) ... ok
+test_explicit_override_is_preferred_and_recorded (tests.test_binaries.Resolution.test_explicit_override_is_preferred_and_recorded) ... ok
+test_missing_override_path_is_reported_not_crashed (tests.test_binaries.Resolution.test_missing_override_path_is_reported_not_crashed) ... ok
+test_playwright_download_counts_as_project_local (tests.test_binaries.Resolution.test_playwright_download_counts_as_project_local) ... ok
+test_probe_is_cached_until_the_override_changes_or_cache_is_cleared (tests.test_binaries.Resolution.test_probe_is_cached_until_the_override_changes_or_cache_is_cleared) ... ok
+test_project_local_copy_found_without_path (tests.test_binaries.Resolution.test_project_local_copy_found_without_path) ... ok
+test_same_named_non_program_on_path_is_rejected (tests.test_binaries.Resolution.test_same_named_non_program_on_path_is_rejected) ... ok
+test_unusable_override_is_named_and_never_reported_as_the_binary (tests.test_binaries.Resolution.test_unusable_override_is_named_and_never_reported_as_the_binary) ... ok
+test_command_falls_back_to_the_token_when_no_copy_is_valid (tests.test_binaries.SceneCommand.test_command_falls_back_to_the_token_when_no_copy_is_valid) ... ok
+test_command_names_the_validated_copy_not_a_bare_hope (tests.test_binaries.SceneCommand.test_command_names_the_validated_copy_not_a_bare_hope) ... ok
+test_canon_json_stable (tests.test_contracts_security.Contracts.test_canon_json_stable) ... ok
+test_embedding_compatibility (tests.test_contracts_security.Contracts.test_embedding_compatibility) ... ok
+test_rejects (tests.test_contracts_security.Contracts.test_rejects) ... ok
+test_round_trip (tests.test_contracts_security.Contracts.test_round_trip) ... ok
+test_worker_env_blocks_egress (tests.test_contracts_security.Egress.test_worker_env_blocks_egress) ... ok
+test_good_paths_stay_inside (tests.test_contracts_security.Paths.test_good_paths_stay_inside) ... ok
+test_loopback_and_token (tests.test_contracts_security.Paths.test_loopback_and_token) ... ok
+test_ratio_explosion (tests.test_contracts_security.Paths.test_ratio_explosion) ... ok
+test_reserved_device_names (tests.test_contracts_security.Paths.test_reserved_device_names) ... ok
+test_traversal_rejected (tests.test_contracts_security.Paths.test_traversal_rejected) ... ok
+test_zip_bomb_and_names (tests.test_contracts_security.Paths.test_zip_bomb_and_names) ... ok
+test_every_declared_capability_reaches_a_worker_handler (tests.test_contracts_security.WireReasons.test_every_declared_capability_reaches_a_worker_handler) ... ok
+test_every_reason_the_package_raises_is_a_legal_wire_reason (tests.test_contracts_security.WireReasons.test_every_reason_the_package_raises_is_a_legal_wire_reason) ... ok
+test_reason_names_are_unique (tests.test_contracts_security.WireReasons.test_reason_names_are_unique) ... ok
+test_a_spawned_child_gets_no_egress_path_and_the_right_pythonpath (tests.test_contracts_security.WorkerOwnership.test_a_spawned_child_gets_no_egress_path_and_the_right_pythonpath) ... ok
+test_a_worker_that_announces_a_dead_control_channel_fails_fast (tests.test_contracts_security.WorkerOwnership.test_a_worker_that_announces_a_dead_control_channel_fails_fast) ... FAIL
+test_a_pdf_job_ships_no_per_unit_rendering_and_says_so_instead (tests.test_document_render.ParsePayloadCarriesTheRendering.test_a_pdf_job_ships_no_per_unit_rendering_and_says_so_instead) ... ok
+test_docx_job_ships_rendered_units_and_keeps_blocks_as_raw_evidence (tests.test_document_render.ParsePayloadCarriesTheRendering.test_docx_job_ships_rendered_units_and_keeps_blocks_as_raw_evidence) ... ok
+test_a_reader_that_knows_what_it_missed_says_so (tests.test_document_render.Rendering.test_a_reader_that_knows_what_it_missed_says_so) ... ok
+test_corrupt_cells_are_named_as_unread_never_as_blank (tests.test_document_render.Rendering.test_corrupt_cells_are_named_as_unread_never_as_blank) ... ok
+test_docx_table_rows_keep_table_and_row_identity_and_headings_only_when_named (tests.test_document_render.Rendering.test_docx_table_rows_keep_table_and_row_identity_and_headings_only_when_named) ... ok
+test_ocr_only_unit_is_labelled_ocr_and_a_mixed_unit_is_not (tests.test_document_render.Rendering.test_ocr_only_unit_is_labelled_ocr_and_a_mixed_unit_is_not) ... ok
+test_pdf_pages_are_not_rendered_because_the_page_unit_already_is_the_text (tests.test_document_render.Rendering.test_pdf_pages_are_not_rendered_because_the_page_unit_already_is_the_text) ... ok
+test_pptx_slide_identity_and_speaker_notes_stay_apart (tests.test_document_render.Rendering.test_pptx_slide_identity_and_speaker_notes_stay_apart) ... ok
+test_truncation_is_stated_never_silent (tests.test_document_render.Rendering.test_truncation_is_stated_never_silent) ... ok
+test_unit_ids_are_the_1_based_ids_coverage_and_citations_use (tests.test_document_render.Rendering.test_unit_ids_are_the_1_based_ids_coverage_and_citations_use) ... ok
+test_xlsx_rendering_keeps_coordinates_merged_ranges_and_worksheet_identity (tests.test_document_render.Rendering.test_xlsx_rendering_keeps_coordinates_merged_ranges_and_worksheet_identity) ... ok
+test_case_ids_unique_and_judgements_reference_real_documents (tests.test_eval_harness.FrozenSuiteTests.test_case_ids_unique_and_judgements_reference_real_documents) ... ok
+test_corpus_documents_are_distinct_and_nontrivial (tests.test_eval_harness.FrozenSuiteTests.test_corpus_documents_are_distinct_and_nontrivial) ... ok
+test_every_declared_capability_has_an_honest_registry_entry (tests.test_eval_harness.FrozenSuiteTests.test_every_declared_capability_has_an_honest_registry_entry)
+A capability listed in the contract must not be reportable as a mystery status. ... ok
+test_family_and_case_counts_are_frozen (tests.test_eval_harness.FrozenSuiteTests.test_family_and_case_counts_are_frozen) ... ok
+test_floors_are_stated_and_are_fractions (tests.test_eval_harness.FrozenSuiteTests.test_floors_are_stated_and_are_fractions) ... ok
+test_gated_capabilities_are_real_capability_names (tests.test_eval_harness.FrozenSuiteTests.test_gated_capabilities_are_real_capability_names) ... ok
+test_coverage_is_reported_on_every_run (tests.test_eval_harness.FusionContractTests.test_coverage_is_reported_on_every_run) ... ok
+test_empty_corpus_abstains_with_a_reason (tests.test_eval_harness.FusionContractTests.test_empty_corpus_abstains_with_a_reason) ... ok
+test_informative_terms_exclude_both_ends_of_document_frequency (tests.test_eval_harness.FusionContractTests.test_informative_terms_exclude_both_ends_of_document_frequency) ... ok
+test_invalid_top_k_abstains_instead_of_returning_nothing_quietly (tests.test_eval_harness.FusionContractTests.test_invalid_top_k_abstains_instead_of_returning_nothing_quietly) ... ok
+test_neural_modes_refuse_instead_of_ranking_worse (tests.test_eval_harness.FusionContractTests.test_neural_modes_refuse_instead_of_ranking_worse) ... ok
+test_rrf_prefers_agreement_between_views (tests.test_eval_harness.FusionContractTests.test_rrf_prefers_agreement_between_views) ... ok
+test_a_corpus_unique_identifier_may_stand_alone (tests.test_eval_harness.HarnessHonestyTests.test_a_corpus_unique_identifier_may_stand_alone) ... ok
+test_a_missing_denominator_can_never_be_a_pass (tests.test_eval_harness.HarnessHonestyTests.test_a_missing_denominator_can_never_be_a_pass) ... ok
+test_a_pass_needs_measured_values_for_every_floor_metric (tests.test_eval_harness.HarnessHonestyTests.test_a_pass_needs_measured_values_for_every_floor_metric) ... ok
+test_abstention_cases_never_present_a_ranking (tests.test_eval_harness.HarnessHonestyTests.test_abstention_cases_never_present_a_ranking) ... ok
+test_abstention_reasons_are_specific_not_generic_ok (tests.test_eval_harness.HarnessHonestyTests.test_abstention_reasons_are_specific_not_generic_ok) ... ok
+test_cli_exit_code_matches_the_report (tests.test_eval_harness.HarnessHonestyTests.test_cli_exit_code_matches_the_report) ... ok
+test_forbidden_top1_floor_is_a_ceiling_not_a_target (tests.test_eval_harness.HarnessHonestyTests.test_forbidden_top1_floor_is_a_ceiling_not_a_target) ... ok
+test_gated_rows_never_claim_a_result_and_come_from_the_catalog (tests.test_eval_harness.HarnessHonestyTests.test_gated_rows_never_claim_a_result_and_come_from_the_catalog) ... ok
+test_counts_keep_their_denominators (tests.test_eval_harness.MetricTests.test_counts_keep_their_denominators) ... ok
+test_empty_denominators_are_none_not_zero (tests.test_eval_harness.MetricTests.test_empty_denominators_are_none_not_zero) ... ok
+test_error_rates_measure_the_declared_unit (tests.test_eval_harness.MetricTests.test_error_rates_measure_the_declared_unit) ... ok
+test_ranking_metrics_have_known_values (tests.test_eval_harness.MetricTests.test_ranking_metrics_have_known_values) ... ok
+test_temporal_localization_hits_and_misses (tests.test_eval_harness.MetricTests.test_temporal_localization_hits_and_misses) ... ok
+test_accented_latin_keeps_both_forms_as_one_token (tests.test_eval_harness.TokenizerMechanismTests.test_accented_latin_keeps_both_forms_as_one_token) ... ok
+test_indic_word_stays_one_token (tests.test_eval_harness.TokenizerMechanismTests.test_indic_word_stays_one_token) ... ok
+test_marks_from_every_mark_category_glue_to_the_base_letter (tests.test_eval_harness.TokenizerMechanismTests.test_marks_from_every_mark_category_glue_to_the_base_letter) ... ok
+test_spaceless_scripts_still_get_bigrams (tests.test_eval_harness.TokenizerMechanismTests.test_spaceless_scripts_still_get_bigrams) ... ok
+test_symbol_bearing_identifiers_survive (tests.test_eval_harness.TokenizerMechanismTests.test_symbol_bearing_identifiers_survive) ... ok
+test_vowelled_arabic_is_searchable_in_both_forms (tests.test_eval_harness.TokenizerMechanismTests.test_vowelled_arabic_is_searchable_in_both_forms) ... ok
+test_abstention_law_is_written_into_the_report (tests.test_eval_methods.TestComparisonStaysHonest.test_abstention_law_is_written_into_the_report) ... ok
+test_denominators_are_stated_per_method_and_per_language (tests.test_eval_methods.TestComparisonStaysHonest.test_denominators_are_stated_per_method_and_per_language) ... ok
+test_dense_only_scores_its_missing_support_test_as_zero (tests.test_eval_methods.TestComparisonStaysHonest.test_dense_only_scores_its_missing_support_test_as_zero) ... ok
+test_dense_ranking_puts_the_aligned_vector_first (tests.test_eval_methods.TestRanking.test_dense_ranking_puts_the_aligned_vector_first) ... ok
+test_fusion_keeps_the_lexical_view_in_charge_when_dense_disagrees (tests.test_eval_methods.TestRanking.test_fusion_keeps_the_lexical_view_in_charge_when_dense_disagrees)
+RRF weights are the shipped ones: the lexical support view carries more. ... ok
+test_unknown_query_id_is_a_contract_error_not_a_crash (tests.test_eval_methods.TestRanking.test_unknown_query_id_is_a_contract_error_not_a_crash) ... ok
+test_claimed_l2_must_actually_be_unit_norm (tests.test_eval_methods.TestVectorContract.test_claimed_l2_must_actually_be_unit_norm) ... ok
+test_declared_dim_must_match_actual_length (tests.test_eval_methods.TestVectorContract.test_declared_dim_must_match_actual_length) ... ok
+test_missing_chunk_vector_is_refused (tests.test_eval_methods.TestVectorContract.test_missing_chunk_vector_is_refused) ... ok
+test_missing_query_vector_is_refused (tests.test_eval_methods.TestVectorContract.test_missing_query_vector_is_refused) ... ok
+test_non_finite_value_is_refused (tests.test_eval_methods.TestVectorContract.test_non_finite_value_is_refused) ... ok
+test_stale_vector_naming_an_unknown_chunk_is_refused (tests.test_eval_methods.TestVectorContract.test_stale_vector_naming_an_unknown_chunk_is_refused) ... ok
+test_untrustworthy_header_is_refused (tests.test_eval_methods.TestVectorContract.test_untrustworthy_header_is_refused) ... ok
+test_valid_vectors_load_with_their_own_meta (tests.test_eval_methods.TestVectorContract.test_valid_vectors_load_with_their_own_meta) ... ok
+test_a_bad_shared_string_index_is_corruption_never_an_empty_cell (tests.test_retrieval_documents.Extraction.test_a_bad_shared_string_index_is_corruption_never_an_empty_cell) ... ok
+test_archive_guard_runs_before_parsing (tests.test_retrieval_documents.Extraction.test_archive_guard_runs_before_parsing) ... ok
+test_cell_and_range_parsing_is_explicit (tests.test_retrieval_documents.Extraction.test_cell_and_range_parsing_is_explicit) ... ok
+test_docx_keeps_headings_and_table_rows (tests.test_retrieval_documents.Extraction.test_docx_keeps_headings_and_table_rows) ... ok
+test_merged_spans_are_geometry_and_not_string_equality (tests.test_retrieval_documents.Extraction.test_merged_spans_are_geometry_and_not_string_equality) ... ok
+test_ocr_escalation_is_driven_by_measured_quality (tests.test_retrieval_documents.Extraction.test_ocr_escalation_is_driven_by_measured_quality) ... ok
+test_pptx_keeps_notes_apart_from_slide_text (tests.test_retrieval_documents.Extraction.test_pptx_keeps_notes_apart_from_slide_text) ... ok
+test_two_tables_never_share_row_identity (tests.test_retrieval_documents.Extraction.test_two_tables_never_share_row_identity) ... ok
+test_unsupported_format_is_honest_not_flattened (tests.test_retrieval_documents.Extraction.test_unsupported_format_is_honest_not_flattened) ... ok
+test_xlsx_keeps_formula_and_cached_value (tests.test_retrieval_documents.Extraction.test_xlsx_keeps_formula_and_cached_value) ... ok
+test_block_boundaries_win (tests.test_retrieval_documents.Identity.test_block_boundaries_win) ... ok
+test_case_and_script_folding_is_conservative (tests.test_retrieval_documents.Identity.test_case_and_script_folding_is_conservative) ... ok
+test_symbol_bearing_identifiers_survive (tests.test_retrieval_documents.Identity.test_symbol_bearing_identifiers_survive) ... ok
+test_a_hole_in_the_middle_is_two_spans_never_a_contiguous_prefix (tests.test_retrieval_documents.PdfReading.test_a_hole_in_the_middle_is_two_spans_never_a_contiguous_prefix) ... ok
+test_corrupt_bytes_never_produce_a_confident_empty_answer (tests.test_retrieval_documents.PdfReading.test_corrupt_bytes_never_produce_a_confident_empty_answer) ... EOF marker not found
+ok
+test_empty_text_layer_page_is_not_reported_as_read (tests.test_retrieval_documents.PdfReading.test_empty_text_layer_page_is_not_reported_as_read) ... ok
+test_encrypted_input_is_a_typed_refusal_not_an_empty_document (tests.test_retrieval_documents.PdfReading.test_encrypted_input_is_a_typed_refusal_not_an_empty_document) ... ok
+test_more_pages_than_the_bound_refuses_instead_of_dropping_the_tail (tests.test_retrieval_documents.PdfReading.test_more_pages_than_the_bound_refuses_instead_of_dropping_the_tail) ... ok
+test_native_pages_are_numbered_one_based_and_read_in_order (tests.test_retrieval_documents.PdfReading.test_native_pages_are_numbered_one_based_and_read_in_order) ... ok
+test_rotation_is_recorded_and_not_silently_normalised (tests.test_retrieval_documents.PdfReading.test_rotation_is_recorded_and_not_silently_normalised) ... ok
+test_crash_mid_publish_leaves_previous_generation_readable (tests.test_retrieval_documents.Publish.test_crash_mid_publish_leaves_previous_generation_readable) ... ok
+test_embeddings_reject_incompatible_vectors (tests.test_retrieval_documents.Publish.test_embeddings_reject_incompatible_vectors) ... ok
+test_model_backends_are_refused_until_pinned (tests.test_retrieval_documents.Publish.test_model_backends_are_refused_until_pinned) ... ok
+test_publish_then_load (tests.test_retrieval_documents.Publish.test_publish_then_load) ... ok
+test_ragged_and_mismatched_vectors_refused (tests.test_retrieval_documents.Publish.test_ragged_and_mismatched_vectors_refused) ... ok
+test_reindex_keeps_reader_consistent (tests.test_retrieval_documents.Publish.test_reindex_keeps_reader_consistent) ... ok
+test_rerank_reports_the_mode_actually_used (tests.test_retrieval_documents.Publish.test_rerank_reports_the_mode_actually_used) ... ok
+test_advertised_word_timing_and_executability_never_disagree (tests.test_speech.AlignerTruth.test_advertised_word_timing_and_executability_never_disagree) ... ok
+test_automatic_language_never_reaches_an_aligner (tests.test_speech.AlignerTruth.test_automatic_language_never_reaches_an_aligner) ... ok
+test_status_reports_per_aligner_readiness_without_loading (tests.test_speech.AlignerTruth.test_status_reports_per_aligner_readiness_without_loading) ... ok
+test_the_aligners_table_decides_not_the_asrs (tests.test_speech.AlignerTruth.test_the_aligners_table_decides_not_the_asrs) ... ok
+test_english_only_model_never_carries_another_language (tests.test_speech.Routing.test_english_only_model_never_carries_another_language) ... ok
+test_routing_decision_never_selects_an_unlisted_language (tests.test_speech.Routing.test_routing_decision_never_selects_an_unlisted_language) ... ok
+test_status_reports_pcm_contract_without_loading (tests.test_speech.Routing.test_status_reports_pcm_contract_without_loading) ... ok
+test_telugu_is_reported_as_unverified_not_silently_supported (tests.test_speech.Routing.test_telugu_is_reported_as_unverified_not_silently_supported) ... ok
+test_clock_errors_are_reported_not_silently_stretched (tests.test_speech.Speakers.test_clock_errors_are_reported_not_silently_stretched) ... ok
+test_diarization_is_licence_gated_without_blocking_startup (tests.test_speech.Speakers.test_diarization_is_licence_gated_without_blocking_startup) ... ok
+test_heavy_stages_run_sequentially (tests.test_speech.Speakers.test_heavy_stages_run_sequentially) ... ok
+test_labels_are_anonymous_and_never_claim_identity (tests.test_speech.Speakers.test_labels_are_anonymous_and_never_claim_identity) ... ok
+test_missing_provider_package_never_crashes_capability_reporting (tests.test_speech.Speakers.test_missing_provider_package_never_crashes_capability_reporting) ... ok
+test_overlap_is_evidence_not_an_error (tests.test_speech.Speakers.test_overlap_is_evidence_not_an_error) ... ok
+test_default_flag_and_language_tag_beat_track_zero (tests.test_speech.Timebase.test_default_flag_and_language_tag_beat_track_zero) ... ok
+test_no_audio_track_is_not_silence (tests.test_speech.Timebase.test_no_audio_track_is_not_silence) ... ok
+test_pcm_command_maps_an_explicit_stream_and_model_rate (tests.test_speech.Timebase.test_pcm_command_maps_an_explicit_stream_and_model_rate) ... ok
+test_window_bounds_are_enforced (tests.test_speech.Timebase.test_window_bounds_are_enforced) ... ok
+test_windows_carry_their_own_source_offset (tests.test_speech.Timebase.test_windows_carry_their_own_source_offset) ... ok
+test_absent_word_times_are_reported_as_segment_span_only (tests.test_speech.WordTimes.test_absent_word_times_are_reported_as_segment_span_only) ... ok
+test_aligner_exclusions_are_respected (tests.test_speech.WordTimes.test_aligner_exclusions_are_respected) ... ok
+test_inverted_segment_is_flagged (tests.test_speech.WordTimes.test_inverted_segment_is_flagged) ... ok
+test_out_of_segment_and_non_monotonic_words_are_rejected_not_repaired (tests.test_speech.WordTimes.test_out_of_segment_and_non_monotonic_words_are_rejected_not_repaired) ... ok
+test_provider_word_times_are_validated (tests.test_speech.WordTimes.test_provider_word_times_are_validated) ... ok
+test_quiet_server_filters_aborts_only (tests.test_supervisor_workers.ConnectionOwnership.test_quiet_server_filters_aborts_only) ... ok
+test_a_failed_job_records_its_state_on_a_worker_that_survived (tests.test_supervisor_workers.OwnedWorkers.test_a_failed_job_records_its_state_on_a_worker_that_survived) ... ok
+test_deadline_terminates_only_the_owned_worker (tests.test_supervisor_workers.OwnedWorkers.test_deadline_terminates_only_the_owned_worker) ... ok
+test_gated_capability_reports_licence_blocker_as_a_typed_failure (tests.test_supervisor_workers.OwnedWorkers.test_gated_capability_reports_licence_blocker_as_a_typed_failure) ... ok
+test_heavy_stages_are_serialised_through_one_slot (tests.test_supervisor_workers.OwnedWorkers.test_heavy_stages_are_serialised_through_one_slot) ... ok
+test_job_stages_are_captured_not_discarded (tests.test_supervisor_workers.OwnedWorkers.test_job_stages_are_captured_not_discarded)
+The worker really emits {"kind":"progress"} frames. The pool used to read them ... ok
+test_real_worker_round_trip_and_report (tests.test_supervisor_workers.OwnedWorkers.test_real_worker_round_trip_and_report) ... ok
+test_worker_crash_becomes_a_retryable_typed_failure (tests.test_supervisor_workers.OwnedWorkers.test_worker_crash_becomes_a_retryable_typed_failure) ... C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\subprocess.py:1127: ResourceWarning: subprocess 24632 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_a_health_reports_real_state_without_touching_a_model (tests.test_supervisor_workers.RpcRoundTrip.test_a_health_reports_real_state_without_touching_a_model) ... 17:49:44 127.0.0.1 "GET /health HTTP/1.1" 200 -
+ok
+test_b_job_without_a_token_is_refused (tests.test_supervisor_workers.RpcRoundTrip.test_b_job_without_a_token_is_refused) ... 17:49:44 127.0.0.1 "POST /job HTTP/1.1" 401 -
+ok
+test_c_embeddings_run_lexically_and_report_their_own_mode (tests.test_supervisor_workers.RpcRoundTrip.test_c_embeddings_run_lexically_and_report_their_own_mode) ... 17:49:44 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ok
+test_d_uninstalled_backend_is_a_typed_failure_not_a_zero_vector (tests.test_supervisor_workers.RpcRoundTrip.test_d_uninstalled_backend_is_a_typed_failure_not_a_zero_vector) ... 17:49:44 127.0.0.1 "POST /job HTTP/1.1" 552 -
+ok
+test_e_oversized_request_is_refused_before_it_is_read (tests.test_supervisor_workers.RpcRoundTrip.test_e_oversized_request_is_refused_before_it_is_read) ... 17:49:44 127.0.0.1 "POST /job HTTP/1.1" 413 -
+ok
+test_f_contract_mismatch_is_typed (tests.test_supervisor_workers.RpcRoundTrip.test_f_contract_mismatch_is_typed) ... 17:49:44 127.0.0.1 "POST /job HTTP/1.1" 400 -
+ok
+test_g_capabilities_report_licence_blockers_without_failing (tests.test_supervisor_workers.RpcRoundTrip.test_g_capabilities_report_licence_blockers_without_failing) ... 17:49:44 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+ok
+test_h_client_churn_is_quiet_and_bounded (tests.test_supervisor_workers.RpcRoundTrip.test_h_client_churn_is_quiet_and_bounded) ... ok
+test_i_keep_alive_connections_expire (tests.test_supervisor_workers.RpcRoundTrip.test_i_keep_alive_connections_expire) ... ok
+test_z_shutdown_needs_a_token_and_drains (tests.test_supervisor_workers.RpcRoundTrip.test_z_shutdown_needs_a_token_and_drains) ... connection closed by client: ConnectionResetError
+17:49:44 127.0.0.1 "POST /shutdown HTTP/1.1" 401 -
+17:49:44 127.0.0.1 "POST /shutdown HTTP/1.1" 200 -
+ok
+test_discovery_record_shape (tests.test_supervisor_workers.StartupContract.test_discovery_record_shape) ... ok
+test_secret_is_written_atomically_and_readable (tests.test_supervisor_workers.StartupContract.test_secret_is_written_atomically_and_readable) ... ok
+test_supervisor_imports_nothing_heavy (tests.test_supervisor_workers.StartupContract.test_supervisor_imports_nothing_heavy) ... ok
+test_supervisor_refuses_a_non_loopback_bind (tests.test_supervisor_workers.StartupContract.test_supervisor_refuses_a_non_loopback_bind) ... FATAL: the supervisor may bind only to loopback
+ok
+test_missing_track_silence_and_music_are_different_facts (tests.test_video.AudioState.test_missing_track_silence_and_music_are_different_facts) ... ok
+test_unknown_states_are_rejected (tests.test_video.AudioState.test_unknown_states_are_rejected) ... ok
+test_coverage_accumulates_and_names_the_gaps (tests.test_video.EvidenceStore.test_coverage_accumulates_and_names_the_gaps) ... ok
+test_coverage_units_must_match (tests.test_video.EvidenceStore.test_coverage_units_must_match) ... ok
+test_full_coverage_is_the_only_complete_claim (tests.test_video.EvidenceStore.test_full_coverage_is_the_only_complete_claim) ... ok
+test_observations_need_a_baseline_first (tests.test_video.EvidenceStore.test_observations_need_a_baseline_first) ... ok
+test_publish_is_atomic_and_leaves_no_temp_files (tests.test_video.EvidenceStore.test_publish_is_atomic_and_leaves_no_temp_files) ... ok
+test_upload_baseline_is_cheap_and_survives_a_reload (tests.test_video.EvidenceStore.test_upload_baseline_is_cheap_and_survives_a_reload) ... ok
+test_budget_and_head_middle_tail_coverage (tests.test_video.Sampling.test_budget_and_head_middle_tail_coverage) ... ok
+test_comparative_requests_stay_separate_ranges (tests.test_video.Sampling.test_comparative_requests_stay_separate_ranges) ... ok
+test_continuous_request_may_merge_but_still_reports_gaps (tests.test_video.Sampling.test_continuous_request_may_merge_but_still_reports_gaps) ... ok
+test_expensive_analysis_dedupe_keeps_every_occurrence (tests.test_video.Sampling.test_expensive_analysis_dedupe_keeps_every_occurrence) ... ok
+test_scene_command_is_a_real_seek_decode (tests.test_video.Sampling.test_scene_command_is_a_real_seek_decode) ... ok
+test_hints_carry_provenance_and_timestamps (tests.test_video.SearchHints.test_hints_carry_provenance_and_timestamps) ... ok
+test_queries_reach_the_search_tool_ranked (tests.test_video.SearchHints.test_queries_reach_the_search_tool_ranked) ... ok
+test_round_trip_and_limits (tests.test_video.SearchHints.test_round_trip_and_limits) ... ok
+test_uncorroborated_audio_is_a_quoted_probe_never_an_assertion (tests.test_video.SearchHints.test_uncorroborated_audio_is_a_quoted_probe_never_an_assertion) ... ok
+test_contract_fields_are_documented (tests.test_video_scan.MeasuredPrefixContractTests.test_contract_fields_are_documented) ... ok
+test_producer_matches_the_shared_table (tests.test_video_scan.MeasuredPrefixContractTests.test_producer_matches_the_shared_table) ... ok
+test_shared_table_exists (tests.test_video_scan.MeasuredPrefixContractTests.test_shared_table_exists) ... ok
+test_a_threshold_that_sees_nothing_cannot_pass (tests.test_video_scan.MeasuredProbe.test_a_threshold_that_sees_nothing_cannot_pass) ... ok
+test_a_tight_budget_plans_less_than_the_source (tests.test_video_scan.MeasuredProbe.test_a_tight_budget_plans_less_than_the_source) ... ok
+test_detected_cuts_land_on_the_declared_schedule (tests.test_video_scan.MeasuredProbe.test_detected_cuts_land_on_the_declared_schedule) ... ok
+test_exit_code_matches_the_measurement (tests.test_video_scan.MeasuredProbe.test_exit_code_matches_the_measurement) ... ok
+test_probe_refuses_loudly_without_a_decoder (tests.test_video_scan.MeasuredProbe.test_probe_refuses_loudly_without_a_decoder) ... ok
+test_best_eff_pts_time_is_not_counted_twice (tests.test_video_scan.ParseLaw.test_best_eff_pts_time_is_not_counted_twice) ... ok
+test_non_numeric_and_negative_stamps (tests.test_video_scan.ParseLaw.test_non_numeric_and_negative_stamps) ... ok
+test_offset_moves_stamps_onto_the_media_timeline (tests.test_video_scan.ParseLaw.test_offset_moves_stamps_onto_the_media_timeline) ... ok
+test_only_best_eff_lines_yield_nothing (tests.test_video_scan.ParseLaw.test_only_best_eff_lines_yield_nothing) ... ok
+test_repeat_stamps_collapse_but_a_real_second_occurrence_survives (tests.test_video_scan.ParseLaw.test_repeat_stamps_collapse_but_a_real_second_occurrence_survives) ... ok
+test_decoder_progress_prefers_the_microsecond_field (tests.test_video_scan.ProgressLaws.test_decoder_progress_prefers_the_microsecond_field) ... ok
+test_measured_prefix_end_only_trusts_a_measurement (tests.test_video_scan.ProgressLaws.test_measured_prefix_end_only_trusts_a_measurement) ... ok
+test_chatty_decoder_cannot_park_a_parent_on_one_pipe (tests.test_video_scan.Refusals.test_chatty_decoder_cannot_park_a_parent_on_one_pipe) ... ok
+test_cut_list_is_bounded_and_says_so (tests.test_video_scan.Refusals.test_cut_list_is_bounded_and_says_so) ... ok
+test_cuts_arrive_from_stderr_because_showinfo_logs_there (tests.test_video_scan.Refusals.test_cuts_arrive_from_stderr_because_showinfo_logs_there) ... ok
+test_missing_ffmpeg_is_a_typed_refusal_not_an_empty_scan (tests.test_video_scan.Refusals.test_missing_ffmpeg_is_a_typed_refusal_not_an_empty_scan) ... ok
+test_nonzero_exit_is_decode_failed_with_stderr_tail (tests.test_video_scan.Refusals.test_nonzero_exit_is_decode_failed_with_stderr_tail) ... ok
+test_progress_is_decoder_depth_not_the_last_selected_cut (tests.test_video_scan.Refusals.test_progress_is_decoder_depth_not_the_last_selected_cut) ... ok
+test_spawn_failure_is_reported_not_swallowed (tests.test_video_scan.Refusals.test_spawn_failure_is_reported_not_swallowed) ... ok
+test_the_command_we_build_is_the_command_the_registry_claims (tests.test_video_scan.Refusals.test_the_command_we_build_is_the_command_the_registry_claims) ... ok
+test_timeout_reports_the_measured_prefix_not_the_clip_length (tests.test_video_scan.Refusals.test_timeout_reports_the_measured_prefix_not_the_clip_length) ... ok
+test_timeout_without_progress_reports_an_unknown_prefix (tests.test_video_scan.Refusals.test_timeout_without_progress_reports_an_unknown_prefix) ... ok
+test_a_failed_scan_downgrades_the_note_instead_of_passing_fake_cuts (tests.test_video_scan.RunnerWiring.test_a_failed_scan_downgrades_the_note_instead_of_passing_fake_cuts) ... ok
+test_a_measured_truncated_prefix_is_reported_as_a_number (tests.test_video_scan.RunnerWiring.test_a_measured_truncated_prefix_is_reported_as_a_number) ... ok
+test_a_plan_never_borrows_coverage_from_its_own_windows (tests.test_video_scan.RunnerWiring.test_a_plan_never_borrows_coverage_from_its_own_windows) ... ok
+test_a_truncated_scan_says_the_later_timeline_is_unknown (tests.test_video_scan.RunnerWiring.test_a_truncated_scan_says_the_later_timeline_is_unknown) ... ok
+test_cut_anchors_are_points_and_say_their_window_is_a_suggestion (tests.test_video_scan.RunnerWiring.test_cut_anchors_are_points_and_say_their_window_is_a_suggestion) ... ok
+test_detected_cuts_drive_the_windows_and_are_reported (tests.test_video_scan.RunnerWiring.test_detected_cuts_drive_the_windows_and_are_reported) ... ok
+test_no_detect_flag_means_no_spawn (tests.test_video_scan.RunnerWiring.test_no_detect_flag_means_no_spawn) ... ok
+test_child_env_pins_utf8_codecs_for_owned_children (tests.test_worker_protocol.ChildEnvironment.test_child_env_pins_utf8_codecs_for_owned_children) ... ok
+test_a_frame_survives_a_locale_text_layer_that_cannot_represent_it (tests.test_worker_protocol.FrameEncoding.test_a_frame_survives_a_locale_text_layer_that_cannot_represent_it) ... ok
+test_a_lone_surrogate_cannot_kill_the_pipe (tests.test_worker_protocol.FrameEncoding.test_a_lone_surrogate_cannot_kill_the_pipe) ... ok
+test_the_old_text_layer_write_is_what_broke_so_the_regression_stays_exercised (tests.test_worker_protocol.FrameEncoding.test_the_old_text_layer_write_is_what_broke_so_the_regression_stays_exercised) ... ok
+test_a_non_ascii_parse_result_comes_back_instead_of_a_worker_crash (tests.test_worker_protocol.OwnedRoundTrip.test_a_non_ascii_parse_result_comes_back_instead_of_a_worker_crash) ... ok
+test_the_readers_close_their_pipes_and_tolerate_a_race (tests.test_worker_protocol.PipeHygiene.test_the_readers_close_their_pipes_and_tolerate_a_race) ... ok
+
+======================================================================
+FAIL: test_a_worker_that_announces_a_dead_control_channel_fails_fast (tests.test_contracts_security.WorkerOwnership.test_a_worker_that_announces_a_dead_control_channel_fails_fast)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_contracts_security.py", line 266, in test_a_worker_that_announces_a_dead_control_channel_fails_fast
+    self.assertIn("control channel", res.error.message)
+AssertionError: 'control channel' not found in 'worker pipe failed: I/O operation on closed file'
+
+----------------------------------------------------------------------
+Ran 214 tests in 17.461s
+
+FAILED (failures=1)
+passed   symbol_identifiers               n= 7 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   lexical_hard_negatives           n= 5 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   exact_identifiers                n= 4 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   scripts_without_spaces           n= 6 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   vowels_and_diacritics            n= 5 mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   european_natural_questions       n= 5 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   abstention_no_answer_in_corpus   n= 6 abstention_accuracy=1.000
+not_run  neural_embedding                 model=Qwen/Qwen3-Embedding-0.6B              install=not_configured reason=not_configured
+not_run  neural_reranking                 model=Qwen/Qwen3-Reranker-0.6B               install=not_configured reason=not_configured
+not_run  document_layout_ocr              model=PaddleOCR-VL                           install=not_configured reason=not_configured
+not_run  asr_multilingual                 model=openai/whisper-large-v3                install=not_configured reason=not_configured
+not_run  speaker_diarization              model=pyannote/speaker-diarization-community-1 install=license_acceptance_required reason=license_acceptance_required
+not_run  forced_alignment                 model=Qwen/Qwen3-ForcedAligner-0.6B          install=not_configured reason=not_configured
+not_run  temporal_video_localisation      model=ruke-video-timeline                    install=available reason=installed_but_unmeasured
+families 7/7 passed; cases=38 gated_not_run=7
+denominator: 38 frozen cases across 7 families; the 7 gated capabilities are NOT part of this denominator
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-lz0zqfhp\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [3.0, 6.0, 9.0] truncated=False error=
+detection: 3/3 within 0.60s, mean_abs_err=0.0, spurious=0
+cut-time localisation: hit_rate=1.0 mean_abs_error_s=0.0 over n=3 (windows=5)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: Planned 5 sampling windows across 12.0s; a sampling plan does not establish inspected-content coverage.
+decode prefix: 11.9s of 12.0s (prefix_measured=True, progress_updates=2)
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-lz0zqfhp\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [] truncated=False error=
+detection: 0/3 within 0.60s, mean_abs_err=None, spurious=0
+cut-time localisation: hit_rate=0.0 mean_abs_error_s=None over n=3 (windows=6)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: Planned 6 sampling windows across 12.0s; a sampling plan does not establish inspected-content coverage.
+decode prefix: 11.9s of 12.0s (prefix_measured=True, progress_updates=2)
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+probe blocked: ffmpeg_not_installed no validated ffmpeg copy (override, PATH or project-local)

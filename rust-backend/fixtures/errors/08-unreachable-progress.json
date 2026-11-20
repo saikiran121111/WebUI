@@ -22,7 +22,7 @@
         "authorization": "Bearer golden-key",
         "content-type": "application/json"
       },
-      "bodyText": "{\"model\":\"strata-mock\",\"stream\":true,\"messages\":[{\"role\":\"system\",\"content\":\"RESPONSE POLICY FOR THIS ASSISTANT:\\n- Answer the request that was actually made, at the depth it asks for: a short question gets a short, direct answer; an explicit request for detail, comparison or steps gets the detail.\\n- Ordinary small talk and status questions stay brief and natural. Do not convert them into a report, a plan, or a list.\\n- Do not advertise capabilities, tools, integrations or services unless the human asks what you can do or what is available.\\n- Never describe work that is not actually happening: no claimed searches, files, background jobs, indexing or progress that did not run.\\n- If something is not possible here, say so plainly in one line instead of replacing it with a broader offer.\"},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"},{\"role\":\"user\",\"content\":\"hello\"}]}"
+      "bodyText": "{\"model\":\"strata-mock\",\"stream\":true,\"messages\":[{\"role\":\"system\",\"content\":\"<decision_skill mode=\\\"standard_chat\\\" decided_by=\\\"in-process-deliverable-none\\\">\\n<fence_catalogue>\\nRenderer fences this WebUI mounts live (each as ONE fenced block; the block renders as an interactive viewer for the user - any other fence language renders as plain code):\\n- ```chart - chart-spec JSON (bar/line/area/pie/donut/scatter/histogram): live interactive chart, Download as PNG.\\n- ```powerbi - dataset + DAX-measures spec JSON: live cross-filtering dashboard, Download as a .pbip package.\\n- ```mermaid - diagram source: rendered flow / sequence / gantt diagram.\\n- ```widget - spec JSON with \\\"kind\\\":\\\"form|tabs|accordion|kpi\\\": live controls the user can operate (fields, sliders, cards).\\n- ```html - complete self-contained HTML document: live dark auto-sizing viewer with pass-through interactivity, Download as HTML + A4 PDF.\\n- ```docx / ```xlsx / ```pptx - Word / Excel / PowerPoint spec JSON: the engine builds the real file (xlsx headlessly recalculates every live formula) and Download hands it over.\\n- ```resume - resume/CV spec JSON: formatted live resume, Download as PDF.\\nProse stays the default answer and a fence never replaces the explanation: use one only when the request clearly calls for that shape of output. The 3D/CAD/anatomy fences (scene3d, asset3d, threejs, cad, anatomy) are RETIRED - emitting one only shows the user a \\\"viewer retired\\\" card.</fence_catalogue>\\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); where none names one, emit a renderer fence only from the catalogue above and only when the request clearly calls for one.\\n</decision_skill>\"},{\"role\":\"system\",\"content\":\"RESPONSE POLICY FOR THIS ASSISTANT:\\n- Answer the request that was actually made, at the depth it asks for: a short question gets a short, direct answer; an explicit request for detail, comparison or steps gets the detail.\\n- Ordinary small talk and status questions stay brief and natural. Do not convert them into a report, a plan, or a list.\\n- Do not advertise capabilities, tools, integrations or services unless the human asks what you can do or what is available.\\n- Never describe work that is not actually happening: no claimed searches, files, background jobs, indexing or progress that did not run.\\n- If something is not possible here, say so plainly in one line instead of replacing it with a broader offer.\"},{\"role\":\"system\",\"content\":\"<runtime_clock>MASKED</runtime_clock>\"},{\"role\":\"user\",\"content\":\"hello\"}]}"
     }
   ],
   "response": {
@@ -35,7 +35,7 @@
       "x-decision-mode": "standard_chat"
     },
     "body": {
-      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"ruke_error\":{\"message\":\"Could not reach the model server at 127.0.0.1:9.\"}}\n\ndata: [DONE]\n\n",
+      "bodyMsNormalized": "data: {\"ruke_stage\":{\"stage\":\"decision_done\",\"mode\":\"standard_chat\",\"ms\":\"<ms>\"}}\n\ndata: {\"ruke_stage\":{\"stage\":\"skill\",\"ms\":\"<ms>\"}}\n\ndata: {\"ruke_error\":{\"message\":\"Could not reach the model server at 127.0.0.1:9.\"}}\n\ndata: [DONE]\n\n",
       "note": "stage frames carry volatile ms digits; compare logicalFrames + bodyMsNormalized"
     }
   },
@@ -45,6 +45,13 @@
       "obj": {
         "stage": "decision_done",
         "mode": "standard_chat",
+        "ms": "<ms>"
+      }
+    },
+    {
+      "kind": "stage",
+      "obj": {
+        "stage": "skill",
         "ms": "<ms>"
       }
     },

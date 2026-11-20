@@ -6,6 +6,7 @@ import { childLogger } from "../logger";
 import { sharedUpstreamCompletion } from "../upstream-bridge";
 import { readPcmRange } from "./ffmpeg";
 import { OwnedResource, parseIdleTtl } from "@/lib/lifecycle/ownedResource";
+import { providerConfig } from "../settings";
 
 const execFileP = promisify(execFile);
 const log = childLogger("extract/audio");
@@ -35,8 +36,13 @@ const MODEL_ID = process.env.WHISPER_MODEL ?? "Xenova/whisper-base.en";
 const VRAM_FLOOR_MB = Number(process.env.WHISPER_VRAM_FLOOR_MB ?? 1500);
 const SILENCE_RMS = Number(process.env.WHISPER_SILENCE_RMS ?? 0.004);
 const SR = 16000;
-const LLM_UNLOAD_URL = process.env.LLM_UNLOAD_URL ?? "";
-const LLM_RELOAD_URL = process.env.LLM_RELOAD_URL ?? "";
+// F44 (amendment 8 §B): the park/park-back URLs come from the ONE provider configuration,
+// so this stage can never unload a different server than the chat path is talking to. An
+// explicit LLM_UNLOAD_URL/LLM_RELOAD_URL still wins; otherwise both are derived from the
+// chat URL's own origin (settings.json > process.env > .env.local > fallback).
+const PROVIDER = providerConfig();
+const LLM_UNLOAD_URL = PROVIDER.unloadUrl;
+const LLM_RELOAD_URL = PROVIDER.reloadUrl;
 
 /**
  * F21: the CPU whisper session is an OWNED resource. The old `cpuAsrPromise`
@@ -124,13 +130,79 @@ async function postJson(url: string, body: unknown, timeoutMs: number): Promise<
   }
 }
 
-/** Ask the local LLM server to drop its weights from VRAM (optional hook). */
+import {
+  acquireLease,
+  heartbeatLease,
+  leasePath,
+  leaseState,
+  releaseLease,
+} from "../coordination/llm-lease";
+
+/**
+ * Ask the local LLM server to drop its weights from VRAM (optional hook).
+ *
+* F45 (continuation amendment, section A): the park permission is now a policy
+* answer, not an accident of configuration. Because the lifecycle URLs are
+* DERIVED from the chat endpoint, simply having a chat endpoint used to be
+* enough to make every unattended unit test fire a real POST /unload at the
+* user's live model server. That is a side effect on shared infrastructure and
+* must be impossible from a test process. Production never sets the opt-in flag,
+* so this only narrows what a test runner can do.
+*/
+
+const UNDER_TEST =
+  process.env.VITEST !== undefined || process.env.NODE_ENV === "test";
+const LIVE_LIFECYCLE_OPT_IN = process.env.RUKE_ALLOW_LIVE_LIFECYCLE === "1";
+
+export interface ParkPermission {
+  allowed: boolean;
+  reason: string;
+}
+
+/**
+ * Why THIS process may or may not park the main model on its own. Three
+ * distinct refusals, reported honestly: the configured policy is off, no
+ * lifecycle endpoint exists, or this is a test process that has not opted in.
+ */
+export function llmParkPermission(): ParkPermission {
+  if (!PROVIDER.automaticHandoff) {
+    return {
+      allowed: false,
+      reason: "the provider handoff policy is switched off",
+    };
+  }
+  if (LLM_UNLOAD_URL === "") {
+    return { allowed: false, reason: "no lifecycle unload endpoint is configured" };
+  }
+  if (UNDER_TEST && !LIVE_LIFECYCLE_OPT_IN) {
+    return {
+      allowed: false,
+      reason:
+        "a test process may not call the live provider lifecycle endpoint " +
+        "(set RUKE_ALLOW_LIVE_LIFECYCLE=1 to allow it)",
+    };
+  }
+  return { allowed: true, reason: `the provider lifecycle endpoint is ${LLM_UNLOAD_URL}` };
+}
+
 async function tryLlmUnload(): Promise<boolean> {
-  return LLM_UNLOAD_URL ? postJson(LLM_UNLOAD_URL, {}, 10_000) : false;
+  const perm = llmParkPermission();
+  if (!perm.allowed) {
+    log.warn({ reason: perm.reason }, "not calling the provider unload endpoint");
+    return false;
+  }
+  return postJson(LLM_UNLOAD_URL, {}, 10_000);
 }
 
 /** Bring the LLM back: explicit reload hook, else a 1-token warmup request. */
 async function tryLlmReload(): Promise<void> {
+  const perm = llmParkPermission();
+  if (!perm.allowed) {
+    // Nothing in this process parked the model, so it also must not send a
+    // warm-up GENERATION to the shared endpoint from inside a test.
+    log.warn({ reason: perm.reason }, "not calling the provider reload endpoint");
+    return;
+  }
   if (LLM_RELOAD_URL) {
     await postJson(LLM_RELOAD_URL, {}, 120_000);
     return;
@@ -153,6 +225,13 @@ export interface AsrStageOpts {
   reload?: () => Promise<void>;
   /** I15: cancelling an upload must not leave whisper grinding through it. */
   signal?: AbortSignal;
+  /**
+   * Where the shared parked-model lease lives. Production uses the project
+   * root; tests point it at a temp dir so they never touch a live lease.
+   */
+  leaseAt?: string;
+  /** Honest stage/lease reporting for the caller's coverage note. */
+  onStage?: (note: string) => void;
 }
 
 export interface AsrSegment {
@@ -323,9 +402,22 @@ async function withAsrStage<R>(
   const probe = opts.probe ?? getFreeVramMb;
   const unload = opts.unload ?? tryLlmUnload;
   const reload = opts.reload ?? tryLlmReload;
+  const leaseAt = opts.leaseAt ?? leasePath();
+  const onStage = opts.onStage ?? (() => {});
+  // Without something that can park the model there is nothing to gain, and
+  // claiming the lease would only starve the chat path. The reason is decided
+  // by policy (llmParkPermission), never by "an endpoint happens to exist".
+  const parkPerm = llmParkPermission();
+  const canPark = opts.unload !== undefined || parkPerm.allowed;
 
   let useCuda = false;
+  // Two separate facts, never merged: the hook CONFIRMED the model is out, and
+  // we merely ASKED (which may have half-happened before the hook threw).
+  // Treating a failed hook as "unloaded" used to claim a state nobody measured.
   let unloaded = false;
+  let unloadAttempted = false;
+  let leaseToken = "";
+  let leaseRefusal = "";
   let gpuAsr: any = null;
   try {
     if (!cudaBroken) {
@@ -335,8 +427,43 @@ async function withAsrStage<R>(
         if (free >= VRAM_FLOOR_MB) {
           useCuda = true; // stage 1
         } else {
-          // stage 2: make room, then re-probe
-          try { unloaded = await unload(); } catch { unloaded = true; }
+          // stage 2: make room, then re-probe. The shared endpoint parks ONE
+          // model, and a Python OCR/ASR handoff may already own that parked
+          // window; stealing it would load the weights back under a job that
+          // reserved the room, so we decline and stay on the CPU path.
+          const held = leaseState(leaseAt);
+          if (!canPark) {
+            leaseRefusal =
+              `${parkPerm.reason}, so this job cannot park the main model`;
+            onStage(leaseRefusal + " - staying on CPU");
+          } else if (held.held) {
+            leaseRefusal = held.proof;
+            onStage(`not unloading the LLM: ${held.proof}`);
+            log.warn({ lease: held.proof }, "not unloading the LLM: a handoff job already owns the parked-model window");
+          } else {
+            const took = acquireLease("ruke-node-asr", "unloading_main_model", leaseAt);
+            if (!took.acquired) {
+              leaseRefusal = took.refusal;
+              onStage(`not unloading the LLM: ${took.refusal}`);
+              log.warn({ lease: took.refusal }, "not unloading the LLM: another client took the handoff lease");
+            } else {
+              leaseToken = took.token;
+              unloadAttempted = true;
+              onStage(unloaded
+                ? "main model parked by this job (lease held)"
+                : "unload hook failed, model state unknown (lease held until restore)");
+              try {
+                unloaded = await unload();
+              } catch (err: unknown) {
+                unloaded = false; // unknown state, NOT a confirmed unload
+                log.warn({ err: (err as Error)?.message }, "LLM unload hook failed; the model may still be resident");
+              }
+              heartbeatLease(leaseAt, leaseToken, unloaded ? "processing" : "restoring_main_model", {
+                vram_free_mb: free,
+                confirmed_unloaded: unloaded,
+              });
+            }
+          }
           const re = unloaded ? await probe().catch(() => null) : null;
           if ((re ?? free) >= VRAM_FLOOR_MB) useCuda = true;
         }
@@ -360,12 +487,20 @@ async function withAsrStage<R>(
     if (gpuAsr) {
       try { await gpuAsr.dispose?.(); } catch { /* already gone */ }
     }
-    if (unloaded) {
+    if (unloaded || unloadAttempted) {
+      // OUR lease is what every other client consults, so it must be gone
+      // BEFORE the restore warm-up: that request goes through the same
+      // lease-aware admission door as any other generation.
+      if (leaseToken) releaseLease(leaseAt, leaseToken);
+      leaseToken = "";
       try {
         await reload();
       } catch (err: unknown) {
         log.warn({ err: (err as Error)?.message }, "LLM reload hook failed — chat may need to warm the model back up");
       }
+    } else if (leaseToken) {
+      releaseLease(leaseAt, leaseToken);
+      leaseToken = "";
     }
   }
 }

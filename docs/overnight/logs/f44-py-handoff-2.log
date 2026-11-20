@@ -1,0 +1,32 @@
+﻿.\.venv\Scripts\python.exe : 
+..F............................................................................................
+At line:2 char:246
++ ... devices.py; .\.venv\Scripts\python.exe -X utf8 -m unittest tests.test ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (..F..............................:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+======================================================================
+FAIL: test_a_job_that_does_not_fit_asks_for_one_window_covering_the_whole_operation (tests.test_handoff_devices.Cascade
+Mechanics.test_a_job_that_does_not_fit_asks_for_one_window_covering_the_whole_operation)
+The configured default is the automatic handoff, and it wraps the ENTIRE operation:
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_handoff_devices.py", line 857, in 
+test_a_job_that_does_not_fit_asks_for_one_window_covering_the_whole_operation
+    self.assertEqual(windows[0][1], [1],
+AssertionError: Lists differ: [[1]] != [1]
+
+First differing element 0:
+[1]
+1
+
+- [[1]]
+? -   -
+
++ [1] : recovery ran INSIDE the window, before the main model was restored
+
+----------------------------------------------------------------------
+Ran 95 tests in 23.115s
+
+FAILED (failures=1)

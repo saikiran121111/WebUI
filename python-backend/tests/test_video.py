@@ -119,7 +119,17 @@ class Sampling(unittest.TestCase):
         plan = scenes.sample_windows(600.0, query_windows=[(60.0, 70.0), (90.0, 100.0)], budget=4)
         asked = [(w.start, w.end) for w in plan.windows if w.kind == "interval_query"]
         self.assertEqual(asked, [(60.0, 100.0)])
-        self.assertIn("unexamined intervals may contain further occurrences", plan.honest_note)
+        # The note used to read "examined 7.0s of 120.0s" for a plan that had decoded
+        # nothing. A plan schedules; it does not inspect, and the wording must not let a
+        # reader (or a citation) treat it as coverage.
+        self.assertIn("Planned 4 sampling windows across 600.0s", plan.honest_note)
+        self.assertIn("does not establish inspected-content coverage", plan.honest_note)
+        self.assertNotIn("examined", plan.honest_note)
+        self.assertFalse(plan.claims_inspected_coverage)
+        self.assertLess(plan.planned_seconds, 600.0)
+        # The seconds the plan reports are the SELECTED windows, not the pre-trim list.
+        self.assertAlmostEqual(plan.planned_seconds,
+                               sum(w.end - w.start for w in plan.windows), places=6)
 
     def test_budget_and_head_middle_tail_coverage(self):
         plan = scenes.sample_windows(3600.0, budget=8)

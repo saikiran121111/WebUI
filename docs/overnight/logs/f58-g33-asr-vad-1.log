@@ -1,0 +1,14 @@
+decoded samples 640000 seconds 40.0
+energy-audible regions (>-45 dBFS): [[33.75, 38.25]]
+A_current_no_vad lang en 0.69 s
+    0.0 2.0 ' You'
+    30.0 37.0 ' Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine'
+B_vad_filter_true lang en 0.43 s
+    33.62 38.62 ' Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine.'
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\.data\tmp\g33.py", line 44, in <module>
+    run("C_vad_merge_silence", vad_filter=True, vad_merge_silence_duration_s=0.5)
+  File "D:\Projects\WebUI\WebUI\.data\tmp\g33.py", line 34, in run
+    segs, info = model.transcribe(audio, language="en", task="transcribe",
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: WhisperModel.transcribe() got an unexpected keyword argument 'vad_merge_silence_duration_s'

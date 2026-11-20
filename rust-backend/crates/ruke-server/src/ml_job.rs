@@ -10,12 +10,20 @@
 //! nothing produced them).
 //!
 //! Deliberate scope, and why:
-//! * the allowlist is MEDIA EVIDENCE capabilities only (`video.*`). Opening
-//!   `speech.*` / `documents.*` / model-backed retrieval here would let an
-//!   unauthenticated-by-model caller trigger a multi-GB worker on an arbitrary
-//!   path; those families stay gated behind their own measured quality gates
-//!   (they report `evaluation_required` / `license_acceptance_required`, which
-//!   is a real state, not a missing feature).
+//! * the allowlist covers the MEDIA EVIDENCE family (`video.*`) plus the
+//!   document-reading and speech families (`documents.parse`, `documents.ocr`,
+//!   `speech.asr`, `speech.align`, `speech.diarize`). Model-backed retrieval
+//!   (`embeddings`, `rerank`) and artifact generation stay OUT of this route:
+//!   their working engines are still the TypeScript ones, and moving a route
+//!   before its replacement passes would trade a working capability for a worse
+//!   one. Admitting a family here is TRANSPORT admission control only - it is
+//!   NOT a claim that the capability runs on this host. That answer comes from
+//!   the supervisor's readiness conjunction, which refuses with a typed blocker
+//!   (missing dependency / missing pinned asset / licence acceptance) BEFORE any
+//!   heavy worker starts, and heavy stages are serialised through one slot. So
+//!   the earlier reason for keeping these families out - "an arbitrary path can
+//!   trigger a multi-GB worker" - is now handled by the mechanism that should
+//!   have handled it: allowed roots below plus readiness gating inside.
 //! * paths in the payload are validated against EXPLICIT ALLOWED ROOTS before
 //!   anything is forwarded, so this route is not a file-read primitive. The
 //!   check is canonical-path based (Windows junctions/reparse points and
@@ -54,12 +62,35 @@ pub const SCHEMA_VERSION: u64 = 1;
 
 /// The capability families this route may run. See the module header: this is
 /// an ALLOWLIST, and it is the mechanism by which a route that forwards file
-/// paths stays safe.
-pub const ALLOWED_CAPABILITIES: [&str; 4] = [
+/// paths stays safe. Every entry below must exist in the supervisor's HANDLERS
+/// table; a capability that is registered but not executable is refused THERE,
+/// with its real blocker, rather than being hidden from the route.
+pub const ALLOWED_CAPABILITIES: [&str; 12] = [
     "video.timeline",
     "video.scenes",
     "video.observations",
     "video.search_hints",
+    // Reads the visible text in DECODED frames. It is on the allowlist because the route
+    // forwards file paths and an allowlist is what makes that safe; the row is admitted only
+    // when BOTH a validated decoder and a validated recogniser exist, refused there with the
+    // real blocker rather than hidden from the route.
+    "video.frame_ocr",
+    "documents.parse",
+    "documents.ocr",
+    "speech.asr",
+    "speech.align",
+    "speech.diarize",
+    // D-058 (F28): the neural retrieval stages. These payloads carry NO path at all - they
+    // carry the query and the candidate texts the caller already has - so admitting them
+    // adds no file-read surface. They were kept off the list while `rerank` was a lexical
+    // stand-in; the pinned cross-encoder (retrieval/nn_rerank.py, digest-checked asset)
+    // is now called from lib/server/attachindex/rerank.ts, so hiding the capability here
+    // would only make an unavailable ranker unnameable to its caller.
+    // `embeddings` is admitted for the same reason: the adapter exists and executes, the
+    // TS embedder is still the live owner, and an unconfigured neural mode answers with
+    // its real blocker instead of a 400.
+    "embeddings",
+    "rerank",
 ];
 
 /// Request bound. The supervisor's own cap is 1 MiB (`config.Limits`), so a
@@ -326,7 +357,11 @@ pub fn contained_path(raw: &str, roots: &[PathBuf]) -> Result<PathBuf, Rejection
 /// The payload keys that name a path on disk. Both are attachment-scoped
 /// roots/files; the timeline store root and the media source are the only two
 /// path-bearing fields the media family accepts.
-const PATH_KEYS: [&str; 2] = ["root", "source"];
+/// Payload keys that name a filesystem path. `path` is the document/speech key and
+/// `source` is the media key; `root` is the allowed root they must live inside. All
+/// three are canonicalised against the configured roots, so the worker never receives
+/// a path this layer has not confined.
+const PATH_KEYS: [&str; 3] = ["root", "source", "path"];
 
 fn validate_paths(payload: &Value, roots: &[PathBuf]) -> Result<(), Rejection> {
     let map = match payload.as_object() {
@@ -400,7 +435,7 @@ pub fn validate_request(body: &Value, roots: &[PathBuf]) -> Result<JobSpec, Reje
     if !ALLOWED_CAPABILITIES.contains(&capability.as_str()) {
         return Err(Rejection::Bad(format!(
             "capability {capability:?} is not reachable through this route; this build exposes \
-             only the media-evidence family: {}",
+             the media-evidence, document-reading and speech families: {}",
             ALLOWED_CAPABILITIES.join(", ")
         )));
     }
@@ -826,9 +861,13 @@ mod tests {
 
     #[test]
     fn a_capability_outside_the_allowlist_is_refused_and_named() {
+        // `artifacts.pdf` is the honest negative: there is no Python artifact engine
+        // behind that name in this build (the TS writers are retained owners), so the
+        // gate must refuse it rather than forward it to a supervisor that would answer
+        // `not_configured`.
         let tmp = tempfile::tempdir().unwrap();
         let rejection =
-            validate_request(&body_with("embeddings", json!({})), &roots_under(tmp.path()))
+            validate_request(&body_with("artifacts.pdf", json!({})), &roots_under(tmp.path()))
                 .expect_err("an off-allowlist capability must never be forwarded");
         let text = rejection_text(&rejection);
         assert!(matches!(rejection, Rejection::Bad(_)), "{text}");
@@ -850,6 +889,92 @@ mod tests {
         .expect("a declared capability must pass");
         assert_eq!(spec.capability, "video.timeline");
         assert_eq!(spec.job_id, "job-1");
+    }
+
+    #[test]
+    fn every_document_and_speech_capability_the_supervisor_handles_is_admitted_here() {
+        // The route and the supervisor must not disagree about which capabilities exist.
+        // A capability that is admitted but not executable is refused INSIDE the worker
+        // with its real blocker; hiding it here would just make the failure unnameable.
+        let tmp = tempfile::tempdir().unwrap();
+        let roots = roots_under(tmp.path());
+        // A relative payload path resolves against the SERVER cwd, never against
+        // `root`, so a legitimate in-root document must be named absolutely here.
+        let inside = tmp.path().join("report.pdf");
+        std::fs::write(&inside, b"%PDF-1.7 placeholder").expect("fixture file");
+        let inside = inside.display().to_string();
+        for capability in [
+            "documents.parse",
+            "documents.ocr",
+            "speech.asr",
+            "speech.align",
+            "speech.diarize",
+            // Frame OCR forwards a media path exactly like the document jobs do, so it has to
+            // be admitted AND path-validated here; a capability the route hides would make the
+            // "decoder + recogniser both required" blocker unnameable to the caller.
+            "video.frame_ocr",
+        ] {
+            let spec = validate_request(
+                &body_with(capability, json!({ "path": inside.clone(), "root": tmp.path() })),
+                &roots,
+            )
+            .unwrap_or_else(|rejection| {
+                panic!("{capability} must be reachable through this route: {}", rejection_text(&rejection))
+            });
+            assert_eq!(spec.capability, capability);
+        }
+        // D-058: the neural retrieval stages are admitted here. Their payload is text the
+        // caller already holds, never a path, so admitting them opens no file read.
+        for capability in ["embeddings", "rerank"] {
+            let spec = validate_request(
+                &body_with(capability, json!({ "query": "what did she say", "chunks": [] })),
+                &roots,
+            )
+            .unwrap_or_else(|rejection| {
+                panic!("{capability} must be reachable through this route: {}", rejection_text(&rejection))
+            });
+            assert_eq!(spec.capability, capability);
+        }
+        // Artifact generation stays on its working TypeScript owners: admitting a name
+        // with no Python engine behind it would move a route before its replacement.
+        for capability in ["artifacts.pdf", "artifacts.docx", "artifacts.pptx", "artifacts.xlsx"] {
+            let rejection =
+                validate_request(&body_with(capability, json!({})), &roots).expect_err(&format!(
+                    "{capability} must stay outside this route until its engine is migrated"
+                ));
+            assert!(rejection_text(&rejection).contains(capability), "{capability}");
+        }
+    }
+
+    #[test]
+    fn a_document_or_speech_payload_path_cannot_escape_the_allowed_roots() {
+        // `path` is a PATH_KEY too: the media family used `source`, and a document/speech
+        // job that forwards `path` unvalidated would turn this route into a file-read
+        // primitive for the whole disk.
+        let tmp = tempfile::tempdir().unwrap();
+        let roots = roots_under(tmp.path());
+        for capability in ["documents.parse", "speech.asr", "video.frame_ocr"] {
+            for escape in ["..\\secrets.pdf", "../outside/report.pdf"] {
+                let rejection = validate_request(
+                    &body_with(capability, json!({ "path": escape, "root": tmp.path() })),
+                    &roots,
+                )
+                .expect_err("an escaping path must never be forwarded");
+                let text = rejection_text(&rejection);
+                assert!(text.contains("'..'") || text.contains("outside"), "{text}");
+            }
+            let absolute_outside = String::from("C:/Windows/win.ini");
+            let rejection = validate_request(
+                &body_with(capability, json!({ "path": absolute_outside, "root": tmp.path() })),
+                &roots,
+            )
+            .expect_err("an absolute path outside the allowed roots must be refused");
+            assert!(
+                rejection_text(&rejection).contains("allowed data roots"),
+                "{}",
+                rejection_text(&rejection)
+            );
+        }
     }
 
     #[test]
@@ -1311,9 +1436,12 @@ mod tests {
         // If validation ran after endpoint resolution, this dead port would
         // answer with the "unreachable" envelope and the test would pass for
         // the wrong reason. It must answer 400 instead.
+        // `embeddings`/`rerank` are ON the allowlist (D-058: the retrieval
+        // family now has a real caller), so the off-allowlist example is a
+        // capability that still has no importable Python adapter.
         let response = dispatch(
             Ok(endpoint_on(dead_port())),
-            &body_with("embeddings", json!({})),
+            &body_with("artifacts.pdf", json!({})),
             &roots_under(Path::new(".")),
         )
         .await;
@@ -1400,7 +1528,7 @@ mod tests {
         let (state, _tmp) = route_state();
         let (_env, status) = dial_job_route(
             &state,
-            r#"{"request_id":"r1","run_id":"u1","job_id":"j1","capability":"embeddings"}"#,
+            r#"{"request_id":"r1","run_id":"u1","job_id":"j1","capability":"artifacts.pdf"}"#,
             "route-must-match",
             true,
         )

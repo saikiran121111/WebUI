@@ -13,6 +13,12 @@ import { getDocumentProxy, extractText } from "unpdf";
 export interface PdfText {
   text: string;
   pages: number;
+  /**
+   * Per-page text in 1-based order (index 0 is page 1). The merge layer needs
+   * PER-PAGE evidence: a joined blob cannot say which page produced nothing,
+   * and "N pages had no text" is a count, not a statement about which ones.
+   */
+  perPage: string[];
   /** 1-based page numbers whose text layer is empty. */
   pagesWithoutText: number[];
 }
@@ -27,7 +33,7 @@ export async function pdfText(buf: Buffer): Promise<PdfText> {
     perPage.forEach((p, i) => {
       if (!p.trim()) pagesWithoutText.push(i + 1);
     });
-    return { text: perPage.join("\n\n").trim(), pages, pagesWithoutText };
+    return { text: perPage.join("\n\n").trim(), pages, perPage, pagesWithoutText };
   } finally {
     await (doc as any).destroy?.();
   }

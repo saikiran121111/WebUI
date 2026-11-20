@@ -1,0 +1,458 @@
+﻿.\.venv\Scripts\python.exe : ............................EException in thread Thread-35 (_reap_idle):
+At line:2 char:44
++ ... on-backend; .\.venv\Scripts\python.exe -m unittest discover 2>&1 | Ou ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (..................5 (_reap_idle)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Traceback (most recent call last):
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\threading.py", line 1075, in 
+_bootstrap_inner
+    self.run()
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\threading.py", line 1012, in run
+    self._target(*self._args, **self._kwargs)
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 117, in _reap_idle
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+E..................................................................................EEEEEEEEEEEEEE----------------------
+------------------
+Exception occurred during processing of request from ('127.0.0.1', 51659)
+Traceback (most recent call last):
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socketserver.py", line 697, in 
+process_request_thread
+    self.finish_request(request, client_address)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socketserver.py", line 362, in 
+finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socketserver.py", line 766, in 
+__init__
+    self.handle()
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\server.py", line 440, in 
+handle
+    self.handle_one_request()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\supervisor.py", line 93, in handle_one_request
+    super().handle_one_request()
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\server.py", line 428, in 
+handle_one_request
+    method()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\supervisor.py", line 118, in do_GET
+    snap = health.snapshot()
+           ^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\health.py", line 27, in snapshot
+    "heavy_worker_running": catalog().heavy_worker_running(),
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'heavy_worker_running'
+----------------------------------------
+F12:21:19 127.0.0.1 "POST /job HTTP/1.1" 401 -
+.----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 51661)
+Traceback (most recent call last):
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socketserver.py", line 697, in 
+process_request_thread
+    self.finish_request(request, client_address)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socketserver.py", line 362, in 
+finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\socketserver.py", line 766, in 
+__init__
+    self.handle()
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\server.py", line 440, in 
+handle
+    self.handle_one_request()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\supervisor.py", line 93, in handle_one_request
+    super().handle_one_request()
+  File "C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\http\server.py", line 428, in 
+handle_one_request
+    method()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\supervisor.py", line 169, in do_POST
+    res = pool.run(req)
+          ^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+----------------------------------------
+F12:21:19 127.0.0.1 "POST /job HTTP/1.1" 552 -
+.12:21:19 127.0.0.1 "POST /job HTTP/1.1" 413 -
+.12:21:19 127.0.0.1 "POST /job HTTP/1.1" 400 -
+.12:21:19 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+...connection closed by client: ConnectionResetError
+12:21:19 127.0.0.1 "POST /shutdown HTTP/1.1" 401 -
+12:21:19 127.0.0.1 "POST /shutdown HTTP/1.1" 200 -
+.E...FATAL: the supervisor may bind only to loopback
+......................................
+======================================================================
+ERROR: test_a_spawned_child_gets_no_egress_path_and_the_right_pythonpath 
+(tests.test_contracts_security.WorkerOwnership.test_a_spawned_child_gets_no_egress_path_and_the_right_pythonpath)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_contracts_security.py", line 200, in 
+test_a_spawned_child_gets_no_egress_path_and_the_right_pythonpath
+    res = pool.run(JobRequest(request_id="r", run_id="run", job_id="j", capability="rerank",
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_a_worker_that_announces_a_dead_control_channel_fails_fast 
+(tests.test_contracts_security.WorkerOwnership.test_a_worker_that_announces_a_dead_control_channel_fails_fast)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_contracts_security.py", line 256, in 
+test_a_worker_that_announces_a_dead_control_channel_fails_fast
+    res = pool.run(JobRequest(request_id="r", run_id="run", job_id="j", capability="rerank",
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_contracts_security.py", line 264, in 
+test_a_worker_that_announces_a_dead_control_channel_fails_fast
+    pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: test_a_failed_job_records_its_state_on_a_worker_that_survived 
+(tests.test_supervisor_workers.OwnedWorkers.test_a_failed_job_records_its_state_on_a_worker_that_survived)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 309, in 
+test_a_failed_job_records_its_state_on_a_worker_that_survived
+    res = self.pool.run(req, deadline_s=60)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_a_failed_job_records_its_state_on_a_worker_that_survived 
+(tests.test_supervisor_workers.OwnedWorkers.test_a_failed_job_records_its_state_on_a_worker_that_survived)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 266, in tearDown
+    self.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: test_deadline_terminates_only_the_owned_worker 
+(tests.test_supervisor_workers.OwnedWorkers.test_deadline_terminates_only_the_owned_worker)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 338, in 
+test_deadline_terminates_only_the_owned_worker
+    self.pool.run(first, deadline_s=60)
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_deadline_terminates_only_the_owned_worker 
+(tests.test_supervisor_workers.OwnedWorkers.test_deadline_terminates_only_the_owned_worker)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 266, in tearDown
+    self.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: test_gated_capability_reports_licence_blocker_as_a_typed_failure 
+(tests.test_supervisor_workers.OwnedWorkers.test_gated_capability_reports_licence_blocker_as_a_typed_failure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 366, in 
+test_gated_capability_reports_licence_blocker_as_a_typed_failure
+    res = self.pool.run(JobRequest(request_id="r", run_id="run", job_id="j", capability="speech.diarize",
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_gated_capability_reports_licence_blocker_as_a_typed_failure 
+(tests.test_supervisor_workers.OwnedWorkers.test_gated_capability_reports_licence_blocker_as_a_typed_failure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 266, in tearDown
+    self.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: test_heavy_stages_are_serialised_through_one_slot 
+(tests.test_supervisor_workers.OwnedWorkers.test_heavy_stages_are_serialised_through_one_slot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 376, in 
+test_heavy_stages_are_serialised_through_one_slot
+    self.assertEqual(self.pool.run(first, deadline_s=60).state, "ready")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_heavy_stages_are_serialised_through_one_slot 
+(tests.test_supervisor_workers.OwnedWorkers.test_heavy_stages_are_serialised_through_one_slot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 266, in tearDown
+    self.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: test_job_stages_are_captured_not_discarded 
+(tests.test_supervisor_workers.OwnedWorkers.test_job_stages_are_captured_not_discarded)
+The worker really emits {"kind":"progress"} frames. The pool used to read them
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 295, in 
+test_job_stages_are_captured_not_discarded
+    res = self.pool.run(req, deadline_s=60)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_job_stages_are_captured_not_discarded 
+(tests.test_supervisor_workers.OwnedWorkers.test_job_stages_are_captured_not_discarded)
+The worker really emits {"kind":"progress"} frames. The pool used to read them
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 266, in tearDown
+    self.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: test_real_worker_round_trip_and_report 
+(tests.test_supervisor_workers.OwnedWorkers.test_real_worker_round_trip_and_report)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 276, in 
+test_real_worker_round_trip_and_report
+    res = self.pool.run(req, deadline_s=60)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_real_worker_round_trip_and_report 
+(tests.test_supervisor_workers.OwnedWorkers.test_real_worker_round_trip_and_report)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 266, in tearDown
+passed   symbol_identifiers               n= 7 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   lexical_hard_negatives           n= 5 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   exact_identifiers                n= 4 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   scripts_without_spaces           n= 6 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   vowels_and_diacritics            n= 5 mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   european_natural_questions       n= 5 forbidden_top1_rate=0.000, mrr=1.000, ndcg_at_5=1.000, precision_at_5=0.200, recall_at_5=1.000
+passed   abstention_no_answer_in_corpus   n= 6 abstention_accuracy=1.000
+not_run  neural_embedding                 model=Qwen/Qwen3-Embedding-0.6B              install=not_configured reason=not_configured
+not_run  neural_reranking                 model=Qwen/Qwen3-Reranker-0.6B               install=not_configured reason=not_configured
+not_run  document_layout_ocr              model=PaddleOCR-VL                           install=not_configured reason=not_configured
+not_run  asr_multilingual                 model=openai/whisper-large-v3                install=not_configured reason=not_configured
+not_run  speaker_diarization              model=pyannote/speaker-diarization-community-1 install=license_acceptance_required reason=license_acceptance_required
+not_run  forced_alignment                 model=Qwen/Qwen3-ForcedAligner-0.6B          install=not_configured reason=not_configured
+not_run  temporal_video_localisation      model=ruke-video-timeline                    install=available reason=installed_but_unmeasured
+families 7/7 passed; cases=38 gated_not_run=7
+denominator: 38 frozen cases across 7 families; the 7 gated capabilities are NOT part of this denominator
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-fk4bltf6\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [3.0, 6.0, 9.0] truncated=False error=
+detection: 3/3 within 0.60s, mean_abs_err=0.0, spurious=0
+cut-time localisation: hit_rate=1.0 mean_abs_error_s=0.0 over n=3 (windows=4)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: examined 8.0s of 12.0s; unexamined intervals may contain further occurrences
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+clip C:\Users\Ruku\AppData\Local\Temp\ruke-probe-fk4bltf6\ruke-probe-cuts.mp4 (9299 bytes, 12.0s) ffmpeg=ffmpeg.exe
+declared cuts: [3.0, 6.0, 9.0]
+detected cuts: [] truncated=False error=
+detection: 0/3 within 0.60s, mean_abs_err=None, spurious=0
+cut-time localisation: hit_rate=0.0 mean_abs_error_s=None over n=3 (windows=4)
+declared events inside a sampled window: 3/3 uncovered=[]
+honesty: examined 8.0s of 12.0s; unexamined intervals may contain further occurrences
+SCOPE: synthetic ffmpeg-generated clip with a DECLARED cut schedule: measures decode clocks, timestamp parsing and cut detection only. It is not evidence about semantic event understanding, and it does not replace the frozen temporal_video_localisation gate, which needs a human-labelled real video.
+probe blocked: ffmpeg_not_installed no validated ffmpeg copy (override, PATH or project-local)
+    self.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: test_worker_crash_becomes_a_retryable_typed_failure 
+(tests.test_supervisor_workers.OwnedWorkers.test_worker_crash_becomes_a_retryable_typed_failure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 319, in 
+test_worker_crash_becomes_a_retryable_typed_failure
+    self.assertEqual(self.pool.run(first, deadline_s=60).state, "ready")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 191, in run
+    res = self._dispatch(req, timeout, heavy)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 220, in _dispatch
+    o = self._spawn(req.capability, heavy, timeout)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 146, in _spawn
+    catalog().mark_worker_started(capability)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_started'
+
+======================================================================
+ERROR: test_worker_crash_becomes_a_retryable_typed_failure 
+(tests.test_supervisor_workers.OwnedWorkers.test_worker_crash_becomes_a_retryable_typed_failure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 266, in tearDown
+    self.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+ERROR: tearDownClass (tests.test_supervisor_workers.RpcRoundTrip)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 116, in tearDownClass
+    cls.pool.stop_all()
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 108, in stop_all
+    self._terminate(self._workers[cap], "supervisor shutdown")
+  File "D:\Projects\WebUI\WebUI\python-backend\ruke_ml\models\lifecycle.py", line 100, in _terminate
+    catalog().mark_worker_stopped()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Catalog' object has no attribute 'mark_worker_stopped'
+
+======================================================================
+FAIL: test_a_health_reports_real_state_without_touching_a_model 
+(tests.test_supervisor_workers.RpcRoundTrip.test_a_health_reports_real_state_without_touching_a_model)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 124, in 
+test_a_health_reports_real_state_without_touching_a_model
+    code, body = _request(self.port, "GET", "/health")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 88, in _request
+    raise AssertionError("the supervisor closed the connection without a response")
+AssertionError: the supervisor closed the connection without a response
+
+======================================================================
+FAIL: test_c_embeddings_run_lexically_and_report_their_own_mode 
+(tests.test_supervisor_workers.RpcRoundTrip.test_c_embeddings_run_lexically_and_report_their_own_mode)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 140, in 
+test_c_embeddings_run_lexically_and_report_their_own_mode
+    code, body = _request(self.port, "POST", "/job", req, token=SECRET)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 88, in _request
+    raise AssertionError("the supervisor closed the connection without a response")
+AssertionError: the supervisor closed the connection without a response
+
+----------------------------------------------------------------------
+Ran 170 tests in 15.199s
+
+FAILED (failures=2, errors=17)

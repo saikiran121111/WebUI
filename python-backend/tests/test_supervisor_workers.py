@@ -17,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 from ruke_ml import supervisor
 from ruke_ml.config import LIMITS
@@ -128,6 +129,24 @@ class RpcRoundTrip(unittest.TestCase):
         self.assertEqual(body["limits"]["heavy_concurrency"], 1)
         self.assertIn("speech.asr", body["capabilities"])
         self.assertIn("workers", body)
+
+    def test_x_the_startup_heavy_set_is_a_snapshot_not_a_live_probe(self):
+        """The contract is what importing the supervisor pulled in, not what something
+        else sharing the process happened to load. Both facts are reported separately;
+        conflating them made the startup law depend on unrelated test order, and made a
+        worker host that has legitimately run an engine look like a broken startup."""
+        fake = "qwen_asr"  # a HEAVY_MODULES name that no code here imports
+        self.assertNotIn(fake, sys.modules)
+        sys.modules[fake] = None
+        try:
+            code, body = _request(self.port, "GET", "/health")
+            self.assertEqual(code, 200)
+            self.assertIn(fake, body["heavy_imports_now"],
+                          "the live set must report what is actually in the process")
+            self.assertEqual(body["heavy_imports_at_startup"], [],
+                             "a module loaded after supervisor import is not a supervisor import")
+        finally:
+            sys.modules.pop(fake, None)
 
     def test_b_job_without_a_token_is_refused(self):
         code, body = _request(self.port, "POST", "/job", {"capability": "embeddings"})
@@ -325,6 +344,10 @@ class OwnedWorkers(unittest.TestCase):
                             deadline_s=60)
         self.assertEqual(res.state, "failed")
         self.assertEqual(res.error.reason, "crash")
+        # A bare "worker exited rc=3" is un diagnosable. The owner must hand over the
+        # worker's own bounded stderr tail, or every crash becomes a guessing game.
+        self.assertIn("injected helper fault", res.error.message,
+                      f"the crash message must carry the worker's stderr tail, got: {res.error.message!r}")
         self.assertTrue(res.error.retryable, "a crashed helper must be restartable, not fatal")
         res2 = self.pool.run(JobRequest(request_id="r", run_id="run", job_id="j3", capability="rerank",
                                         payload={"query": "q", "chunks": [{"chunk_id": "a", "text": "q text"}]}),
@@ -369,6 +392,97 @@ class OwnedWorkers(unittest.TestCase):
         self.assertEqual(res.error.reason, "license_acceptance_required")
         self.assertFalse(res.error.retryable)
         self.assertIn("licence", res.error.human_step.lower())
+
+    def test_a_heavy_worker_declares_what_it_loaded_before_it_answers(self):
+        """Cold-load evidence: the handshake carries the native graph the worker imported
+        and how long it took, so a heavy dependency's cost is measured per capability
+        instead of assumed. It also proves the ASR worker's graph loaded single-threaded,
+        which is what made a real transcription possible at all."""
+        # This test owns the HANDSHAKE, not the admission gate. The gate answers from the
+        # host's live free RAM, and `speech.asr` is model-backed, so on a host where the
+        # main LLM is resident the pool refuses the load typed (`memory_pressure`) and the
+        # worker is never spawned - which makes this assertion depend on how much RAM other
+        # processes happen to be holding rather than on the worker. The gate's own contract
+        # is asserted in tests.test_memory_policy; here it is stubbed to "fits" so the
+        # handshake is checked on every host, and the stub is the narrowest possible one:
+        # the refusal hook only, not the sampler, the ceiling or the unload rules.
+        with mock.patch.object(self.pool, "_admission_refusal", return_value=None):
+            res = self.pool.run(JobRequest(request_id="r", run_id="run", job_id="prelude",
+                                           capability="speech.asr",
+                                           payload={"path": "missing.wav", "root": "."}),
+                                deadline_s=60)
+        self.assertIn(res.state, ("ready", "failed"), res.to_dict())
+        rep = self.pool.report().get("speech.asr")
+        self.assertIsNotNone(rep, "the helper is owned and must report its startup")
+        prelude = rep.get("prelude") or {}
+        for name in ("numpy", "faster_whisper"):
+            self.assertIn(name, prelude.get("imports", []),
+                          f"{name} must be imported during the startup prelude, got {prelude!r}")
+        self.assertEqual(prelude.get("import_failures"), [], "an installed backend must not report a failure")
+        self.assertGreaterEqual(prelude.get("prelude_ms", -1), 0)
+
+    def test_the_neural_retrieval_workers_also_prelude_import_their_native_graph(self):
+        """Regression measured before it was fixed (F29): a neural rerank sent through the
+        supervisor died at its ~95 s deadline after 0.14 s of CPU, with the 90 MB model file
+        never opened. `faulthandler` showed the identical stuck frame at 30 s, 60 s and 150 s:
+        `import onnxruntime` -> numpy `multiarray` -> `importlib create_module`. The same
+        import costs 0.05-0.06 s in a fresh child under the same env, venv and wheels, so the
+        failure was a native-extension init once the runner's control threads exist - exactly
+        what `_prelude` exists to prevent. `rerank` and `embeddings` had never been given a
+        prelude entry, so neural retrieval was silently a deadline error in production. Their
+        absence must fail a test, not only a live probe.
+        """
+        cases = (
+            ("rerank", {"query": "alpha", "chunks": [{"chunk_id": "a", "text": "alpha text"}]}),
+            ("embeddings", {"texts": ["alpha beta gamma"]}),
+        )
+        for cap, payload in cases:
+            with self.subTest(capability=cap):
+                res = self.pool.run(JobRequest(request_id="r", run_id="run",
+                                               job_id=f"prelude-{cap}", capability=cap,
+                                               payload=payload), deadline_s=90)
+                self.assertEqual(res.state, "ready", res.to_dict())
+                rep = self.pool.report().get(cap)
+                self.assertIsNotNone(rep, f"the {cap} helper is owned and must report its startup")
+                prelude = rep.get("prelude") or {}
+                for name in ("numpy", "onnxruntime", "tokenizers"):
+                    self.assertIn(name, prelude.get("imports", []),
+                                  f"{name} must load in the {cap} startup prelude, got {prelude!r}")
+                self.assertEqual(prelude.get("import_failures"), [],
+                                 f"installed {cap} backends must not report an import failure")
+                self.assertGreaterEqual(prelude.get("prelude_ms", -1), 0)
+
+    def test_the_reaper_never_unloads_a_worker_that_has_a_job_in_flight(self):
+        """Regression, measured before it was fixed.
+
+        `last_used` was stamped when a job was handed over and never refreshed while the
+        job ran, so with `idle_ttl_s = 120` the reaper terminated a worker that was still
+        working: the owner got "worker closed its output stream mid-job" / 
+        `deadline_exceeded` at about 125s for a job that was simply still running. An
+        in-flight job is not idleness, and memory pressure is no excuse either - killing
+        the worker mid-job destroys the work it was asked to do.
+        """
+        LIMITS.idle_ttl_s = 0.5          # far shorter than the job below, on purpose
+        first = JobRequest(request_id="r", run_id="run", job_id="warm", capability="rerank",
+                           payload={"query": "q", "chunks": [{"chunk_id": "a", "text": "q text"}]})
+        self.assertEqual(self.pool.run(first, deadline_s=60).state, "ready")
+        owned = self.pool._workers["rerank"]
+        owned.proc.stdin.write(json.dumps({"kind": "selftest_slow", "seconds": 5}) + "\n")
+        owned.proc.stdin.flush()
+        got: list = []
+        threading.Thread(target=lambda: got.append(self.pool.run(
+            JobRequest(request_id="r", run_id="run", job_id="in-flight", capability="rerank",
+                       payload={"query": "q2", "chunks": [{"chunk_id": "b", "text": "q2 text"}]}),
+            deadline_s=30)), daemon=True).start()
+        time.sleep(2.5)                  # several reaper passes, each of which used to kill it
+        self.assertEqual(self.pool.owned_pids(), [owned.proc.pid],
+                         "a worker with a job in flight must not be unloaded for being idle")
+        self.assertFalse(self._process_gone(owned.proc.pid), "the reaper must not terminate it")
+        deadline = time.time() + 25
+        while not got and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertTrue(got, "the queued job must eventually be answered")
+        self.assertEqual(got[0].state, "ready", got[0].to_dict())
 
     def test_heavy_stages_are_serialised_through_one_slot(self):
         first = JobRequest(request_id="r", run_id="run", job_id="slow", capability="embeddings",

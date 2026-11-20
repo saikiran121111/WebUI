@@ -125,7 +125,57 @@ describe("readZip — fflate reader contract", () => {
 describe("Zip64 and the 7za fallback", () => {
   let zip64: Buffer | null = null;
 
+  /**
+   * F46: the 66k-member archive is a FIXTURE, not a behaviour under test.
+   * Building it cost ~240 s of 7za CPU, and under a full-suite parallel run
+   * it exceeded that budget, got killed, and the suite reported a bare
+   * "Command failed: …7za.exe" as if the product's Zip64 read had broken.
+   * Two honest changes, neither of which weakens the assertion:
+   *  - the built archive is CACHED in .data/tmp keyed by the 7zip-bin version
+   *    and reused only after it re-parses as a real Zip64 container (EOCD64 +
+   *    locator + the recorded entry count + the tail member present), written
+   *    to a temporary name and renamed, so a half-built file is never reused;
+   *  - a failed build names WHAT HAPPENED (killed / signal / exit code /
+   *    stderr / elapsed) instead of leaving the harness to guess.
+   * 7za stays the producer: fflate cannot emit a spec-compliant Zip64 count.
+   */
+  const ZIP64_MEMBERS = 66001; // 66,000 generated + the marker member
+  const ZIP64_CACHE = path.join(ROOT, ".data", "tmp", "zip64-cache");
+
+  function sevenBinVersion(): string {
+    try {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(ROOT, "node_modules", "7zip-bin", "package.json"), "utf8"),
+      ) as { version?: unknown };
+      return typeof pkg.version === "string" ? pkg.version.replace(/[^\d.]/g, "") : "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /** Re-parse, do not trust the filename: EOCD64, its locator, the recorded
+   *  64-bit entry count, and the tail member that the tests actually read. */
+  function cachedZip64Usable(file: string): boolean {
+    try {
+      const buf = fs.readFileSync(file);
+      const win = buf.subarray(Math.max(0, buf.length - 65_536));
+      const at = win.lastIndexOf(Buffer.from("PK\x06\x06", "latin1"));
+      if (at < 0 || win.length - at < 76) return false;
+      // The EOCD64 record is 56 bytes; its locator (0x07064b50) follows it.
+      if (win.subarray(at + 56, at + 60).toString("latin1") !== "PK\x06\x07") return false;
+      if (win.readBigUInt64LE(at + 32) !== BigInt(ZIP64_MEMBERS)) return false;
+      return buf.includes(Buffer.from("MARKER-65000.txt"));
+    } catch {
+      return false;
+    }
+  }
+
   beforeAll(async () => {
+    const cached = path.join(ZIP64_CACHE, `zip64-${sevenBinVersion()}.zip`);
+    if (cachedZip64Usable(cached)) {
+      zip64 = fs.readFileSync(cached);
+      return;
+    }
     // A genuine >65,535-entry Zip64 archive from a spec-compliant producer
     // (7za): legacy 16-bit count field = 0xFFFF marker + EOCD64 + locator.
     // fflate's OWN writer cannot produce this (a plain zipSync of 66k members
@@ -134,6 +184,7 @@ describe("Zip64 and the 7za fallback", () => {
     const exe = await sevenExe();
     const dir = path.join(SCRATCH, "z64");
     fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(ZIP64_CACHE, { recursive: true });
     const list: string[] = [];
     for (let i = 0; i < 66000; i++) {
       fs.writeFileSync(path.join(dir, `m${i}.bin`), "x" + i);
@@ -142,13 +193,38 @@ describe("Zip64 and the 7za fallback", () => {
     fs.writeFileSync(path.join(dir, "MARKER-65000.txt"), "ZIP64-TAIL-MEMBER-K9Q");
     list.push("MARKER-65000.txt");
     fs.writeFileSync(path.join(dir, "list.txt"), list.join("\n"));
-    await execFileP(exe, ["a", "-tzip", "big.zip", "@list.txt"], {
-      cwd: dir,
-      timeout: 240_000,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    zip64 = fs.readFileSync(path.join(dir, "big.zip"));
-  }, 420_000);
+    // Written OUTSIDE SCRATCH (SCRATCH is deleted in afterAll) and under a
+    // temporary name, so only a renamed-complete archive can be reused.
+    const building = `${cached}.${process.pid}.building.zip`;
+    const started = Date.now();
+    try {
+      await execFileP(exe, ["a", "-tzip", "-mx=1", building, "@list.txt"], {
+        cwd: dir,
+        timeout: 420_000,
+        maxBuffer: 64 * 1024 * 1024,
+      });
+    } catch (err) {
+      // This @types/node does not export a NodeJS.ExecFileException, so the fields
+      // the message needs are named here instead of borrowed from a namespace.
+      const e = err as Error & {
+        code?: string | number;
+        signal?: string | null;
+        stderr?: string;
+        killed?: boolean;
+      };
+      fs.rmSync(building, { force: true });
+      throw new Error(
+        `the Zip64 FIXTURE build failed (${Date.now() - started} ms elapsed, ` +
+          `killed=${String(e.killed === true)}, signal=${e.signal ?? "none"}, code=${String(e.code)}, ` +
+          `cwd=${dir}, exe=${exe}): ${e.stderr ?? e.message}`,
+      );
+    }
+    fs.renameSync(building, cached);
+    if (!cachedZip64Usable(cached)) {
+      throw new Error(`7za wrote ${cached} but it does not re-parse as a ${ZIP64_MEMBERS}-entry Zip64 archive`);
+    }
+    zip64 = fs.readFileSync(cached);
+  }, 560_000);
 
   it("reads a genuine 66k-member Zip64 archive back IN FULL (the hand-rolled parser capped at 65,535)", () => {
     const entries = readZip(zip64!);

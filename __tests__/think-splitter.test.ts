@@ -200,3 +200,135 @@ describe("createThinkSplitter — F17 fence-awareness", () => {
     expect(out.reasoning).toBe("");
   });
 });
+
+
+/**
+ * F05 (brief section 6) - LITERAL CODE SURVIVES. Three reproduced loss classes:
+ *  1. an inline code span (`<think>` written inside backticks) was scanned as a
+ *     real delimiter pair, so the example vanished from the answer;
+ *  2. a 4-space/tab indented code block was scanned the same way;
+ *  3. a fence inside a blockquote ("> ```py") never opened, so its contents -
+ *     including any tag spelling - got routed into the private reasoning channel.
+ * Law: only a delimiter the markdown says is REAL switches channels; code content
+ * is literal text of the CURRENT channel. And a real delimiter after the code is
+ * still a real delimiter (fixing the loss must not swallow live tags).
+ * Chunking invariance is asserted for every text: every byte cut and every
+ * char-by-char framing must route identically to the atomic run.
+ */
+describe("createThinkSplitter - F05 literal code (spans, indented blocks, blockquoted fences)", () => {
+  const feedAll = (pieces: string[]) => {
+    const s = createThinkSplitter();
+    let content = "";
+    let reasoning = "";
+    for (const p of pieces) {
+      const o = s(p);
+      content += o.content;
+      reasoning += o.reasoning;
+    }
+    const f = s.flush();
+    return { content: content + f.content, reasoning: reasoning + f.reasoning };
+  };
+
+  it("an inline code span keeps its tag spelling in the answer, verbatim", () => {
+    const text = "Say `<think>x</think>` now";
+    const out = feedAll([text]);
+    expect(out.content).toBe(text);
+    expect(out.reasoning).toBe("");
+  });
+
+  it("a code span on one line never disables the live tags on the next", () => {
+    const text = "Say `<think>` now\n<think>real</think>after\n";
+    const out = feedAll([text]);
+    expect(out.content).toBe("Say `<think>` now\nafter\n");
+    expect(out.reasoning).toBe("real");
+  });
+
+  it("a longer backtick run delimits the span; the tags inside stay literal", () => {
+    const text = "`` <think>a</think> `` b";
+    const out = feedAll([text]);
+    expect(out.content).toBe(text);
+    expect(out.reasoning).toBe("");
+  });
+
+  it("a live tag AFTER a closed span on the same line still switches channel", () => {
+    const text = "code `<think>` end <think>hid</think>out";
+    const out = feedAll([text]);
+    expect(out.content).toBe("code `<think>` end out");
+    expect(out.reasoning).toBe("hid");
+  });
+
+  it("an unmatched backtick on a finished line is literal punctuation", () => {
+    const text = "a ` b\nc <think>r</think>d";
+    const out = feedAll([text]);
+    expect(out.content).toBe("a ` b\nc d");
+    expect(out.reasoning).toBe("r");
+  });
+
+  it("a four-space indented code block keeps its tags literal, and ends where CommonMark ends it", () => {
+    const text = "intro\n\n    code <think>lit1</think>\n    more <think>lit2</think>\nafter <think>real</think>end";
+    const out = feedAll([text]);
+    expect(out.content).toBe("intro\n\n    code <think>lit1</think>\n    more <think>lit2</think>\nafter end");
+    expect(out.reasoning).toBe("real");
+  });
+
+  it("a tab-indented code block keeps its tags literal", () => {
+    const text = "\ttabbed <think>lit</think>\nreal <think>r</think>z";
+    const out = feedAll([text]);
+    expect(out.content).toBe("\ttabbed <think>lit</think>\nreal z");
+    expect(out.reasoning).toBe("r");
+  });
+
+  it("a blockquoted fence opens, protects its contents and closes", () => {
+    const text = "para\n\n> ```py\n> <think>lit</think>\n> ```\n\nafter <think>real</think>end";
+    const out = feedAll([text]);
+    expect(out.content).toBe("para\n\n> ```py\n> <think>lit</think>\n> ```\n\nafter end");
+    expect(out.reasoning).toBe("real");
+  });
+
+  it("a lazy (unprefixed) fence closer still closes a blockquoted fence", () => {
+    const text = "> ```py\n> <think>lit</think>\n```\nafter <think>real</think>end";
+    const out = feedAll([text]);
+    expect(out.content).toBe("> ```py\n> <think>lit</think>\n```\nafter end");
+    expect(out.reasoning).toBe("real");
+  });
+
+  it("blockquote markers never disable a live tag in quoted prose", () => {
+    const text = "> answer <think>hid</think>out";
+    const out = feedAll([text]);
+    expect(out.content).toBe("> answer out");
+    expect(out.reasoning).toBe("hid");
+  });
+
+  it("a code span inside a reasoning block protects the close-tag spelling", () => {
+    const text = "<think>see `<b/>` and `</think>` tail";
+    const out = feedAll([text]);
+    expect(out.reasoning).toBe("see `<b/>` and `</think>` tail");
+    expect(out.content).toBe("");
+  });
+
+  it("every code form keeps its own chunking invariance (all cuts + char-by-char)", () => {
+    const texts = [
+      "Say `<think>x</think>` now",
+      "Say `<think>` now\n<think>real</think>after\n",
+      "`` <think>a</think> `` b",
+      "code `<think>` end <think>hid</think>out",
+      "a ` b\nc <think>r</think>d",
+      "intro\n\n    code <think>lit1</think>\n    more <think>lit2</think>\nafter <think>real</think>end",
+      "\ttabbed <think>lit</think>\nreal <think>r</think>z",
+      "para\n\n> ```py\n> <think>lit</think>\n> ```\n\nafter <think>real</think>end",
+      "> ```py\n> <think>lit</think>\n```\nafter <think>real</think>end",
+      "> answer <think>hid</think>out",
+      "<think>see `<b/>` and `</think>` tail",
+    ];
+    for (const text of texts) {
+      const whole = feedAll([text]);
+      for (let cut = 1; cut < text.length; cut++) {
+        expect(feedAll([text.slice(0, cut), text.slice(cut)]), `cut=${cut} of ${JSON.stringify(text)}`).toEqual(whole);
+      }
+      expect(feedAll([...text]), JSON.stringify(text)).toEqual(whole);
+      // Nothing may ever be lost: content + reasoning covers every character the
+      // input had except the routed delimiter spellings.
+      expect(whole.content + whole.reasoning).not.toBe("");
+    }
+  });
+});

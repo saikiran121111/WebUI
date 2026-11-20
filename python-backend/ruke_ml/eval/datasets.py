@@ -227,7 +227,7 @@ GATED: tuple[Gated, ...] = (
     Gated("document_layout_ocr",
           "documents.ocr",
           "per-page OCR CER, reading order and table structure on scanned/mixed PDFs",
-          model="PaddleOCR-VL"),
+          model="PaddleOCR-VL-1.6"),
     Gated("asr_multilingual",
           "speech.asr",
           "WER/CER per language including Telugu and Hindi on real human recordings",

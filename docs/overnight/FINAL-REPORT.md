@@ -410,3 +410,787 @@ Owned-vs-foreign check immediately before the shutdown step:
   (typecheck, contracts, 2319 Vitest, 707 Rust, 170 Python, Next build, 126 browser tests) all
   exit 0; the open items are the asset/licence-gated model qualities and the two live
   measurements deliberately not taken (F01 A/B, F19 jitter), each with its human step in sec 13.
+
+---
+
+# FINAL REPORT - sessions F20/F21 (2026-11-17 ~03:20 Asia/Calcutta)
+
+Verdict: **PARTIAL**. Not COMPLETE. See MIGRATION-MATRIX.md for the per-capability status and the seven
+numbered blockers. The two held suites (OCR document acceptance, Strata unload/reload handoff) are
+**code-complete and unit-tested but never executed**, by explicit instruction, because they need an
+attended screen.
+
+## 1. Which supplied patches were applied vs adapted
+
+- Amendment section-3 kernel **A (speech-language metadata)**: applied as designed, but placed in a shared
+  module `python-backend/ruke_ml/speech/languages.py` (`normalize_language`, `language_is_supported`)
+  rather than duplicated in `registry.py`/`asr.py`/`alignment.py`. `language_route` now calls
+  `language_is_supported(spec.claims.get("languages", []), lang)`; the character-by-character iteration
+  and the prose-based multilingual wildcard are gone. Aligner exclusions key on the registered **aligner**
+  id, not ASR model ids. Malformed optional capability metadata is reported without crashing the
+  supervisor; automatic/unknown routes to real detection; English-only models are never silently chosen;
+  published support is kept separate from measured quality, and unsupported `verified=True` claims were
+  removed. Verified by `python-backend/tests/test_speech.py` (incl. an explicit Telugu "unverified, not
+  silently supported" case and an aligner-exclusion case).
+- Amendment kernel **B (unsupported PDF returned as ready)**: applied at
+  `python-backend/ruke_ml/workers/runner.py` immediately after `parser.load_document`, before
+  `ocr.assess`, returning `StructuredError("unsupported_input", ...)` for `doc.kind == "unsupported"`.
+  Real PDF support was then implemented separately (`documents/pdf.py`), so the guard is a safety net,
+  not the whole fix - as the amendment required.
+- Amendment section-2 (one shared validated language helper, manifest validation, bounded adapter set):
+  applied; we deliberately limited ourselves to faster-whisper CT2 for ASR, PaddleOCR-VL 1.6 +
+  PP-DocLayoutV3 for OCR with Tesseract recovery, MiniLM ONNX for embeddings. No open-ended model search.
+- Amendment section-3 thinking-tag/scroll kernels: **adapted**, not pasted - the repo already had
+  `lib/stream/thinkTags.ts` + Rust `chat/scrubber.rs` with parity fixtures, so the work went into fixture
+  coverage (`fixtures/sse/02-think-split-matrix.json`) and the single scroll owner
+  `lib/ui/scrollFollow.ts` rather than a second implementation.
+- Amendment 5 (resource-aware GPU/CPU + handoff): implemented as a provider-independent coordinator
+  (Strata first), because the pinned paddle build has `compiled_with_cuda:false` - the GPU preference is
+  therefore **reported unavailable**, not pretended.
+
+## 1b. Actual changed files in this working tree (all uncommitted; `M` modified, `A` added)
+
+Frontend/TS - `M lib/decision/client.ts`, `M lib/server/extract/{index,office,pdf,audio}.ts`,
+`M lib/server/attachindex/{timeline,types}.ts`, `M lib/stream/thinkTags.ts`,
+`M lib/web-search/domain-constraints.ts`, `A lib/server/extract/document-capability.ts`,
+`A lib/server/extract/speech-capability.ts`, `A lib/server/coordination/llm-lease.ts`;
+tests `A __tests__/attach-timeline-f04.test.ts`, `A __tests__/decision/generalization-f02b.test.ts`,
+`A __tests__/server/{extract-document-capability,extract-speech-capability,llm-handoff-lease}.test.ts`,
+`A __tests__/web-search/domain-policy-f03b.test.ts`, `M __tests__/{think-splitter,attach-timeline-s60}.test.ts`,
+`M __tests__/rust-golden/{decision-parity,sse-vectors}.test.ts`.
+
+Rust - `M crates/ruke-core/src/admission.rs`, `M crates/ruke-decision/src/engine.rs`,
+`M crates/ruke-server/src/{main,ml_job,internal_completion}.rs`,
+`M crates/ruke-server/src/chat/{browser_loop,forward,scrubber,web_loop}.rs`,
+`M crates/ruke-server/src/titles/generate.rs`, `M crates/ruke-attach/src/notes.rs`,
+`A crates/ruke-server/tests/handoff_lease_gate.rs`, `M tests/scrubber_vectors.rs`,
+`M fixtures/decision/06-intent-matcher-vectors.json`, `M fixtures/sse/02-think-split-matrix.json`,
+`A fixtures/media/measured-prefix-v1.json`.
+
+Python - `A ruke_ml/documents/{pdf,render,ocr_cascade,ocr_paddle,ocr_paddle_worker,ocr_tesseract}.py`,
+`A ruke_ml/speech/{languages,levels,whisper_ct2}.py`, `A ruke_ml/workers/{jobs,speech_jobs,document_jobs}.py`,
+`A ruke_ml/models/{assets,prepare,ocr_runtime,devices,resources,job_limits,main_model}.py`,
+`A ruke_ml/{handoff,processes,language_tables}.py`, `A ruke_ml/retrieval/nn_embed.py`,
+`A ruke_ml/eval/embed_vectors.py`, `M ruke_ml/{config,supervisor}.py`,
+`M ruke_ml/documents/{ocr,parser,structures}.py`, `M ruke_ml/models/{binaries,lifecycle,registry,resources}.py`,
+`M ruke_ml/retrieval/{embeddings,fusion,reranker}.py`, `M ruke_ml/speech/{alignment,asr}.py`,
+`M ruke_ml/video/scenes.py`, `M ruke_ml/workers/runner.py`, `M ruke_ml/eval/{datasets,temporal_probe}.py`;
+tests `A tests/{test_handoff_devices,test_job_limits,test_memory_policy,test_resources,
+test_retrieval_neural,test_speech_audio,test_worker_protocol,test_document_render,test_heldout_readers}.py`,
+`M tests/{test_binaries,test_retrieval_documents,test_speech,test_supervisor_workers,test_video,test_video_scan}.py`,
+`M pyproject.toml`, `M uv.lock`.
+
+Scripts/docs/deps - `A scripts/prepare-ocr-runtime.ps1`, `A scripts/strata-low-ram.ps1`,
+`M scripts/dev-supervisor.mjs`, `M package.json`, `M package-lock.json`, plus the
+`docs/overnight/*` ledger and this matrix/probes (`docs/overnight/probes/{e03_speech_probe,
+g04_neural_embed_probe,f09_heldout_http_probe,f06_http_probe}`) and `docs/overnight/fixtures/f09/*`.
+
+## 2. Engine owners: migrated vs retained
+
+**Now owned by the Python supervisor (executed in production or live probes):**
+PDF native reading, DOCX/PPTX/XLSX reading, PDF page rasterisation, ASR, language routing, alignment
+payload shape, video scene/plan honesty, retrieval fusion (RRF) + lexical embeddings, OCR status/assess
+layer, OCR engines (Paddle worker + Tesseract executor), neural embedder (standalone), asset preparation,
+resource admission + job-object limits, handoff lease.
+
+**Retained on purpose (not migrated - migration status RED by definition, see D-046/H1/H2):**
+`lib/server/attachindex/{retrieve,embed}.ts` for the live retrieval path (a committed `store_compat`
+golden asserts the Rust block is byte-identical to the TS block, so swapping owners is a decision with a
+contract consequence, not a status edit); `lib/documents/{xlsxEngine,docxEngine,pptxEngine,pdfEngine,
+resumeHtml,chartHtml,recalc}.ts` artifact writers; `lib/web-search/search-gate.ts` availability
+regexes (still live, retirement HELD until the model-selected path is proven end to end); the resume and
+chart engines (reused, not rebuilt).
+
+## 3. Pinned versions, revisions, assets, paths
+
+| component | pin | location |
+|---|---|---|
+| OCR interpreter | `python-backend/.venv-ocr` (isolated, wired into the worker launcher) | project-local |
+| paddlepaddle / paddleocr / paddlex / opencv-contrib | 3.2.1 / 3.6.0 / 3.6.1 / 4.10.0.84 | `.venv-ocr` |
+| recognition model | `PaddlePaddle/PaddleOCR-VL-1.6` @ `132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd`, `model.safetensors` 1,917,255,968 B | `.data/ml-cache/huggingface/hub/...` |
+| layout model | `PaddlePaddle/PP-DocLayoutV3` @ `241f8bdfc77a7c7bee915a5057aaee58c235a8d3`, `inference.pdiparams` 130,806,572 B, `inference.json` 1,196,890 B | same cache root |
+| Tesseract | 5.5.3.20260724, DLLs bundled, tessdata **eng + osd** | `.data/tools/tesseract/` |
+| rasteriser | pypdfium2 5.6.0 | `.venv` |
+| ASR | faster-whisper 1.2.1 / ctranslate2 4.9.0, `Systran/faster-whisper-base` CT2 snapshot | project cache |
+| embeddings | `Xenova/all-MiniLM-L6-v2` ONNX, sha256 `759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e`, CPUExecutionProvider | project cache |
+| PDF reader | pypdf 7.1.0 | `.venv` |
+
+Preparation commands (explicit, never part of startup):
+`python-backend\.venv\Scripts\python.exe -m ruke_ml.models.prepare --pipeline PaddleOCR-VL-1.6`,
+`scripts\prepare-ocr-runtime.ps1` (add `-Probe` to also write a device-verified manifest; the venv-ocr
+package set is recorded verbatim in `logs/f19-ocr-setup-1.err.log`: paddlepaddle 3.2.1 plus 13 pinned
+deps into `python-backend/.venv-ocr`). **Reproducibility gap:** there is no committed
+`prepare-tesseract-runtime.ps1` - the UB-Mannheim build was fetched and unpacked into
+`.data/tools/tesseract/` by an interactive command that was never turned into a script, so a fresh
+machine cannot reproduce that step from the repo. Recorded as a real gap, not hidden behind the fact
+that the local install works. **One-command startup:** `npm run dev` (supervises Next, `ruke-server`,
+and the lightweight Python supervisor; heavy workers stay lazy and idle-unload).
+
+## 4. Measured resources
+
+- Host: 63.77 GiB total. While the main LLM (`strata.exe`, ~52 GiB WS) is resident, only ~3.7-6.4 GiB is
+  free. Documented honestly in `docs/overnight/STRATA-RAM.md`; the `scripts\strata-low-ram.ps1
+  --ram-keep-gib` lever was **not applied** because it needs a Strata restart that was not authorised.
+- Idle Ruke tree, main LLM excluded: **RSS 1568 MiB / private 2126 MiB** (`logs/f18-tree-1.log`).
+- ASR worker cold+processing peak: **388.0 MiB working set, zero GPU** (`gpu_violations: null`).
+- Neural embedding worker: **164 MiB RSS peak, CPUExecutionProvider only**.
+- OCR primary: `est_peak_mib 3300`, `est_peak_vram_mib 6000` - **provisional estimates, never measured by
+  an actual run**, which is exactly why the ceiling claim is ORANGE and the run is HELD.
+- No new GPU allocation was observed in any executed worker; the pinned paddle build cannot select CUDA
+  (`compiled_with_cuda:false`, `device:cpu`) - `logs/f19-paddle-device-1.log`.
+- The 4 GB target / 5 GB maximum now has a real mechanism (Windows job object on owned children +
+  `memory_pressure` admission + commit-charge clamp), unit-tested; **its peak has never been observed**,
+  so the acceptance statement stays "mechanism implemented, ceiling unverified".
+
+## 5. Tests: exact commands, exit codes, evidence
+
+`tsc0` 0 errors; `cargo351` 351 passed; `py339` 339 OK; `contracts0`; `build0`; `vit2461` 2461 passed /
+19 skipped / 0 failed (a first attempt failed 2 load-sensitive specs, re-ran clean, both recorded - D-051).
+All exit 0. Logs named in TEST-RESULTS.md. The full vitest count **included** a debug scratch spec
+`__tests__/server/tmp-dbg.test.ts` that emitted console noise; a removal attempt was refused by the
+sandbox, so it is still present and should be deleted by hand.
+
+**Real engine execution (not mocks):** ASR live with real weights (WER 0.0769 / 0.0), Tesseract live on
+real rasterised pages (WER 0.0, eng+osd only), ONNX MiniLM live (7/9 checks, numeric failure kept).
+**Mocked/fixture only:** readers over generated fixtures, handoff device planning, job-object limits,
+think-tag parity, scroll-follow unit logic. **Not executed at all:** PaddleOCR-VL pipeline, in-job
+Tesseract fallback, handoff lease against a live Strata endpoint, browser/Playwright acceptance.
+
+## 6. Supported and verified coverage (honest)
+
+- ASR: the language tags come from the pinned backend's published metadata; **measured** WER exists only
+  for the two probe clips. Published != measured quality, and that distinction is in the payload.
+- Tesseract: **eng + osd installed**, and that is what we report.
+- Cross-encoder rerank: unavailable, adapter refuses to claim readiness.
+- Diarization: **BLOCKED** on licence acceptance; returns a typed `license_acceptance_required`. Not
+  bypassed, not simulated.
+- Video: decode/plan honesty measured (declared cuts 3/3, decode prefix 11.9/12.0 s); **frame OCR through
+  a video job never ran**, so no visual-understanding claim is made.
+
+## 7. Remaining blockers and smallest next action
+
+1. Primary OCR never executed -> run SPEC 16.6 attended; then `-ManifestOnly -Probe` to clear
+   `cpu_only_verified:false`.
+2. Handoff never live -> run SPEC 17.8 attended, one exclusive foreground runner, Codex idle.
+3. In-job Tesseract fallback never triggered -> force one page failure in a mixed PDF.
+4. G2 neural retrieval has no production caller -> decide the owner swap, then re-run `store_compat`.
+5. H1/H2 writers retained TS -> migration stays RED unless parity work is scheduled.
+6. E3 diarization -> needs the user's licence acceptance.
+7. No browser acceptance -> `scripts\run-browser-e2e-exclusive.ps1` after checking the shared Playwright lock.
+
+Stray files left in the repo root: `a.txt`, `lock-out.txt`, `__tests__/server/tmp-dbg.test.ts` - my own
+scratch/harness artifacts; deletion was refused by the sandbox policy, so they remain for manual removal.
+The working tree stays **deliberately uncommitted** (~273 entries) at HEAD `abc988c2...`.
+
+## 8. What this report does not claim
+
+No zero-bug claim, no "99% overfitting removed", no universal-best OCR, no quality parity without
+evidence, no migration completion from mocks, and no physical power-off from an accepted shutdown
+command. HELD items are HELD, not GREEN.
+
+---
+
+# FINAL REPORT - session F26 close (2026-11-17 ~06:05)
+
+## Verdict: **PARTIAL**
+Not COMPLETE. Two mandatory acceptance groups were deliberately **held** because they need a human
+watching the screen (a multi-GB primary OCR run that may park the main model, and the Strata
+unload/reload handoff). The artifact writers are a **retained TypeScript owner**, so the Python
+migration of artifact creation is explicitly incomplete. Diarization is blocked on a licence that was
+never accepted on the user's behalf. Neural reranking has no weights. GPU OCR is impossible on this host
+right now. The hard 5 GB ceiling is **not proven under OCR load** because the OCR peak has never been
+measured. Progress is roughly **78-80%**: the unattended implementation and gate work is finished; the
+attended evidence is what remains.
+
+## Files changed in this arc (F22-F26), from the working tree
+Python: `ruke_ml/documents/ocr_paddle.py`, `ocr_paddle_worker.py`, `ocr_cascade.py` (readiness CLI),
+`ruke_ml/handoff.py` (kill path removed), `ruke_ml/models/registry.py`, `ruke_ml/contracts.py`,
+`ruke_ml/workers/runner.py`, `workers/video_jobs.py`, `ruke_ml/video/frame_ocr.py`,
+`tests/test_ocr_fallback.py`, `tests/test_handoff_devices.py`, `tests/test_frame_ocr.py`.
+Rust: `crates/ruke-server/src/ml_job.rs`, `crates/ruke-server/src/lib.rs`.
+TypeScript: `lib/progress/capabilityStatus.ts`, `lib/server/attachindex/types.ts`,
+`lib/server/attachindex/timeline.ts`, `lib/server/extract/document-capability.ts`,
+`__tests__/attach-timeline-s60.test.ts`, `__tests__/attach-timeline-frameocr.test.ts`,
+`__tests__/server/extract-document-capability.test.ts`.
+Scripts: `scripts/run-handoff-acceptance.ps1`, `scripts/run-ocr-acceptance.ps1`,
+`scripts/prepare-tesseract-runtime.ps1` (new).
+Fixtures/probes (new, untracked dirs): `docs/overnight/fixtures/d1/` (5 PDFs + `answer-key.json` +
+`ocr_docs.py`), `docs/overnight/probes/d1_ocr_acceptance_probe.py`,
+`docs/overnight/probes/j4_handoff_probe.py`. Docs: SPEC, STATE, TASKS, DECISIONS (D-053..D-055),
+FINDINGS, TEST-RESULTS, MIGRATION-MATRIX, DECISION-OWNERSHIP, FINAL-REPORT. Nothing was committed.
+
+## Engine owners that actually executed on this host (live) vs coded-only
+Executed live: pypdf 7.1.0; DOCX/PPTX/XLSX Python readers; pypdfium2 5.6.0 rasterisation;
+faster-whisper 1.2.1 / ctranslate2 4.9.0 on `Systran/faster-whisper-base` (WER 0.0769 / 0.0, peak
+388 MiB, no GPU); project-local Tesseract `v5.5.3.20260724` (`eng`, `osd`) with WER 0.0 on an
+independently authored two-page key **and** today's 20/20 key-word run; ONNX `Xenova/all-MiniLM-L6-v2`
+embedder (164 MiB, 7/9 checks, numeric failure kept); hybrid RRF.
+**Prepared but never executed: the PaddleOCR-VL 1.6 primary pipeline.** It is pinned, downloaded,
+size-verified and wired, and the readiness CLI reports it ready - which is asset readiness, not
+functional evidence.
+Retained TypeScript (Python-migration incomplete by definition): `lib/documents/{xlsxEngine,docxEngine,
+pptxEngine,pdfEngine,resumeHtml,chartHtml,recalc}.ts` and `lib/server/attachindex/{retrieve,embed}.ts`.
+
+## Pinned assets and the commands that rebuild them
+- Primary OCR assets: `PaddlePaddle/PaddleOCR-VL-1.6 @ 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd`
+  (`model.safetensors` 1,917,255,968 B) and `PaddlePaddle/PP-DocLayoutV3 @
+  241f8bdfc77a7c7bee915a5057aaee58c235a8d3` under `.data/ml-cache/huggingface/hub`.
+  Prepare: `python -m ruke_ml.models.prepare --pipeline PaddleOCR-VL-1.6` (project-local cache root).
+  Readiness: `python -m ruke_ml.documents.ocr_cascade`.
+- Isolated OCR runtime `python-backend/.venv-ocr`: `paddlepaddle==3.2.1` (CPU wheel),
+  `paddleocr==3.6.0`, `paddlex==3.6.1`, `opencv-contrib-python==4.10.0.84`; prepared by
+  `scripts/prepare-ocr-runtime.ps1` with the uv cache at `.data/cache/uv`.
+  `paddle.is_compiled_with_cuda()` is False, so `allow_gpu = False` honestly.
+- Recovery Tesseract: `.data/tools/tesseract`, `v5.5.3.20260724`, languages `eng, osd`; rebuild with
+  `scripts/prepare-tesseract-runtime.ps1`, verify with the same script `-VerifyOnly`.
+- ASR: `Systran/faster-whisper-base` inside `python-backend/.venv`.
+- Startup: **`npm run dev`** supervises Next + `ruke-server` + the lightweight Python supervisor; heavy
+  workers are lazy and idle-unloaded; ordinary startup downloads nothing.
+
+## Measured resources (2026-11-17, no dev tree running)
+RAM 65299 MiB total, **7308 MiB free**; commit charge ~75774 of 100115 MiB.
+VRAM RTX 3060: 12288 MiB total, 9483 used, **2633 free** - GPU OCR cannot fit while the main model is
+resident. Ruke tree with the main LLM excluded: 1568 MiB working set / 2126 MiB private at idle
+(`f18-tree-1.log`). Budget is 4,000,000,000 B target / 5,000,000,000 B hard; **not** proven under the
+primary OCR load because that load has never run. The OCR estimates (3300 MiB RAM, 6000 MiB VRAM) are
+labelled provisional everywhere they appear.
+
+## Live vs mocked validation
+Unit/mocked: 375 Python tests, 2477 TS tests, 351 Rust tests, contracts + build + typecheck exit 0.
+Real-engine executed: ASR, Tesseract, ONNX embedder, native PDF/Office readers (listed above).
+Real-model decisions and browser UI checks: **not run this session** (need the dev tree plus an idle
+coding agent). Primary OCR and the unload/reload handoff: **held**.
+
+## Real blocker list (nothing here is "not downloaded yet")
+1. pyannote diarization: token + licence acceptance - a human decision, never taken for the user.
+2. GPU OCR: needs a CUDA-enabled pinned paddle build; then `RUKE_OCR_ALLOW_GPU=1` and re-measure.
+3. Neural reranking: cross-encoder weights absent.
+4. `scripts\strata-low-ram.ps1 --ram-keep-gib` unapplied - needs a Strata restart that was not
+   authorised (`docs/overnight/STRATA-RAM.md`, D-048). It would buy RAM headroom for the primary OCR.
+5. Hard 5 GB ceiling for children is cooperative, not OS-enforced end-to-end (J3).
+6. The internal-completion inference gate (503 while OCR owns the lease) is only PARTIAL because the
+   bridge secret is per-run (`scripts/dev-supervisor.mjs`).
+
+## Resumable next action (attended, tomorrow)
+1. `npm run dev`, then refresh `node docs/overnight/probes/f09_heldout_http_probe.mjs` and check
+   `:3101/api/ruke/health` (now includes `handoff_held`) and `/api/ruke/ml-status`.
+2. `scripts\run-ocr-acceptance.ps1 -AllowUnload -ConfirmUnload UNLOAD` for the engine path, then with
+   `-StartDev` for the production upload path, plus `--inject-primary-failure-page 3` and the
+   `--max-free-mib` valve. Record content, structure, page provenance, coverage, fallback reason and
+   peak RAM/VRAM.
+3. `scripts\run-handoff-acceptance.ps1 -Attended -ConfirmUnload UNLOAD` with the coding agent idle.
+4. Frame-OCR live check on a slide-heavy video; then the Playwright stage through
+   `scripts\run-browser-e2e-exclusive.ps1` after checking the shared lock.
+5. Only after those: G2 retrieval owner decision (D-046) and retiring the `search-gate.ts` phrase rules.
+
+---
+
+# FINAL REPORT - session F27 close (2026-11-17 ~06:55 Asia/Calcutta)
+
+## Verdict: **PARTIAL**, about **80%** of the brief
+
+Split exactly the way the user's last instruction implies. **Everything that can be finished without a
+human watching a screen is implemented and gated.** What is left is deliberately **HELD** because it
+needs attendance (and would fight the coding agent for the capacity-one Strata endpoint), plus a short
+list of genuinely external blockers. A HELD item is never GREEN, and 80% is not a quality claim.
+
+| band | share | what it contains |
+|---|---|---|
+| implemented, gated, evidence on disk | ~80% | the Python supervisor + document/OCR/speech/video/retrieval engines, resource admission, the handoff coordinator, Tesseract runtime executed, ASR executed, native PDF/Office readers, cross-encoder reranker (new this session), all offline gates |
+| coded + unit-tested, **deliberately not run** | ~15% | live PaddleOCR-VL pipeline (engine path and production upload path), live Strata unload/reload scenarios, frame-OCR live evidence, browser/Playwright stage, model-led routing live validation |
+| genuinely blocked | ~5% | pyannote diarization licence, GPU OCR build for the pinned paddle wheel, Python rewrite of the four artifact writers (retained TS owner) |
+
+## What this session actually changed
+
+| file | change |
+|---|---|
+| `python-backend/ruke_ml/retrieval/nn_rerank.py` | **new** - digest-pinned CPU-only ONNX cross-encoder: pins model id, upstream, commit `a09144355adeed5f58c8ed011d209bf8ee5a1fec`, `sha256 c623d0bc...881870`, re-verifies at every load, refuses non-CPU first provider, pair tokenization + sigmoid(logit), 256-token window with reported truncation, bounded threads, typed `CrossEncoderError(reason=...)` |
+| `python-backend/ruke_ml/retrieval/reranker.py` | added the cross-encoder mode family and `_cross_encode()`, `cross_encoder_ready()`; refusal message now names the three installed engines |
+| `python-backend/ruke_ml/workers/runner.py` | `_do_rerank` payload gains `engine` (real ModelIdentity for neural modes), per-mode `quality_note`, and `truncation_note` for the cross-encoder |
+| `python-backend/ruke_ml/models/registry.py` | new `rerank` row matching the code exactly, with `verified` recording the **negative** results (`beats_dense_biencoder...`, `numeric_fact_case_fixed`, `production_caller_wired` all False) and `languages: []` + English-MS-MARCO note; `est_peak_mib 268` with an honest basis string |
+| `python-backend/ruke_ml/models/assets.py` | `local_asset_dir()`, `prepare_local()` → writes **`asset-manifest.json`** with commit, retrieval time, staging cache and per-file sha256 |
+| `python-backend/ruke_ml/models/prepare.py` | `--local` flag, `_allow_patterns_for()`, richer report (`layout`, `manifest_ok`, `files`, `weights_sha256`, `problems`) |
+| `docs/overnight/probes/g05_cross_encoder_probe.py` | **new** frozen probe: 10 hand-authored queries / 6 domains, expected answer fixed before any engine ran; peak-memory ctypes bug fixed |
+| `docs/overnight/probes/g04_neural_embed_probe.py` | obsolete expectation replaced: refuses an explicitly **unpinned** mode now; prints cross-encoder pin status |
+| `python-backend/tests/test_retrieval_neural.py` | stale refusal test replaced + **8 new tests** (see gates) |
+| docs | DECISIONS **D-056**, **D-057**; FINDINGS F27; TEST-RESULTS F27 table; MIGRATION-MATRIX F27 delta; TASKS F27 block plus corrections to stale boxes; this section; STATE rewrite |
+
+No TypeScript, Rust, contract or UI file was touched this session.
+
+## Engines: executed for real vs retained vs HELD
+
+**Executed live on this host (evidence in `docs/overnight/logs/`):** pypdf 7.1.0; DOCX/PPTX/XLSX native
+readers; pypdfium2 5.6.0 rasterisation; Tesseract `v5.5.3.20260724` project-local (langs `eng, osd`,
+real image→text 20/20 key words); faster-whisper 1.2.1 / ctranslate2 4.9.0 (WER 0.0769 / 0.0, peak
+388 MiB, zero new GPU); ONNX MiniLM embedder (`all-MiniLM-L6-v2`, 7/9 with the numeric failure kept);
+and now **ONNX MiniLM cross-encoder** (`ms-marco-MiniLM-L-6-v2`, mechanics 7/7, 9/10 top-1, MRR 0.950,
+481 ms for 30 reranks, peak WS 267.7 MiB).
+
+**Prepared but never executed (HELD):** PaddleOCR-VL 1.6 + PP-DocLayoutV3 in the isolated
+`python-backend/.venv-ocr` (paddlepaddle 3.2.1 CPU, paddleocr 3.6.0, paddlex 3.6.1). The 1,917,255,968 B
+safetensors and 130,806,572 B layout params are on disk and a readiness CLI says ready. **A nonempty
+model folder is not a passed OCR gate** - D1 stays ORANGE until a real complex document runs through it.
+
+**Retained by decision, therefore not "migrated":** XLSX/DOCX/PPTX/PDF/chart/resume writers in
+TypeScript (`lib/documents/*Engine.ts`, `resumeHtml`, `chartHtml`, `recalc`), and retrieval ownership in
+`lib/server/attachindex/{retrieve,embed}.ts`. Working ≠ migrated, and both lines stay RED/ORANGE for
+migration status.
+
+## Exact commands and exit codes from this session
+
+```
+python-backend\.venv\Scripts\python.exe docs\overnight\probes\g05_cross_encoder_probe.py   -> exit 1, 9/10 (the numeric case FAILS on purpose)   logs/f27-g05-rerank-2.log
+python-backend\.venv\Scripts\python.exe -m ruke_ml.models.prepare --model Xenova/ms-marco-MiniLM-L-6-v2 --local -> exit 0, manifest_ok true       logs/f27-rerank-prepare-2.log
+python-backend\.venv\Scripts\python.exe docs\overnight\probes\g04_neural_embed_probe.py     -> exit 1, 7/9 (both numeric failures reproduced)     logs/f27-g04-rerun-1.log
+cd python-backend && .venv\Scripts\python.exe -m unittest discover -s tests -t .           -> exit 0, Ran 383 tests, OK                          logs/f27-python-2.log
+   (first attempt exit 1: one wrong attribute `.code` in the new test - fixed, not excused)                                              logs/f27-python-1.log
+```
+TS/Rust gates were **not** re-run this session and the reason is edit scope, not convenience: no `.ts`,
+`.tsx` or `.rs` file changed, and `rerank` is not in the Rust `ALLOWED_CAPABILITIES` list, so no
+consumer of the new payload keys exists. The last runs of those surfaces remain
+`f26-vitest-2.log` (2477 passed / 19 skipped, exit 0), `f26-typecheck-1.log` (exit 0),
+`f26-contracts-1.log` (exit 0), `f23-cargo-4.log` (351 passed), `f23-build-1.log` (exit 0).
+
+## Held: exactly what to run tomorrow, and why it was held
+
+The user's instruction was explicit: *"finish the rest but testing this ocr and strata load and unload
+hold it finish the code but do not test it yet... this test requires user to stay and monitor the screen
+which I am currently not going to do."* So these were left at the last safe checkpoint:
+
+1. `scripts\run-ocr-acceptance.ps1 -AllowUnload -ConfirmUnload UNLOAD` (engine path), then add
+   `-StartDev` for the production upload path; plus `--inject-primary-failure-page 3` and the
+   `--max-free-mib` valve. Readiness first:
+   `python-backend\.venv-ocr\Scripts\python.exe -m ruke_ml.documents.ocr_cascade`.
+   It loads multiple GB and may require the main model to be parked - hence attendance.
+2. `scripts\run-handoff-acceptance.ps1 -Attended -ConfirmUnload UNLOAD` - five scenarios, needs the
+   coding agent idle (capacity-one Strata) and someone watching RAM/VRAM.
+3. Frame-OCR live evidence on a slide-heavy video (`RUKE_DOCUMENT_OCR_LANGUAGE=eng`, expect
+   `frameRead.recognised > 0`).
+4. `scripts\run-browser-e2e-exclusive.ps1` after checking the shared Playwright lock.
+5. Model-led routing live validation, then retiring the `lib/web-search/search-gate.ts` phrase rules.
+
+Both wrappers refuse to unload unattended (exit 2 with a reason); only the safe/DryRun branches have
+ever executed here (`j4-safe-console-2.txt`, 14 scenarios, 0 misses).
+
+## Real blockers and smallest next external action
+
+- **pyannote diarization**: needs the user's Hugging Face token and licence acceptance. Never accepted
+  on the user's behalf; stays `license_acceptance_required`.
+- **GPU OCR**: the pinned `paddlepaddle 3.2.1` wheel reports `compiled_with_cuda False`, and VRAM free
+  was 2633 MiB with 9483 MiB used by the main LLM. Policy is honestly `allow_gpu=False`. Smallest
+  action: pin a CUDA-enabled paddle build in `.venv-ocr` (separate decision) or park the LLM and run CPU.
+- **5 GB hard ceiling**: coded (job object on owned workers + admission + commit clamp) but **not
+  proven under load**, because the load case is the HELD OCR run. This is an acceptance gap, stated as
+  one. Do not read the idle figure (1568 MiB WS / 2126 MiB PRIV) as compliance.
+- **Legacy DOC/PPT**: honest typed `unsupported_input`. Office 16 is installed, but COM conversion was
+  deliberately not built (D-057): the frozen suite has no legacy ground truth, and `Quit()` on an
+  automation object can discard the user's unsaved documents. Needs explicit authorisation plus fixtures.
+- **Retrieval ownership (D-046)**: the engines exist and execute; production retrieval is still
+  TypeScript. This is an owner decision the user should make, with the numeric-fact regression visible.
+
+## What this report does not claim
+
+No zero-bug claim, no "99% of overfitting removed", no universal-best OCR, no quality parity for the
+cross-encoder (it **tied** the bi-encoder on a 10-query set and still fails the numeric case), no
+multilingual claim for the reranker or Tesseract (`eng, osd` only), no claim that a synthetic clip or a
+scene plan establishes visual understanding, and no claim that the OCR/handoff paths work end to end -
+they have never been run. The shutdown below is a shutdown **request**, not an observed power-off.
+
+## F27 final close-out, pre-shutdown verification (2026-11-17 06:43 +05:30)
+
+Status given to the user on request: **about 80%**, verdict **PARTIAL**. Bands:
+
+| portion | state | examples |
+|---|---|---|
+| ~55% | implemented, unit-tested, gate-passing, with a production caller | native PDF/DOCX/PPTX/XLSX reading, code-led input inspection, capability registry + typed errors, decision ownership split, streaming/status lifecycle, cancellation/caching, one-command startup supervision |
+| ~25% | coded and unit-tested but **HELD** for an attended run (never called GREEN) | primary PaddleOCR-VL pipeline run, Tesseract fallback trigger, Strata unload/reload handoff, frame-OCR evidence, browser/Playwright, model-led routing live check |
+| ~10% | genuinely blocked or intentionally retained | pyannote diarization licence, GPU paddle build, unproven 5 GB ceiling, Python artifact writers (TS owners retained), legacy DOC/PPT (D-057), retrieval owner decision (D-046) |
+
+Estimated remaining **human-supervised** time: about **2.5-4 h** tomorrow - readiness check, primary OCR
+over the d1 corpus plus fault injection and the memory valve, handoff scenarios (needs this coding agent
+idle because Strata capacity is 1), frame-OCR, Playwright stage, then the two owner decisions. Unattended
+implementation work is finished; nothing in that estimate is waiting on code I could have written tonight.
+
+Verified immediately before the shutdown request, all from this session:
+- `git rev-parse HEAD` = `abc988c208a99f4e224250166300f4ff7fb32549`, branch `local`,
+  `git status --porcelain` = **341** entries. Nothing committed, pushed, reset, stashed or cleaned.
+- Last gate: Python `Ran 383 tests ... OK` exit 0 (`logs/f27-python-2.log`). TS/Rust logs from F26/F23
+  stand because this session touched no `.ts/.tsx/.rs` and `rerank` is not on the Rust ml-job allowlist.
+- No owned process: no Next dev server, no `ruke-server.exe`, no Ruke Python supervisor
+  (`Get-CimInstance Win32_Process` for those names returned only `strata.exe` 5272).
+- No owned lease or journal: `.ai-coordination/llm-handoff.lock` absent,
+  `.data/python/handoff-journal.json` absent. Nothing of mine holds the Strata endpoint.
+- Left running and untouched: `strata.exe` 5272, pythons 3176/3180 (Strata server, capacity 1),
+  node 12008 (Codex artifact host daemon), node 15164 (this CLI), VS Code family. The F26 note about a
+  `@playwright/test` test-server (pid 5528) is now stale: that process is gone. No process was killed by
+  image name at any point.
+- Resources at 06:43: RAM 65299 MiB total / **8313 MiB free**; commit 73953 of 100115 MiB; RTX 3060
+  2633 MiB VRAM free (F26 nvidia-smi). Nothing was uploaded to the GPU and no inference was run tonight.
+- Docs flushed before shutdown: STATE.md rewritten for F27 (previous copy archived verbatim at
+  `logs/STATE-f26-archive.md`), plus TASKS, DECISIONS (D-056, D-057), FINDINGS, TEST-RESULTS,
+  MIGRATION-MATRIX (F27 delta) and this report.
+
+Authorized shutdown, issued as the last action of this session, no `/f` (applications are not forced
+closed) and no retry loop:
+
+    cmd /c "shutdown.exe /s /t 0"
+
+shutdown_requested: YES - 2026-11-17 06:4x +05:30. The exit code and any OS refusal are recorded on the
+next line, appended after the call returned. An accepted request proves a **request**, not an observed
+physical power-off. No coding, tests, downloads or inference follow it.
+*** End of File
+RESULT LINE: shutdown.exe /s /t 0 exit_code=0 issued 2026-11-17 06:46:57 +05:30 - request accepted means a shutdown REQUEST, not observed power-off. No coding/tests/inference after this.
+
+
+---
+
+# F54-F58c section (sessions 2026-11-17 ~22:00 to 2026-11-18 ~00:40 +05:30)
+
+Written at the F58c checkpoint. Everything below is separated into **changed files**, **owner**,
+**executed or not**, and **measured or not**. Nothing here issues a shutdown; the earlier authorized
+shutdown at 06:46 on 2026-11-17 was a prior session's last action, and the machine is running now.
+
+## What changed and why
+
+1. **ASR allocation root cause (F54, D-073).** Windows job objects cap **commit charge**, but
+   `ModelSpec.est_peak_mib` is a **resident** figure. Two 388 MiB-resident ASR workers produced a 776 MiB
+   commit ceiling against a **measured 1,276 MiB commit peak**, so the run died in `mkl_malloc` and was
+   misreported as `model_unavailable`. Fixed by making the ceiling commit-aware and classifying allocation
+   refusals by what actually happened: `ruke_ml/allocations.py` (`est_peak_commit_mib`, `_basis`,
+   `_ceiling_bytes`, `_commit_ceiling_shortfall`, `_admission_refusal`), `workers/jobs.py::typed_from_kind`,
+   `speech/whisper_ct2.py`, `documents/ocr_paddle.py::load_refusal`, `retrieval/nn_embed.py`,
+   `retrieval/nn_rerank.py`, `workers/runner.py::_retrieval_failure`, plus
+   `KIND_TO_REASON["allocation_failed"]`. New `tests/test_memory_kinds.py` 21 OK.
+   **Real execution, no override:** the production pool derived a **1,914 MiB** ceiling from
+   `measured_commit_peak_mib: 1276` and produced the same real transcript in 1.53 s
+   (`logs/f55-g26-asr-fixed-1.log`).
+2. **Unknown-is-not-zero (F57/F58, D-076).** A missing measurement used to render as `0`, and provisional
+   estimates were rendered beside measured ones with no distinction. Swept across
+   `models/{resources,devices,job_limits,lifecycle}.py`, `documents/ocr_paddle.py`, `handoff.py`; every
+   provisional figure now carries a basis token that says "provisional". New
+   `tests/test_measurement_unknown.py` 17 OK. Same class as the TS lease reader, which was audited the same way.
+3. **PPTX speaker notes (F56, D-075).** The F50 reopen probe proved the writer created three `notesSlide`
+   parts whose only text was the slide-number placeholder, i.e. authored notes were silently dropped.
+   `lib/documents/pptxEngine.ts` now calls `addNotes()`; `ruke_ml/documents/parser.py` surfaces note text
+   with slide provenance; the round trip is asserted from the **reader** side in
+   `python-backend/tests/test_retrieval_documents.py` and cross-runtime in
+   `__tests__/documents/artifact-reopen-parity.test.ts`. The byte-pinned contract fixture failed first, was
+   re-recorded only with the sanctioned `RUKE_GOLDEN_UPDATE=1` (3 lines), then passed without the flag.
+4. **One provider configuration (F55/F56, D-074).** Chat preferred `settings.json` while the Python
+   lifecycle client preferred environment/`.env.local`, so the two could target different servers.
+   `models/provider_config.py` and `lib/server/settings.ts` now share one resolution order and
+   `RUKE_LIFECYCLE_BASE` **preserves the URL path prefix** instead of stripping to origin. 20 OK.
+5. **Speech-activity gating (F58/F58b, D-077).** An ungated 40 s window invented the word `You` over
+   2.0 s of digital silence. Gating is now on by default in `speech/whisper_ct2.py` using the silero VAD
+   asset already shipped inside the pinned `faster_whisper` package (`assets/silero_vad_v6.onnx`,
+   verified present) - no new download, no new dependency, no network in the worker. `vad_filter` and
+   `vad_state` say what actually happened; if the pinned backend signature rejects the argument, the run
+   continues ungated with that refusal recorded instead of failing the job. `tests/test_asr_vad.py` 14 OK.
+6. **Transcript duplication at a decode-window boundary (F58c, D-078).** `_merge_windows` only dropped
+   identical-text duplicates, so a fragment cut at the end of a window (`16.30-19.30`) was concatenated
+   alongside the complete reading of the same span (`16.26-21.26`) - production duplication, not a probe
+   artifact. Fixed with a provenance rule: internal `_window` provenance (never on the wire),
+   `BOUNDARY_CLIP_TOLERANCE_S = 0.35`, supersession only by an **untruncated** reading from a **different
+   window** covering >= 0.9 of the span with real audio beyond the cut edge; otherwise the fragment is kept
+   and marked `window_truncated`. Superseded fragments are **reported**, not silently discarded.
+   `tests/test_asr_windows.py` 14 OK.
+7. **The last hop (F58c).** The same honesty fields stopped at the Python/TS boundary, so the user-visible
+   engine note could not mention truncation or supersession. `lib/server/extract/speech-capability.ts` now
+   parses `window_truncated` / `vad_filter` / `vad_state` / `superseded_fragments` / `superseded[]`, drops
+   malformed fragments rather than citing them, and `speechEngineNote()` claims "applied per window" only
+   when the worker's own token says `applied`. A payload without the new fields renders unchanged - the
+   consumer invents nothing.
+
+## Actual engine owners after these sessions
+
+| capability | owner that actually runs in production | note |
+|---|---|---|
+| ASR | Python `faster_whisper 1.2.1` / `ctranslate2 4.9.0`, CPU, int8 | real weights `Systran/faster-whisper-base`, live |
+| speech-activity gating | silero VAD `v6` inside the pinned `faster_whisper` package | CPU, project venv, no separate service |
+| video frame OCR | **Tesseract** `v5.5.3.20260724`, project-local `.data\tools\tesseract\`, langs `eng, osd` | executed for real on 4 sampled instants; PaddleOCR never ran |
+| PDF/Office native reading | Python `pypdf 7.1.0` + stdlib OOXML readers | live |
+| primary OCR | **no owner yet - zero pages produced** | PaddleOCR-VL 1.6 is pinned and prepared, never executed |
+| artifact writers | **retained TypeScript** | a recorded deviation, not a completed Python migration |
+| retrieval | **retained TypeScript** `attachindex` (lexical + hybrid RRF) | Python neural adapters have no production caller |
+
+## Pinned versions and the commands that prepare them
+
+- `.venv`: `faster-whisper 1.2.1`, `ctranslate2 4.9.0`, `onnxruntime 1.32.0`, `pypdf 7.1.0`,
+  `pypdfium2 5.6.0/5.15.2`. `.venv-ocr`: `paddleocr 3.6.0`, `paddlepaddle 3.2.1`
+  (`compiled_with_cuda False`), `paddlex 3.6.1`, `opencv-contrib 4.10.0.84`, `protobuf 7.36.2`.
+  That venv has **no pip**; list it with `uv pip list -p python-backend\.venv-ocr\Scripts\python.exe --format freeze`.
+- OCR assets: PaddleOCR-VL-1.6 @ `132c45f5...` (`model.safetensors` 1,917,255,968 B) and PP-DocLayoutV3 @
+  `241f8bdf...` (`inference.pdiparams` 130,806,572 B) under `.data\models\ocr\`, each with an
+  `asset-manifest.json` holding the pinned commit and per-file sha256.
+- Prepare explicitly, never at startup: `python-backend\.venv\Scripts\python.exe -m ruke_ml.models.prepare
+  --pipeline PaddleOCR-VL-1.6`, `scripts\prepare-ocr-runtime.ps1`, `scripts\prepare-tesseract-runtime.ps1`.
+- Runtimes resolve through `ruke_ml/models/binaries.py::path_for`: ffmpeg
+  `node_modules\ffmpeg-static\ffmpeg.exe` (6.1.1-essentials_build), ffprobe
+  `node_modules\@ffprobe-installer\win32-x64\ffprobe.exe`, tesseract
+  `.data\tools\tesseract\tesseract.exe`.
+
+## Measured resources (measured, not estimated)
+
+- Real ASR job through the production pool: **peak working set 395.0 MiB, peak commit 1,294.0 MiB**,
+  simultaneous peak 332.0 MiB over 35 samples, 181.0 MiB resident afterwards,
+  `tree_pids_at_job_end: []`, `gpu_violations: null`
+  (`logs/e03-speech-20261117T18483297955.json`).
+- Real video job: owned child peak **361.0 MiB WS / 1,225.0 MiB commit**, no new GPU compute app
+  (`logs/f53-video-evidence.json`, limit 4,768 MiB WS).
+- Machine at the F58c checkpoint: RAM 65,299 MiB total, **5,358 MiB free**; commit 100,115 MiB limit,
+  **25,175 MiB free**. The dominant consumer is the main LLM: pid 9632 `strata`, **49,656 MiB working set
+  / 62,533 MiB private**, i.e. about 90 % of physical RAM. Ruke's own workers are two orders of magnitude
+  smaller. The authorized relief, `scripts\strata-low-ram.ps1 --ram-keep-gib <n>`, is still **unapplied**
+  because applying it restarts Strata, which is the endpoint this coding session runs on (D-048).
+- Still **not measured**: the OCR cold-load and processing peaks, and therefore the 4 GB/5 GB ceiling under
+  OCR load. `est_peak_mib 3300` / `est_peak_vram_mib 6000` remain **provisional estimates** and every
+  renderer of them now says so.
+
+## Quality results, with live and mocked kept apart
+
+- **Live, real engine:** ASR C1 word error rate **0.0769**; tail word error rate **0.0769 over 13 truth
+  words** (it was **0.538** before the window-merge fix, which is why that fix is not cosmetic); the same
+  0.0769 tail figure in the video probe, with the speech correctly located at **33.62-38.1 s** and the
+  **0-33.883 s silent head not reported as speech**.
+- **Live, real engine:** Tesseract read real text off real rasterised frames - `MID-ROLL CARD B 14 s` and
+  `quarterly throughput rose 3.5 percent` (`logs/f58b-g36-fixture-fix-1.log`), and earlier
+  word-error-rate 0.0 on two pages with `eng` only.
+- **Live, real engine, video:** planned 5 / decoded 4 / recognised 3 / glyph-free 1 / unresolved 1, the
+  unresolved one reported as `out_of_range` because the 61 s sample is outside the 40 s source.
+  `coverage.complete: false` is printed by the probe itself.
+- **Mocked / standalone only, therefore not accepted:** neural embedding and cross-encoder rerank mechanics
+  (7/7 mechanics, top-1 9/10, MRR 0.950, **two numeric-fact misses kept as failures**), the Rust
+  handoff-lease gate scenarios, and every device-plan refusal path.
+- **Never executed at all:** the PaddleOCR-VL primary pipeline. Zero pages. The last real attempt failed on
+  `Protobuf gencode 7.36.1 / runtime 6.33.4`; the venv now pins 7.36.2, which is a **readiness** fact, not
+  evidence that the failure is fixed.
+
+## Fallback cases that actually happened, and what did not
+
+- Happened: a backend signature rejection (`vad_merge_silence_duration_s` -> `TypeError`) is classified,
+  recorded in `vad_state`, and the job continues ungated with that stated. Allocation refusals are now
+  typed as allocation failures rather than `model_unavailable`. An out-of-range video sample is typed
+  `out_of_range` rather than silently dropped.
+- Did **not** happen: a Tesseract recovery triggered from inside a production document job. The engine ran
+  standalone and for video frames; the primary-to-fallback handover inside a job is still unexecuted, so
+  the "release the primary before retrying the unit" law is proven only by unit tests.
+
+## Limitations still standing at this checkpoint
+
+Primary OCR is RED-functional (zero pages). The 5 GB ceiling is unproven under OCR load. The
+chat-continuation-after-handoff trace is untraced. Neural retrieval has no production caller and still
+loses two numeric-fact cases. Diarization is gated on licence acceptance and not claimed. Artifact writers
+stay TypeScript, so their Python-migration status is RED by definition. GPU OCR is unavailable on the
+pinned CPU paddle build and on ~2.6 GiB free VRAM. Legacy DOC/PPT conversion does not exist and returns an
+honest unsupported result. Browser-side streaming/scroll verification has not been run. The remaining
+phrase rules in `detectDeliverableIntent` and the search gate are still live because retiring them needs a
+live model-selection run that cannot overlap this coding session. No claim is made that model-led routing
+removes all model mistakes or that any OCR quality is universally best.
+
+# F59 - F61 (2026-11-18 ~00:45 -> 2026-11-20 ~13:40) - the OCR resource window made honest, then the records brought up to date
+
+## What changed and why
+The blocking question was not "can we install PaddleOCR" but "what is allowed to claim what when the engine
+cannot fit". F59 measured that the primary worker dies while reading the recognition weights; F60/F61 moved the
+decision **earlier** (before the child exists), gave it **one** owner at every place a death can be observed, and
+made the durable-result requirement real. Full reasoning is in SPEC amendment 14 (24.1-24.4) and amendment 15
+(25.1-25.5), plus **D-079** and **D-080**.
+
+## Changed files (this range)
+- `python-backend/ruke_ml/models/job_limits.py` - two explicit bounded budgets: `EXCLUSIVE_LIMIT_ENV` (:63),
+  `SYSTEM_RESERVE_ENV` (:64), `normal_ceiling_bytes()` (:357), `exclusive_ceiling_bytes()` (:371),
+  `worker_ceiling_bytes(...)` returning a bounded ceiling **or** a typed refusal with the arithmetic written out.
+- `python-backend/ruke_ml/documents/ocr_paddle.py` - ceiling chosen and checked before spawning
+  (`per_worker_limit_bytes` :342, `OcrUnavailable("resource_limit", "refusing to spawn: ...", RESOURCE_LIMIT_STEP)`
+  :436); one death classifier `classify_worker_death` (:95) at :638/:657/:825; `suspected_under_attached_ceiling`
+  (:138); `stats["device_echo"]` (:677) and `stats["dtype_policy"]` (:683).
+- `python-backend/ruke_ml/documents/ocr_paddle_worker.py` - allocation-refusal markers aligned with
+  `ruke_ml/allocations.py` and handed down by the parent instead of duplicated privately.
+- `python-backend/ruke_ml/workers/jobs.py`:87 - `KIND_TO_REASON["resource_limit"] = ("memory_pressure", True, ...)`.
+- `python-backend/ruke_ml/documents/ocr_cascade.py` + `python-backend/ruke_ml/handoff.py` - one windowed
+  `_operation` body (primary -> per-unit Tesseract recovery -> durable write) shared by the lease path, the
+  no-lease path and the CLI; `inside_window` distinct from `inside_handoff`; durable
+  `ruke.ocr-result.v1` write/read with resume and a FAILED unit never replayed as an answer.
+- `python-backend/tests/test_ocr_resource_window.py` (new, 29 tests) and
+  `__tests__/server/extract-document-capability.test.ts` (+1 case) - pin the above without importing the engine.
+- Records: SPEC amendment 15, DECISIONS D-079/D-080, TEST-RESULTS F60/F61 rows, MIGRATION-MATRIX and
+  DECISION-OWNERSHIP deltas, TASKS F59/F60/F61/F62 blocks, `STATE.md` archived forward, and the dated
+  `docs/overnight/HANDOVER-2026-11-20.md`.
+
+## Engine owners and pinned assets (verbatim from the manifests, not from memory)
+- OCR runtime: **`python-backend/.venv-ocr`**, Python 3.12.15, prepared by
+  `scripts\prepare-ocr-runtime.ps1` (params `-PythonVersion 3.12 -PaddlePaddle 3.2.1 -PaddleOCR 3.6.0
+  -Protobuf 7.36.2`; `-ManifestOnly`, `-Probe`, `-Force`). Manifest
+  `.data\models\ocr\ocr-runtime.json` records `paddlepaddle==3.2.1` from
+  `https://www.paddlepaddle.org.cn/packages/stable/cpu/`, `paddleocr==3.6.0`, `paddlex==3.6.1`,
+  `protobuf==7.36.2` (pinned explicitly: the resolver landed on 6.33.4 while `sentencepiece 0.2.3`'s
+  `sentencepiece_model_pb2.py` carries gencode 7.36.1, which PaddleX imports while building the VL tokenizer),
+  `numpy==2.3.5`, `pillow==12.1.0`, `uv 0.13.0`, `uv_cache_dir = .data/cache/uv`, and the device probe
+  `{paddle 3.2.1, compiled_with_cuda false, device cpu}`. The venv has **no pip**; inventory with
+  `uv pip list -p <exe> --format freeze`.
+- Model assets, pinned by immutable revision (real repository ids, not the display id):
+  `PaddlePaddle/PaddleOCR-VL-1.6 @ 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd` (recognition, 17 files,
+  1,930,469,491 B; `model.safetensors` alone = 1,917,255,968 B **bfloat16**) and
+  `PaddlePaddle/PP-DocLayoutV3 @ 241f8bdfc77a7c7bee915a5057aaee58c235a8d3` (layout, inference trio,
+  `inference.pdiparams` = 130,806,572 B), under `.data\ml-cache\huggingface\hub\...`.
+- Fallback: **project-local** Tesseract `v5.5.3.20260724` (leptonica 1.87.0) at
+  `.data\tools\tesseract\tesseract.exe`, silently installed project-locally from the UB Mannheim
+  `tesseract-ocr-w64-setup-5.5.3.20260724.exe` (26,573,224 B, sha256 `BEE9E343...270AE4` **computed by us**, a
+  pin not an upstream digest; `MZ` header checked before running); language data
+  `tessdata/eng.traineddata` 15,400,601 B from `tesseract-ocr/tessdata_best` (sha256 `8280AED0...CB66BA`, ours;
+  the raw.githubusercontent ETag is **not** a checksum) plus `osd.traineddata` 10,562,727 B from the package.
+  **Installed language coverage is eng and osd only** - nothing else is claimed. Verify with
+  `scripts\prepare-tesseract-runtime.ps1 -VerifyOnly`, which does a real image-to-text run over a rasterised
+  `d1_scanned.pdf` page scored against the d1 answer key.
+- Still TypeScript owners, not migrated: the PDF/DOCX/PPTX/XLSX artifact writers (recorded as a scope
+  deviation, so their Python-migration status stays RED by definition).
+
+## Measured resource behaviour (definitions stated; unknown stays unknown)
+- Host on 2026-11-20: 65,299 MiB physical total, **3,632 MiB free physical**, 26,117 MiB free commit charge.
+- Main model engine pid 19400 `strata`: **working set (resident) 49,673 MiB / private (commit) 61,301 MiB**;
+  the :8080 listener is pid 20332 `python` at 262 MiB. Capacity **1**, one shared lock, automatic reload on the
+  next request - the operator's own console showed the reload cost: 46.84 GiB of experts at 5.75 GiB/s plus a
+  777-expert / 1.50 GiB GPU expert-cache refill. **Nothing in this range changed the main LLM's configuration.**
+- Ruke's own heaviest measured worker (F58c speech, still the only real worker peak on record): peak working set
+  **395.0 MiB**, peak commit **1,294.0 MiB**, simultaneous peak 332.0 MiB over 35 samples, 181.0 MiB resident
+  after the jobs, `tree_pids_at_job_end: []`, `gpu_violations: null`, which is that probe's own way of saying zero new GPU allocations were observed.
+- **The 4 GB target / 5 GB hard maximum has never been measured under OCR load.** The clamp arithmetic is pinned
+  by tests (3,952 MiB effective in the normal window at the current commit headroom; 5,974 MiB minimum viable in
+  the exclusive window at the provisional demand), and `est_peak_mib 3300` / `est_peak_vram_mib 6000` remain
+  **provisional** estimates carrying their basis token. No number in this report is presented as measured unless
+  a named log contains it.
+
+## Live-executed versus mocked, kept separate
+- Actually executed for real: Tesseract standalone image-to-text with local paths; the d1 fixtures being real
+  files; the OCR cold-load **failure** (`f59-ocr-coldload-1.log`); speech ASR on CPU with VAD; the video probe;
+  the pre-spawn resource refusal path's arithmetic.
+- Mocked / structural only: the 29 new resource-window tests and the 137-test targeted set (no engine import),
+  the TS passthrough tests, the fault-injection hooks. They pin decision structure, not recognition quality.
+- **Primary PaddleOCR-VL has recognised zero pages on this host, before and after this range.** No gate in
+  SPEC 15 / D1 corpus is passed for the primary engine, and no threshold was loosened to change that.
+
+## Fallback cases, and what they do not prove
+- A Tesseract recovery triggered from inside a production document job has **still never run**; the
+  "release the primary worker before retrying that unit" rule is proven only by unit tests and by the
+  standalone CLI shape.
+- Device fallback and engine fallback stay distinct claims: GPU Paddle -> CPU Paddle is a device change
+  (unavailable here: `compiled_with_cuda False`, ~2.8 GiB free VRAM against 9,256 MiB wanted), and
+  Paddle -> Tesseract is an engine change that must disclose reduced layout/formula fidelity.
+- `needs_language` is a typed refusal, not a silent English default (`workers/document_jobs.py`:161-166 names
+  `RUKE_DOCUMENT_OCR_LANGUAGE`), and the installed Tesseract language set is eng + osd, reported live.
+
+## Limitations standing at this checkpoint (unchanged unless stated)
+Primary OCR zero pages; the memory ceiling unproven under OCR load; the OCR-window `est_peak_*` provisional;
+enforcement parity for tesseract/ffmpeg/frame-OCR open (classification shared, OS ceiling not); the
+chat-continuation-after-handoff trace never run end to end; neural embed/rerank with no production caller and
+two numeric-fact failures kept; diarization gated on licence acceptance; artifact writers retained TypeScript;
+legacy DOC/PPT unsupported by design; live-model routing checks and every browser gate held behind capacity 1 and
+the shared Playwright lock.
+
+## Shutdown status
+No shutdown was issued in F59-F62. The earlier end-of-run shutdown authorization was **superseded** by the user's
+later instruction ("I will be monitoring if something goes wrong complete 100 %"), and the attended OCR/handoff
+gates that remain need the user at the screen. So the run ends with the records saved, the owned jobs drained and
+the owned locks released, and **no OS shutdown requested**. Nothing was forced, retried or bypassed.
+
+## F66 addendum (2026-11-20 ~23:15) - one sentence in the Limitations above is now superseded; the rest stands
+"neural embed/rerank with no production caller" was stale for the **rerank** half at the time it was written
+(the caller has existed since D-058) and stopped being stale-as-a-report at F66: the chain
+`turn.ts -> rerank.ts -> mlJob -> POST /api/ruke/ml/job -> supervisor -> nn_rerank worker` was **executed
+end-to-end on the live tree** with the supervisor tree's peak RSS recorded (36 -> 204 MiB working set,
+`logs/f66-rss.json`), pinned identity, warm-repeat determinism and a typed-refusal envelope verified
+(`__tests__/server/attach-rerank-live-route.test.ts`, env-gated, 5/5 green; details in TASKS F66,
+MIGRATION-MATRIX + DECISION-OWNERSHIP F66 deltas, D-082). **What did not change in this addendum:** the two
+numeric-fact misses stay failures (now pinned by a characterization that fails on purpose if the ranking ever
+flips); quality acceptance is still NOT passed (g05 tie-not-beat, English-only); the `nn_embed` Python adapter
+was still never wired - TS `attachindex/embed.ts` remains the production owner, reported alongside the
+retained-TS artifact writers; and every other line of the Limitations paragraph above stands unless a dated
+TASKS/STATE entry supersedes it.
+
+# F62 - F71 (2026-11-20 ~13:40 -> 2026-11-21 ~01:10) - the 2026-11-20 handover mandate, closed as far as unattended work reaches
+
+Four states kept separate below, as the mandate requires. Nothing blocked was scored as passed.
+No commit/push/stash/reset/clean/PC-shutdown was performed in this range (git stayed read-only);
+`docs/overnight/TASKS.md` F62-F71 blocks and `STATE.md` carry the per-step evidence with exact logs.
+
+## A. Implemented (code exists, contracts pinned)
+- **Engine-level OCR scorer** `docs/overnight/probes/d1_engine_scoring_probe.py` (F63): 17-control
+  self-check **broken 0**; answer-key text and fixture rules kept out of production code (mandate law).
+- **Typed pre-spawn resource admission for the exclusive OCR window** (F63/F64): `resource_limit` refused
+  BEFORE spawning with measured free-commit math (D-079/D-080 windows), and the handoff lease seam
+  (`lib/server/coordination/llm-lease.ts` 512-byte record <-> `admission.rs`/`ml_job.rs` <->
+  `handoff.py`/`ocr_cascade.py`) implemented for post-handoff chat continuation (F64, item 5a).
+- **D-070 fence-catalogue gap closed** (F65, item 5b): always-on compact `<fence_catalogue>` injected as the
+  ONLY standard_chat block in BOTH runtimes (`contracts.ts:112` sha d4f2910b.../1309 B byte-pinned;
+  `pipeline.rs` mirror; nameless core-tier anchor; retired fences named honestly). Knowledge, never keyword
+  rules (mandate: "do not fix individual examples by adding phrases").
+- **Rerank production caller verified end-to-end** (F66, item 5c; F66 addendum above): chain executed on the
+  live tree, peak RSS recorded 204 MiB; `nn_embed` stays honestly unwired (TS `embed.ts` is the owner);
+  rerank quality acceptance is still NOT passed and the characterization keeps that.
+- **SETUP.md portability claim re-scoped** (F70): the only code-adjacent fix of four audits.
+
+## B. Exercised through production paths (executed, with artifacts)
+- The resource refusal observed in a REAL OCR window attempt (`logs/f63-ocr-window-1.log`), not a mock.
+- Golden cross-runtime replay chain re-recorded under sanction then RE-EXECUTED: TS re-records, Rust replays
+  agree (chat/skills/attachments/web/errors + `scrubber_vectors` 3/3 + `fixture_replay` js_len 12077 pin).
+- F71 four gates on final source (see D).
+- Honesty token chains re-executed where they had suites: diarization refusal 70 py + 31 TS (F68),
+  splitter parity 70 TS + 39 Rust (F69), follow/progress 46 TS (F69), artifact reopen 4/4 inside the
+  standing vitest gate (F67), `contracts:check` OK (f70).
+
+## C. Audited CLEAN with zero changes (mandate: audits, not patches)
+F67 artifacts (TS-only writers are the honest truth BY CONSTRUCTION: `revision="not-migrated"` rows + typed
+refusals; reopen parity green; viewers lazy + no live WebGL renderer); F68 ASR/align/diarization honesty
+(licence-first blocker order is the anti-lie mechanism; alignment never invents word timing); F69
+streaming/reasoning/activity/scroll (parser structural exclusivity, single-authority activity resolver,
+pure-reducer scroll follow with programmatic-pin tagging, rAF-batched deltas + memoized messages all intact);
+F70 fresh-clone portability (1,660 tracked files, ZERO tracked weights, lockfiles + `.python-version`
+committed, gitignore + LF-pinned golden corpus verified, no machine-local paths, every undeclared env var
+has a code default; no physical clone-install run - a HEAD-only clone lacks the 588 pending tree entries,
+honestly stated).
+
+## D. Acceptance passed (offline acceptance gates, final source, F71)
+Vitest **196 files passed / 3 skipped (199), 2,535 tests / 24 skipped (2,559)** `logs/f71-vitest-full-2.log`;
+python discover **532 OK** `logs/f71-py-discover-1.log`; cargo full workspace **27 binaries all ok, 739
+passed / 0 failed** `logs/f71-rust-test-1.log`; **tsc exit 0** `logs/f71-tsc-1.log`;
+`contracts:check` OK `logs/f70-contracts-check-1.log`. Thresholds untouched. The FIRST capture
+(`f71-vitest-full-1.log`) FAILED 3 tests in 2 files - real catches: `lazyLoad.test.ts` +
+`chatEngine.test.ts` still asserted the PRE-D-070 "standard_chat injects zero blocks" law; repaired to the
+F65-precedent shape (block exists, catalogue ONLY, no skill/contract; verbatim-user + active_skill-zero +
+browser-zero assertions kept intact), targeted-proven `logs/f71-vitest-d070fix-1.log`, then the green
+full run. No test was disabled, deleted or weakened.
+
+## E. BLOCKED - each with observed reason and the smallest clearing action
+1. **Primary PaddleOCR acceptance** - engine has recognised ZERO pages, ever: CPU worker dies (exit None)
+   reading `model.safetensors` under the 3,814 MiB job-object floor; `device_plan` fits:false; GPU pinned
+   CPU-only (`compiled_with_cuda False`). **Clear:** the attended sequence in STATE "The blocker that is not
+   a code gap", as the session's LAST action, operator watching.
+2. **OCR cold-load PEAK measurement** - same memory floor; decision half done, peak unmeasured.
+   **Clear:** RSS sampling inside the same attended exclusive window; registry stays "provisional"-labelled
+   until then.
+3. **Item-3 live PDF flow** (one streamed answer, no second click, no duplicate) - needs the browser pass
+   that can contact :8080-adjacent flows; :8080 hosts THIS coding session (capacity-1).
+   **Clear:** final Playwright pass via the exclusive launcher in the attended window (no lock held now).
+4. **Chat-continuation-after-handoff, live half** - the handoff literally unloads the model this session
+   runs on. **Clear:** same attended window (seam itself implemented + tested at F64).
+5. **Fence-selection live proof** (does the catalogue make prose-where-fence-fits emit a catalogue fence) -
+   live-model run; until it passes, `detectDeliverableIntent` + `search-gate.ts` phrase rules stay live as
+   designed. **Clear:** one live-model-selection pass in the attended window.
+6. **Frozen video temporal gate** - no validated ffmpeg on host (`ffmpeg_not_installed` typed refusal
+   executed and logged) AND needs a human-labelled real video; the synthetic clip measures clocks only.
+   **Clear:** validated ffmpeg copy or `RUKE_FFMPEG` + human-labelled clip.
+7. **Diarization** - `license_acceptance_required` refused by design at both entry points; the refusal IS
+   the tested behaviour. **Clear:** human accepts pyannote terms, sets `HF_TOKEN`.
+8. **GPU support** - stays **unverified** while the pinned stack is CPU-only (mandate law); no action on
+   this host beyond honest reporting.
+
+## F. Run-state facts
+No commits this range (HEAD stayed `abc988c`; the user's constraint forbade commits). Working tree preserved
+whole; the user's commit sweep should exclude root debris `a.txt`, `lock-out.txt`, `mcp-out/` (flagged at
+F70, not deleted). Zero requests were issued to :8080 for the entire range. No `RUKE_*` handoff/OCR switch
+was set unattended. PC left on per the current overnight scope; the shutdown call stays the user's.
+Harness laws stored in STATE.md: bare `cmd /c` under MSYS bash exits 0 VACUOUSLY (`cmd //c` is mandatory);
+the full-suite gate itself exposed the two stale-premise files - the suite doing its job, not a regression.
+One blocked cleanup: an empty scratch file `D:\overnight-placeholder-check` (a mistyped redirect in this
+segment) could NOT be deleted - `rm` is blocked by the current permission policy - flagged here for the
+user's sweep; it is empty and harmless.

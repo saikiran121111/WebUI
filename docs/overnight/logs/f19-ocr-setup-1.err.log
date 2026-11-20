@@ -1,0 +1,171 @@
+Using CPython 3.12.15
+Creating virtual environment at: python-backend\.venv-ocr
+Activate with: python-backend\.venv-ocr\Scripts\activate
+Using Python 3.12.15 environment at: python-backend\.venv-ocr
+Resolved 14 packages in 14.23s
+Downloading pillow (6.7MiB)
+Downloading networkx (2.0MiB)
+Downloading numpy (11.7MiB)
+Downloading paddlepaddle (97.0MiB)
+ Downloaded networkx
+ Downloaded pillow
+ Downloaded numpy
+ Downloaded paddlepaddle
+Prepared 14 packages in 27.17s
+Installed 14 packages in 1.05s
+ + anyio==4.12.1
+ + certifi==2026.1.4
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + idna==3.11
+ + networkx==3.6.1
+ + numpy==2.4.1
+ + opt-einsum==3.3.0
+ + paddlepaddle==3.2.1
+ + pillow==12.1.0
+ + protobuf==6.33.4
+ + safetensors==0.7.0
+ + typing-extensions==4.15.0
+Using Python 3.12.15 environment at: python-backend\.venv-ocr
+Resolved 95 packages in 2.29s
+Downloading openai (2.3MiB)
+Downloading pypdfium2 (4.0MiB)
+Downloading cryptography (3.6MiB)
+Downloading shapely (1.7MiB)
+Downloading tokenizers (2.7MiB)
+Downloading pandas (10.3MiB)
+Downloading paddlex (2.1MiB)
+Downloading hf-xet (3.7MiB)
+Downloading opencv-contrib-python (43.4MiB)
+Downloading pycryptodome (1.7MiB)
+Downloading pydantic-core (1.9MiB)
+Downloading lxml (3.8MiB)
+Downloading modelscope (5.8MiB)
+Downloading scikit-learn (7.9MiB)
+Downloading numpy (12.2MiB)
+Downloading chardet (1.2MiB)
+Downloading sentencepiece (1.6MiB)
+Downloading scipy (35.0MiB)
+ Downloaded chardet
+ Downloaded shapely
+ Downloaded sentencepiece
+ Downloaded pydantic-core
+ Downloaded tokenizers
+ Downloaded paddlex
+ Downloaded pycryptodome
+ Downloaded hf-xet
+ Downloaded cryptography
+ Downloaded pypdfium2
+ Downloaded lxml
+ Downloaded openai
+ Downloaded scikit-learn
+ Downloaded pandas
+ Downloaded numpy
+ Downloaded modelscope
+ Downloaded opencv-contrib-python
+ Downloaded scipy
+Prepared 89 packages in 6.67s
+Uninstalled 2 packages in 156ms
+Installed 89 packages in 1.07s
+ + aiohappyeyeballs==2.7.1
+ + aiohttp==3.14.5
+ + aiosignal==1.4.0
+ + aistudio-sdk==0.3.9
+ + annotated-types==0.8.0
+ + attrs==26.1.0
+ + bce-python-sdk==0.9.79
+ + beautifulsoup4==4.15.0
+ + cachetools==8.0.0
+ + cffi==2.1.1
+ + chardet==7.7.0
+ + charset-normalizer==3.5.2
+ + click==8.5.1
+ + cloudpickle==3.1.2
+ + colorama==0.4.6
+ + colorlog==6.12.0
+ + crc32c==2.9.post0
+ + cryptography==50.0.2
+ + cssselect==1.6.0
+ + cssutils==2.15.0
+ + einops==0.8.2
+ + encutils==1.0.0
+ + et-xmlfile==2.0.0
+ + filelock==4.2.10
+ + frozenlist==1.8.0
+ + fsspec==2026.9.0
+ + ftfy==6.3.1
+ + future==1.0.0
+ + hf-xet==1.8.0
+ + httpcore2==2.16.2
+ + httpx2==2.16.2
+ + huggingface-hub==2.4.0
+ - idna==3.11
+ + idna==3.20
+ + imagesize==2.0.1
+ + jinja2==3.1.6
+ + jiter==0.19.0
+ + joblib==1.6.0
+ + latex2mathml==3.81.1
+ + lxml==6.1.3
+ + markupsafe==3.0.4
+ + modelscope==1.40.3
+ + modelscope-hub==0.7.1
+ + more-itertools==11.2.1
+ + multidict==7.2.1
+ + narwhals==2.28.0
+ - numpy==2.4.1
+ + numpy==2.3.5
+ + openai==3.51.0
+ + opencv-contrib-python==4.10.0.84
+ + openpyxl==3.1.5
+ + packaging==26.3
+ + paddleocr==3.6.0
+ + paddlex==3.6.1
+ + pandas==3.1.1
+ + premailer==3.10.0
+ + prettytable==3.18.0
+ + propcache==0.5.4
+ + psutil==7.2.2
+ + py-cpuinfo==9.0.0
+ + pyclipper==1.4.0
+ + pycparser==3.12
+ + pycryptodome==4.5.0
+ + pydantic==2.13.5
+ + pydantic-core==2.46.5
+ + pypdfium2==5.15.2
+ + python-bidi==0.6.12
+ + python-dateutil==4.0.0
+ + pyyaml==6.0.2
+ + regex==2026.11.15
+ + requests==2.34.2
+ + ruamel-yaml==0.19.1
+ + scikit-learn==1.9.1
+ + scipy==1.18.1
+ + sentencepiece==0.2.3
+ + setuptools==84.2.1
+ + shapely==2.2.0
+ + six==1.17.0
+ + sniffio==1.3.1
+ + soupsieve==4.1.1
+ + threadpoolctl==3.8.0
+ + tiktoken==0.14.0
+ + tokenizers==0.23.3
+ + tqdm==4.70.1
+ + truststore==0.10.5
+ + typing-inspection==0.4.5
+ + tzdata==2026.6
+ + ujson==6.1.0
+ + urllib3==2.8.0
+ + wcwidth==0.9.4
+ + yarl==1.25.1
+INFO: Could not find files for the given pattern(s).
+D:\Projects\WebUI\WebUI\python-backend\.venv-ocr\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:718: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+python.exe : D:\Projects\WebUI\WebUI\python-backend\.venv-ocr\Scripts\python.exe: No module named pip
+At D:\Projects\WebUI\WebUI\scripts\prepare-ocr-runtime.ps1:56 char:11
++ $freeze = & $py -m pip freeze 2>$null
++           ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Projects\Web...odule named pip:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

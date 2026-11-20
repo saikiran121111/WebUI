@@ -129,9 +129,9 @@ static CREATE_CUE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static TRANSFORM_CUE_RE: LazyLock<Regex> = LazyLock::new(|| {
     word_re(
-        "convert|converts|converted|converting|turn into|turns into|turned into|\
-         change into|changes into|changed into|translate into|translates into|translated into|\
-         export|exports|exported|exporting|save|saves|saved|saving|put into|puts into|putting into",
+        "convert|converts|converted|converting|turn|turns|turned|turning|\
+         change|changes|changed|changing|translate|translates|translated|translating|\
+         export|exports|exported|exporting|save|saves|saved|saving|put|puts|putting",
     )
 });
 static DIRECTION_RE: LazyLock<Regex> = LazyLock::new(|| word_re("to|into|as"));
@@ -156,6 +156,7 @@ static DIDACTIC_RE: LazyLock<Regex> = LazyLock::new(|| {
         "explain|explains|explained|explaining|teach|teaches|teaching|taught|\
          tutorial|tutorials|lesson|lessons|walkthrough|walk me through|learn how|\
          how to|how do|how does|how can|how could|how would|how should|steps to|\
+         steps for|steps of|the steps|steps involved|procedure for|process for|\
          step-by-step|guide to|introduction to|demonstrate|demonstrates|demonstrating|\
          understand|understands|understood|understanding|comprehend|comprehends|comprehended|comprehending|\
          know|knows|knowing|realize|realizes|realized|realizing",
@@ -188,7 +189,8 @@ static DESIRE_MODAL_RE: LazyLock<Regex> = LazyLock::new(|| {
 static SOURCE_ROLE_RE: LazyLock<Regex> = LazyLock::new(|| {
     word_re(
         "from|based on|out of|starting from|extracted from|derived from|imported from|\
-         scanned from|copied from|copy of|instead of|taken from|read from",
+         scanned from|copied from|copy of|instead of|taken from|read from|\
+         of|on|for|using|use",
     )
 });
 /// Container markers naming the FORMAT as the container of the deliverable
@@ -210,6 +212,12 @@ static META_LINGUISTIC_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Partitive complement right after a polysemous lexeme ("deck OF cards").
 static PARTITIVE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^\s*of\s+(?:the\s+|a\s+|an\s+)?([\p{L}][\p{L}']*)").unwrap());
+/// Conditional antecedents: the ask is inside a hypothetical clause.
+static CONDITIONAL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    word_re(
+        "if|suppose|supposing|imagine|assuming|provided that|in case|what if|hypothetically",
+    )
+});
 
 /// Anchored form of the SAME body: "is the whole token this word set?"
 /// (partitive complements, quoted bare format labels).
@@ -431,6 +439,9 @@ fn detect_deliverable_intent(trimmed: &str) -> Vec<RendererMode> {
         .into_owned();
     let mut found: Vec<(usize, usize, RendererMode)> = Vec::new();
     let clause_spans = spans(&masked, &CLAUSE_SPAN_RE);
+    // A turn-level didactic frame (offsets never mix with the clause-local
+    // matchers below: only its presence/absence is read at this scope).
+    let turn_didactic = !positions(&DIDACTIC_RE, &masked).is_empty();
 
     for (ci, cs) in clause_spans.iter().enumerate() {
         let clause = &masked[cs.start..cs.end];
@@ -447,6 +458,7 @@ fn detect_deliverable_intent(trimmed: &str) -> Vec<RendererMode> {
         let pasts = positions(&PAST_PRODUCTION_RE, clause);
         let subjects = positions(&SUBJECT_RE, clause);
         let modals = positions(&DESIRE_MODAL_RE, clause);
+        let conditionals = positions(&CONDITIONAL_RE, clause);
         let cues: Vec<At> = creates.iter().chain(transforms.iter()).copied().collect();
         let segs = spans(clause, &SEGMENT_SPLIT_RE);
         let in_seg = |ps: &[At], seg: Span| -> Vec<At> {
@@ -491,6 +503,11 @@ fn detect_deliverable_intent(trimmed: &str) -> Vec<RendererMode> {
                 let governed_source = transforms.iter().any(|t| {
                     t.start < a.start
                         && !dirs.iter().any(|d| d.start > t.start && d.start < a.start)
+                        // A production cue in the gap means the bare transform
+                        // verb never reached this word ("turn the figures,
+                        // create a chart"): an unfinished transform, never a
+                        // source role for the later ask.
+                        && !cues.iter().any(|c| c.start > t.start && c.start < a.start)
                 });
                 if governed_source {
                     continue;
@@ -516,6 +533,22 @@ fn detect_deliverable_intent(trimmed: &str) -> Vec<RendererMode> {
                             || cues.iter().any(|c| c.start < d.start))
                 });
                 if didactic {
+                    continue;
+                }
+                // 4b. HYPOTHETICAL FRAME: the ask sits inside a conditional
+                //     antecedent whose own production cue governs it, AND the
+                //     turn carries an explicit didactic/interrogative frame
+                //     ("how would I make it?", "what would the steps be?").
+                //     Both halves are required: an affirmative conditional
+                //     without a didactic frame ("If the data is ready, make the
+                //     workbook") keeps its deliverable.
+                let hypothetical = turn_didactic
+                    && conditionals.iter().any(|k| {
+                        k.start < a.start
+                            && cues.iter().any(|c| c.start > k.start && c.start < a.start)
+                            && !didactics.iter().any(|d| d.start < k.start)
+                    });
+                if hypothetical {
                     continue;
                 }
                 // 5. REPORTED PAST ACTION: an explicit agent plus a past-tense
@@ -823,6 +856,93 @@ mod tests {
         assert_eq!(
             mode_for("Rebuild this PDF, keep the source PDF numbering"),
             RendererMode::Pdf
+        );
+    }
+
+    #[test]
+    fn f02b_generalisation_frames() {
+        // Same prompts and expectations as the frozen TS answer key in
+        // __tests__/decision/generalization-f02b.test.ts (brief §4). Each
+        // probe pins a LAW, not a phrase: didactic noun phrase, material /
+        // topic role, discontinuous transform particle, hypothetical frame.
+        // 1. a didactic noun phrase is a tutorial frame, not a request
+        assert_eq!(
+            mode_for("Show me the steps for making an Excel workbook."),
+            RendererMode::StandardChat
+        );
+        assert_eq!(
+            mode_for("what are the steps for building a presentation?"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(
+            mode_for("Make me an Excel workbook of these figures"),
+            RendererMode::Excel
+        );
+        // 2/3. one destination + one material or one topic, never two asks
+        assert_eq!(
+            mode_for("Create a PDF using the Excel data."),
+            RendererMode::Pdf
+        );
+        assert_eq!(
+            mode_for("Make a chart using our spreadsheet figures"),
+            RendererMode::Chart
+        );
+        assert_eq!(
+            mode_for("Create a presentation on the history of Excel."),
+            RendererMode::Ppt
+        );
+        assert_eq!(
+            mode_for("Create a PDF of the presentation history"),
+            RendererMode::Pdf
+        );
+        // 4. the transform direction is discontinuous: the SOURCE itself can
+        //    sit between the verb and its particle
+        assert_eq!(
+            mode_for("Could you turn this PDF into a DOCX file?"),
+            RendererMode::Docs
+        );
+        assert_eq!(mode_for("Turn the deck into a PDF"), RendererMode::Pdf);
+        assert_eq!(
+            mode_for("Turn this workbook into a chart"),
+            RendererMode::Chart
+        );
+        // A bare transform verb that never reached a format word is not a
+        // source role for the ask that follows it.
+        assert_eq!(
+            mode_for("Turn the invoice, then create a PDF"),
+            RendererMode::Pdf
+        );
+        // 5. hypothetical frame: conditional antecedent + interrogative main
+        //    clause discusses production; an affirmative conditional keeps its
+        //    deliverable
+        assert_eq!(
+            mode_for("If I wanted a PDF, how would I make it?"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(
+            mode_for("If we needed a workbook, what would the steps be?"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(
+            mode_for("Suppose you wanted a deck - how would you build one?"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(
+            mode_for("If you want, create a PDF of this report"),
+            RendererMode::Pdf
+        );
+        assert_eq!(
+            mode_for("If the data is ready, make the workbook"),
+            RendererMode::Excel
+        );
+        // An ambiguous polyseme with a competing sense in reach is never forced
+        assert_eq!(
+            mode_for("Create a deck explaining the cards"),
+            RendererMode::StandardChat
+        );
+        assert_eq!(
+            mode_for("Create a deck explaining the quarterly results"),
+            RendererMode::Ppt
         );
     }
 

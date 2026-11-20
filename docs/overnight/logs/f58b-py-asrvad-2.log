@@ -1,0 +1,19 @@
+test_a_signature_that_lacks_the_kwarg_gets_one_ungated_retry (tests.test_asr_vad.BoundedCorrectionOnly.test_a_signature_that_lacks_the_kwarg_gets_one_ungated_retry) ... ok
+test_a_vad_runtime_failure_gets_one_retry_and_says_backend_rejected (tests.test_asr_vad.BoundedCorrectionOnly.test_a_vad_runtime_failure_gets_one_retry_and_says_backend_rejected) ... ok
+test_an_allocation_refusal_is_never_retried_as_a_vad_problem (tests.test_asr_vad.BoundedCorrectionOnly.test_an_allocation_refusal_is_never_retried_as_a_vad_problem) ... ok
+test_an_unrelated_failure_is_not_a_vad_problem_and_gets_no_retry (tests.test_asr_vad.BoundedCorrectionOnly.test_an_unrelated_failure_is_not_a_vad_problem_and_gets_no_retry) ... ok
+test_gating_that_succeeds_then_refuses_reports_the_mixed_run (tests.test_asr_vad.BoundedCorrectionOnly.test_gating_that_succeeds_then_refuses_reports_the_mixed_run) ... ok
+test_once_refused_no_later_window_asks_again (tests.test_asr_vad.BoundedCorrectionOnly.test_once_refused_no_later_window_asks_again) ... ok
+test_a_caller_can_turn_it_off_and_the_report_says_what_that_means (tests.test_asr_vad.GatingIsTheDefault.test_a_caller_can_turn_it_off_and_the_report_says_what_that_means) ... ok
+test_a_missing_asset_is_reported_and_never_downloaded (tests.test_asr_vad.GatingIsTheDefault.test_a_missing_asset_is_reported_and_never_downloaded) ... ok
+test_coverage_still_reports_decoded_audio_not_speech (tests.test_asr_vad.GatingIsTheDefault.test_coverage_still_reports_decoded_audio_not_speech) ... ok
+test_gating_is_requested_by_default_and_the_run_says_it_applied (tests.test_asr_vad.GatingIsTheDefault.test_gating_is_requested_by_default_and_the_run_says_it_applied) ... ok
+test_available_only_when_the_packaged_asset_is_actually_on_disk (tests.test_asr_vad.TheAssetProbeNeverFetchesAnything.test_available_only_when_the_packaged_asset_is_actually_on_disk) ... ok
+test_every_state_the_adapter_can_produce_is_a_declared_state (tests.test_asr_vad.TheAssetProbeNeverFetchesAnything.test_every_state_the_adapter_can_produce_is_a_declared_state) ... ok
+test_an_exception_with_no_message_still_names_its_class (tests.test_asr_vad.TheClassifierSeesWhatActuallyFailed.test_an_exception_with_no_message_still_names_its_class) ... ok
+test_vad_refusal_detection_does_not_swallow_other_faults (tests.test_asr_vad.TheClassifierSeesWhatActuallyFailed.test_vad_refusal_detection_does_not_swallow_other_faults) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.005s
+
+OK

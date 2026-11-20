@@ -1,0 +1,17 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/think-splitter.test.ts __tests__/sse.test.ts __tests__/sse-stage-events.test.ts __tests__/rust-golden/sse-vectors.test.ts __tests__/progress/current-activity.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mD:/Projects/WebUI/WebUI[39m
+
+ [32m✓[39m __tests__/progress/current-activity.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 4[2mms[22m[39m
+ [32m✓[39m __tests__/sse.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m __tests__/think-splitter.test.ts [2m([22m[2m34 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m __tests__/sse-stage-events.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m __tests__/rust-golden/sse-vectors.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 1446[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m      Tests [22m [1m[32m70 passed[39m[22m[90m (70)[39m
+[2m   Start at [22m 23:38:54
+[2m   Duration [22m 1.84s[2m (transform 564ms, setup 193ms, collect 257ms, tests 1.48s, environment 1ms, prepare 411ms)[22m
+

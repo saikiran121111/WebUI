@@ -1,0 +1,34 @@
+{
+  "level": "ENGINE-LEVEL (scores persisted engine output or a transcript; NOT the attended delivery-level pass d1_ocr_acceptance_probe.py)",
+  "key_version": "d1-ocr-1",
+  "mode": "engine_scoring",
+  "run_at": "2026-11-20T20:56:49",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails"
+  },
+  "fixtures_supplied": [],
+  "fixtures": [
+    {
+      "fixture": "d1_scanned.pdf",
+      "state": "not_evaluable",
+      "partial": true,
+      "attended_passes_that_visit_it": [
+        "content",
+        "fallback_crash",
+        "fallback_primary"
+      ],
+      "note": "no engine output supplied for this fixture (an attended delivery pass is different evidence; a bounded partial run is scored not_evaluable)",
+      "checks": [],
+      "misses": []
+    }
+  ],
+  "states": {
+    "pass": 0,
+    "fail": 0,
+    "not_evaluable": 1
+  },
+  "note": "a pass here scores what the engines ACTUALLY produced and claimed; a not_evaluable fixture means the scorer never saw a complete real engine run for it, and is never counted as acceptance. Primary OCR acceptance additionally requires output from a real PaddleOCR run."
+}

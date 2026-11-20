@@ -1,0 +1,1033 @@
+{
+  "files": [
+    {
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_y2ig5p\\Basin_Water_Review.docx",
+      "ok": true,
+      "kind": "docx",
+      "blocks": 10,
+      "kinds": {
+        "heading": 3,
+        "paragraph": 4,
+        "table_row": 3
+      },
+      "matched": {
+        "Executive Summary": {
+          "count": 1,
+          "first_kind": "heading",
+          "first_loc": {
+            "paragraph": 2,
+            "section": "Heading1"
+          }
+        },
+        "Regional Readings": {
+          "count": 1,
+          "first_kind": "heading",
+          "first_loc": {
+            "paragraph": 6,
+            "section": "Heading2"
+          }
+        },
+        "1.4 million cubic metres": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "paragraph": 3
+          }
+        },
+        "Élan café 25 %": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "paragraph": 3
+          }
+        },
+        "Kandla": {
+          "count": 1,
+          "first_kind": "table_row",
+          "first_loc": {
+            "table": 1,
+            "row": 2,
+            "cells": [
+              "Kandla",
+              "18.4",
+              "12.7"
+            ]
+          }
+        },
+        "Aranjes": {
+          "count": 1,
+          "first_kind": "table_row",
+          "first_loc": {
+            "table": 1,
+            "row": 3,
+            "cells": [
+              "Aranjes",
+              "12.6",
+              "51.2"
+            ]
+          }
+        },
+        "arbitration award of 14 November 2021": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "paragraph": 10
+          }
+        },
+        "Launch Brief": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Adoption Curve": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Realtime sync": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Momentum": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Revenue": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Month": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "2025-01": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Open with the pricing question before the roadmap.": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Basin Operations Review": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Section 10: Regional Readings": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Late evidence marker": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        }
+      },
+      "formula_cells": [],
+      "notes": [],
+      "meta": {
+        "unit_numbering": "1-based block/paragraph index; tables are numbered by body order",
+        "tables": 1,
+        "not_extracted": [
+          "nested tables",
+          "vertically merged cells",
+          "footnotes/endnotes",
+          "text boxes and drawing shapes",
+          "numbered-list restart state"
+        ]
+      },
+      "coverage": {
+        "units_total": 1,
+        "units_extracted": 1,
+        "units_succeeded": [
+          1
+        ],
+        "units_empty": [],
+        "units_needing_ocr": [],
+        "units_failed": [],
+        "method": "ooxml",
+        "note": "heading hierarchy and table cells preserved"
+      },
+      "meta_keys": [
+        "not_extracted",
+        "tables",
+        "unit_numbering"
+      ],
+      "blocks_sample": [
+        {
+          "kind": "heading",
+          "text": "Basin Water Review",
+          "loc": {
+            "paragraph": 1,
+            "section": "Title"
+          }
+        },
+        {
+          "kind": "heading",
+          "text": "Executive Summary",
+          "loc": {
+            "paragraph": 2,
+            "section": "Heading1"
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "The aquifer yields 1.4 million cubic metres per month across eleven observation wells — Élan café 25 %.",
+          "loc": {
+            "paragraph": 3
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Permits capped at 62%",
+          "loc": {
+            "paragraph": 4
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Dry-season flow reduced",
+          "loc": {
+            "paragraph": 5
+          }
+        },
+        {
+          "kind": "heading",
+          "text": "Regional Readings",
+          "loc": {
+            "paragraph": 6,
+            "section": "Heading2"
+          }
+        },
+        {
+          "kind": "table_row",
+          "text": "Station | Flow m3/s | Turbidity NTU",
+          "loc": {
+            "table": 1,
+            "row": 1,
+            "cells": [
+              "Station",
+              "Flow m3/s",
+              "Turbidity NTU"
+            ]
+          }
+        },
+        {
+          "kind": "table_row",
+          "text": "Kandla | 18.4 | 12.7",
+          "loc": {
+            "table": 1,
+            "row": 2,
+            "cells": [
+              "Kandla",
+              "18.4",
+              "12.7"
+            ]
+          }
+        },
+        {
+          "kind": "table_row",
+          "text": "Aranjes | 12.6 | 51.2",
+          "loc": {
+            "table": 1,
+            "row": 3,
+            "cells": [
+              "Aranjes",
+              "12.6",
+              "51.2"
+            ]
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Late appendix: the arbitration award of 14 November 2021 ordered 4,18,25,000 rupees within ninety days.",
+          "loc": {
+            "paragraph": 10
+          }
+        }
+      ]
+    },
+    {
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_y2ig5p\\Launch_Brief.pptx",
+      "ok": true,
+      "kind": "pptx",
+      "blocks": 9,
+      "kinds": {
+        "paragraph": 7,
+        "note": 2
+      },
+      "matched": {
+        "Executive Summary": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Regional Readings": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "1.4 million cubic metres": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Élan café 25 %": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Kandla": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Aranjes": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "arbitration award of 14 November 2021": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Launch Brief": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "slide": 1
+          }
+        },
+        "Adoption Curve": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "slide": 2
+          }
+        },
+        "Realtime sync": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "slide": 2
+          }
+        },
+        "Momentum": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "slide": 3
+          }
+        },
+        "Revenue": {
+          "count": 1,
+          "first_kind": "paragraph",
+          "first_loc": {
+            "slide": 3
+          }
+        },
+        "Month": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "2025-01": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Open with the pricing question before the roadmap.": {
+          "count": 1,
+          "first_kind": "note",
+          "first_loc": {
+            "slide": 2,
+            "part": "notes"
+          }
+        },
+        "Basin Operations Review": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Section 10: Regional Readings": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Late evidence marker": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        }
+      },
+      "formula_cells": [],
+      "notes": [
+        {
+          "kind": "note",
+          "text": "Open with the pricing question before the roadmap.",
+          "loc": {
+            "slide": 2,
+            "part": "notes"
+          }
+        },
+        {
+          "kind": "note",
+          "text": "Quote 4.2 M gross, not net — clarify the accrual window.",
+          "loc": {
+            "slide": 3,
+            "part": "notes"
+          }
+        }
+      ],
+      "meta": {
+        "unit_numbering": "1-based slide ordinal (slideN.xml order, not r:id)",
+        "slides": 3,
+        "note_parts": [
+          "ppt/notesSlides/notesSlide1.xml",
+          "ppt/notesSlides/notesSlide2.xml",
+          "ppt/notesSlides/notesSlide3.xml"
+        ],
+        "not_extracted": [
+          "charts",
+          "SmartArt",
+          "animations",
+          "slide master text",
+          "hyperlink relationship targets"
+        ]
+      },
+      "coverage": {
+        "units_total": 3,
+        "units_extracted": 3,
+        "units_succeeded": [
+          1,
+          2,
+          3
+        ],
+        "units_empty": [],
+        "units_needing_ocr": [],
+        "units_failed": [],
+        "method": "ooxml",
+        "note": "slide text and speaker notes kept separate; charts/animations are not described by this reader"
+      },
+      "meta_keys": [
+        "not_extracted",
+        "note_parts",
+        "slides",
+        "unit_numbering"
+      ],
+      "blocks_sample": [
+        {
+          "kind": "paragraph",
+          "text": "Launch Brief",
+          "loc": {
+            "slide": 1
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Quarter one",
+          "loc": {
+            "slide": 1
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Adoption Curve",
+          "loc": {
+            "slide": 2
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Realtime sync\nOffline first",
+          "loc": {
+            "slide": 2
+          }
+        },
+        {
+          "kind": "note",
+          "text": "Open with the pricing question before the roadmap.",
+          "loc": {
+            "slide": 2,
+            "part": "notes"
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Momentum",
+          "loc": {
+            "slide": 3
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "4.2M",
+          "loc": {
+            "slide": 3
+          }
+        },
+        {
+          "kind": "paragraph",
+          "text": "Revenue",
+          "loc": {
+            "slide": 3
+          }
+        },
+        {
+          "kind": "note",
+          "text": "Quote 4.2 M gross, not net — clarify the accrual window.",
+          "loc": {
+            "slide": 3,
+            "part": "notes"
+          }
+        }
+      ]
+    },
+    {
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_y2ig5p\\Revenue_Model.xlsx",
+      "ok": true,
+      "kind": "xlsx",
+      "blocks": 12,
+      "kinds": {
+        "cell": 8,
+        "formula": 4
+      },
+      "matched": {
+        "Executive Summary": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Regional Readings": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "1.4 million cubic metres": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Élan café 25 %": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Kandla": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Aranjes": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "arbitration award of 14 November 2021": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Launch Brief": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Adoption Curve": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Realtime sync": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Momentum": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Revenue": {
+          "count": 1,
+          "first_kind": "cell",
+          "first_loc": {
+            "sheet": "Revenue",
+            "cell": "C1",
+            "sheet_index": 1,
+            "style_index": "1",
+            "cell_type": "s"
+          }
+        },
+        "Month": {
+          "count": 1,
+          "first_kind": "cell",
+          "first_loc": {
+            "sheet": "Revenue",
+            "cell": "A1",
+            "sheet_index": 1,
+            "style_index": "1",
+            "cell_type": "s"
+          }
+        },
+        "2025-01": {
+          "count": 1,
+          "first_kind": "cell",
+          "first_loc": {
+            "sheet": "Revenue",
+            "cell": "A2",
+            "sheet_index": 1,
+            "style_index": "2",
+            "cell_type": "s"
+          }
+        },
+        "Open with the pricing question before the roadmap.": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Basin Operations Review": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Section 10: Regional Readings": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Late evidence marker": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        }
+      },
+      "formula_cells": [
+        {
+          "kind": "formula",
+          "text": "=B2*2 (cached 10)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "C2",
+            "sheet_index": 1,
+            "style_index": "4",
+            "formula": "B2*2",
+            "cached_value": "10"
+          },
+          "sheet": "Revenue",
+          "cell": "C2",
+          "formula": "B2*2",
+          "cached_value": "10"
+        },
+        {
+          "kind": "formula",
+          "text": "=SUM(B2:B3) (cached 15)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "C3",
+            "sheet_index": 1,
+            "style_index": "4",
+            "formula": "SUM(B2:B3)",
+            "cached_value": "15"
+          },
+          "sheet": "Revenue",
+          "cell": "C3",
+          "formula": "SUM(B2:B3)",
+          "cached_value": "15"
+        },
+        {
+          "kind": "formula",
+          "text": "=SUM(B2:B3) (cached 15)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "B4",
+            "sheet_index": 1,
+            "style_index": "6",
+            "formula": "SUM(B2:B3)",
+            "cached_value": "15"
+          },
+          "sheet": "Revenue",
+          "cell": "B4",
+          "formula": "SUM(B2:B3)",
+          "cached_value": "15"
+        },
+        {
+          "kind": "formula",
+          "text": "=SUM(C2:C3) (cached 25)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "C4",
+            "sheet_index": 1,
+            "style_index": "7",
+            "formula": "SUM(C2:C3)",
+            "cached_value": "25"
+          },
+          "sheet": "Revenue",
+          "cell": "C4",
+          "formula": "SUM(C2:C3)",
+          "cached_value": "25"
+        }
+      ],
+      "notes": [],
+      "meta": {
+        "sheets": [
+          "Revenue"
+        ],
+        "corrupt_cells": [],
+        "sheet_failures": [],
+        "unit_numbering": "1-based sheet index"
+      },
+      "coverage": {
+        "units_total": 1,
+        "units_extracted": 1,
+        "units_succeeded": [
+          1
+        ],
+        "units_empty": [],
+        "units_needing_ocr": [],
+        "units_failed": [],
+        "method": "ooxml-cellwise",
+        "note": "formulas kept with cached values; number formats are not re-derived here"
+      },
+      "meta_keys": [
+        "corrupt_cells",
+        "empty_cells",
+        "merged_ranges",
+        "sheet_failures",
+        "sheets",
+        "unit_numbering"
+      ],
+      "blocks_sample": [
+        {
+          "kind": "cell",
+          "text": "Month",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "A1",
+            "sheet_index": 1,
+            "style_index": "1",
+            "cell_type": "s"
+          }
+        },
+        {
+          "kind": "cell",
+          "text": "Units",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "B1",
+            "sheet_index": 1,
+            "style_index": "1",
+            "cell_type": "s"
+          }
+        },
+        {
+          "kind": "cell",
+          "text": "Revenue",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "C1",
+            "sheet_index": 1,
+            "style_index": "1",
+            "cell_type": "s"
+          }
+        },
+        {
+          "kind": "cell",
+          "text": "2025-01",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "A2",
+            "sheet_index": 1,
+            "style_index": "2",
+            "cell_type": "s"
+          }
+        },
+        {
+          "kind": "cell",
+          "text": "5",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "B2",
+            "sheet_index": 1,
+            "style_index": "3"
+          }
+        },
+        {
+          "kind": "formula",
+          "text": "=B2*2 (cached 10)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "C2",
+            "sheet_index": 1,
+            "style_index": "4",
+            "formula": "B2*2",
+            "cached_value": "10"
+          }
+        },
+        {
+          "kind": "cell",
+          "text": "2025-02",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "A3",
+            "sheet_index": 1,
+            "style_index": "2",
+            "cell_type": "s"
+          }
+        },
+        {
+          "kind": "cell",
+          "text": "10",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "B3",
+            "sheet_index": 1,
+            "style_index": "3"
+          }
+        },
+        {
+          "kind": "formula",
+          "text": "=SUM(B2:B3) (cached 15)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "C3",
+            "sheet_index": 1,
+            "style_index": "4",
+            "formula": "SUM(B2:B3)",
+            "cached_value": "15"
+          }
+        },
+        {
+          "kind": "cell",
+          "text": "Total",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "A4",
+            "sheet_index": 1,
+            "style_index": "5",
+            "cell_type": "s"
+          }
+        },
+        {
+          "kind": "formula",
+          "text": "=SUM(B2:B3) (cached 15)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "B4",
+            "sheet_index": 1,
+            "style_index": "6",
+            "formula": "SUM(B2:B3)",
+            "cached_value": "15"
+          }
+        },
+        {
+          "kind": "formula",
+          "text": "=SUM(C2:C3) (cached 25)",
+          "loc": {
+            "sheet": "Revenue",
+            "cell": "C4",
+            "sheet_index": 1,
+            "style_index": "7",
+            "formula": "SUM(C2:C3)",
+            "cached_value": "25"
+          }
+        }
+      ]
+    },
+    {
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_y2ig5p\\Basin_Operations_Review.pdf",
+      "ok": true,
+      "kind": "pdf",
+      "blocks": 3,
+      "kinds": {
+        "page_text": 3
+      },
+      "matched": {
+        "Executive Summary": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Regional Readings": {
+          "count": 3,
+          "first_kind": "page_text",
+          "first_loc": {
+            "page": 1,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        },
+        "1.4 million cubic metres": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Élan café 25 %": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Kandla": {
+          "count": 3,
+          "first_kind": "page_text",
+          "first_loc": {
+            "page": 1,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        },
+        "Aranjes": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "arbitration award of 14 November 2021": {
+          "count": 1,
+          "first_kind": "page_text",
+          "first_loc": {
+            "page": 3,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        },
+        "Launch Brief": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Adoption Curve": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Realtime sync": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Momentum": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Revenue": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Month": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "2025-01": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Open with the pricing question before the roadmap.": {
+          "count": 0,
+          "first_kind": null,
+          "first_loc": null
+        },
+        "Basin Operations Review": {
+          "count": 1,
+          "first_kind": "page_text",
+          "first_loc": {
+            "page": 1,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        },
+        "Section 10: Regional Readings": {
+          "count": 1,
+          "first_kind": "page_text",
+          "first_loc": {
+            "page": 3,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        },
+        "Late evidence marker": {
+          "count": 1,
+          "first_kind": "page_text",
+          "first_loc": {
+            "page": 3,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        }
+      },
+      "formula_cells": [],
+      "notes": [],
+      "meta": {
+        "pages": 3,
+        "bytes": 36340,
+        "page_numbering": "1-based",
+        "page_failures": [],
+        "needs_ocr": []
+      },
+      "coverage": {
+        "units_total": 3,
+        "units_extracted": 3,
+        "units_succeeded": [
+          1,
+          2,
+          3
+        ],
+        "units_empty": [],
+        "units_needing_ocr": [],
+        "units_failed": [],
+        "method": "pypdf-7.1.0-plain",
+        "note": "3/3 pages produced a text layer; 0 page(s) had none, 0 page(s) failed to extract. A non-empty document is not proof that every page was read."
+      },
+      "meta_keys": [
+        "bytes",
+        "metadata",
+        "needs_ocr",
+        "page_failures",
+        "page_numbering",
+        "pages",
+        "pages_with_images",
+        "rotated_pages"
+      ],
+      "blocks_sample": [
+        {
+          "kind": "page_text",
+          "text": "Basin Operations Review\nSection 1: Regional Readings\nFlow at gauge 1 measured 10.4 cubic metres per second against a turbidity of 12.7 NTU inside the dry-\nse...",
+          "loc": {
+            "page": 1,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        },
+        {
+          "kind": "page_text",
+          "text": "Section 5: Regional Readings\nFlow at gauge 5 measured 14.4 cubic metres per second against a turbidity of 12.7 NTU inside the dry-\nseason survey window.\nStat...",
+          "loc": {
+            "page": 2,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        },
+        {
+          "kind": "page_text",
+          "text": "Section 9: Regional Readings\nFlow at gauge 9 measured 18.4 cubic metres per second against a turbidity of 12.7 NTU inside the dry-\nseason survey window.\nStat...",
+          "loc": {
+            "page": 3,
+            "rotation": 0,
+            "extraction": "pypdf-plain"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+MKL_NUM_THREADS= None OMP= None
+MKL_NUM_THREADS = 1
+OMP_NUM_THREADS = 1
+HF_HOME = D:\Projects\WebUI\WebUI\.data\ml-cache\huggingface
+asset: True snapshot ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66 found in the project cache root D:\Projects\WebUI\WebUI\.data\ml-cache\huggingface\hub\models--Systran--faster-whisper-base\snapshots\ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66
+loaded ok

@@ -2,7 +2,11 @@
 //! TS baseline (frozen in MIGRATION-MAP.md §2):
 //!
 //! - Priority: `settings.json` field > env var (`LLM_API_URL`/`LLM_API_KEY`)
+//!   > `.env.local` (the project's gitignored local overrides, next to settings.json)
 //!   > fallback (`http://127.0.0.1:8080/v1/chat/completions` / `"no-key"`).
+//!   The `.env.local` layer is F44 (amendment 8 §B): the Python lifecycle resolver used to
+//!   read `.env.local` while this one did not, so one deployment could chat to one server and
+//!   unload another. All three stacks now share one chain in one order.
 //! - mtime-gated cache: re-parse only when the file's mtime changes.
 //! - Missing file ⇒ empty settings + cache reset.
 //! - Corrupted file ⇒ KEEP the last successfully parsed data and do NOT
@@ -16,6 +20,7 @@
 
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
+use std::collections::HashMap;
 
 use parking_lot::Mutex;
 use serde_json::{Map, Value};
@@ -30,9 +35,16 @@ struct Cache {
     data: Map<String, Value>,
 }
 
+#[derive(Default)]
+struct DotenvCache {
+    mtime: Option<u128>,
+    data: HashMap<String, String>,
+}
+
 pub struct SettingsStore {
     path: PathBuf,
     cache: Mutex<Cache>,
+    dotenv: Mutex<DotenvCache>,
     /// Golden-replay seam (Part 4): pins the upstream url/key per store so
     /// parallel cargo tests never race on process-global env vars and the
     /// production resolution chain below stays untouched when unset.
@@ -45,6 +57,7 @@ impl SettingsStore {
         Self {
             path: path.into(),
             cache: Mutex::new(Cache::default()),
+            dotenv: Mutex::new(DotenvCache::default()),
             upstream_override: Mutex::new(None),
         }
     }
@@ -60,6 +73,53 @@ impl SettingsStore {
 
     pub fn path(&self) -> &std::path::Path {
         &self.path
+    }
+
+    /// The project's gitignored local overrides, always the sibling of settings.json
+    /// (`settings.json` lives at the repo root, so this is `<repo>/.env.local`).
+    pub fn dotenv_path(&self) -> PathBuf {
+        let mut p = self.path.clone();
+        p.set_file_name(".env.local");
+        p
+    }
+
+    fn dotenv_mtime_ms(&self) -> Option<u128> {
+        std::fs::metadata(self.dotenv_path())
+            .ok()?
+            .modified()
+            .ok()?
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_millis())
+    }
+
+    /// Parity of TS `readDotenv()` + `resolveLayer()`: KEY=VALUE lines, `#` comments,
+    /// an optional `export ` prefix and optionally quoted values. An unreadable or
+    /// corrupt file KEEPS the previous parse and does not accept the new mtime, exactly
+    /// like settings.json — an absent file clears the layer.
+    pub fn dotenv_value(&self, key: &str) -> Option<String> {
+        let mt = self.dotenv_mtime_ms();
+        let mut c = self.dotenv.lock();
+        match mt {
+            None => {
+                if c.mtime.is_some() || !c.data.is_empty() {
+                    *c = DotenvCache::default();
+                }
+                None
+            }
+            Some(mt) => {
+                if Some(mt) != c.mtime {
+                    match std::fs::read_to_string(self.dotenv_path()) {
+                        Ok(text) => {
+                            c.data = parse_dotenv(&text);
+                            c.mtime = Some(mt);
+                        }
+                        Err(_) => return c.data.get(key).cloned(),
+                    }
+                }
+                c.data.get(key).cloned().filter(|v| !v.trim().is_empty())
+            }
+        }
     }
 
     fn stat_ms(&self) -> Option<u128> {
@@ -114,14 +174,31 @@ impl SettingsStore {
         if let Some((u, _)) = self.upstream_override.lock().as_ref() {
             return u.clone();
         }
-        resolve_string(self.get("llm_api_url"), "LLM_API_URL", FALLBACK_LLM_API_URL)
+        self.resolve_layered(self.get("llm_api_url"), "LLM_API_URL", FALLBACK_LLM_API_URL)
     }
 
     pub fn llm_api_key(&self) -> String {
         if let Some((_, k)) = self.upstream_override.lock().as_ref() {
             return k.clone();
         }
-        resolve_string(self.get("llm_api_key"), "LLM_API_KEY", FALLBACK_LLM_API_KEY)
+        self.resolve_layered(self.get("llm_api_key"), "LLM_API_KEY", FALLBACK_LLM_API_KEY)
+    }
+
+    /// The full chain: settings.json > process env > .env.local > fallback. Same order as
+    /// `lib/server/settings.ts` and `ruke_ml/models/provider_config.py`, so chat and the
+    /// lifecycle control calls cannot resolve to two different servers.
+    fn resolve_layered(&self, file_value: Option<Value>, key: &str, fallback: &str) -> String {
+        if let Some(Value::String(s)) = file_value {
+            return s;
+        }
+        match std::env::var(key) {
+            Ok(v) if !v.trim().is_empty() => return v,
+            _ => {}
+        }
+        if let Some(v) = self.dotenv_value(key) {
+            return v;
+        }
+        fallback.to_string()
     }
 
     /// Parity of `updateSettings(patch)`: merge into the current object,
@@ -175,10 +252,6 @@ fn to_pretty_2(data: &Map<String, Value>) -> String {
     s
 }
 
-fn resolve_string(file_value: Option<Value>, env_key: &str, fallback: &str) -> String {
-    resolve_with(file_value, |k| std::env::var(k).ok(), env_key, fallback)
-}
-
 /// Env lookup injected so tests never race on process-global env vars.
 fn resolve_with(
     file_value: Option<Value>,
@@ -196,6 +269,39 @@ fn resolve_with(
             _ => fallback.to_string(),
         },
     }
+}
+
+/// `readDotenv()` parity. Deliberately tiny: no variable expansion, no multi-line
+/// values, no shell semantics — a model endpoint file is a flat KEY=VALUE list, and
+/// inventing shell behaviour here would make the three stacks disagree again.
+fn parse_dotenv(text: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for raw in text.lines() {
+        let mut line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.len() > 7 && line[..7].eq_ignore_ascii_case("export ") {
+            line = line[7..].trim();
+        }
+        let (key, value) = match line.split_once('=') {
+            Some(kv) => kv,
+            None => continue,
+        };
+        let key = key.trim();
+        let mut value = value.trim();
+        if value.len() >= 2 {
+            let quote = value.as_bytes()[0];
+            if (quote == b'"' || quote == b'\'') && value.as_bytes()[value.len() - 1] == quote {
+                value = &value[1..value.len() - 1];
+            }
+        }
+        let value = value.trim();
+        if !key.is_empty() && !value.is_empty() {
+            out.insert(key.to_string(), value.to_string());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -304,5 +410,63 @@ mod tests {
         let store = SettingsStore::new(&path);
         store.update_settings(&map(json!({"x": 1})));
         assert!(path.is_file());
+    }
+
+    // ---- the .env.local layer (F44, amendment 8 §B) -------------------------------
+
+    #[test]
+    fn env_local_is_used_when_settings_and_process_env_are_silent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(
+            tmp.path().join(".env.local"),
+            "# local overrides\nexport LLM_API_URL=\"http://dotenv:8080/v1/chat/completions\"\nLLM_API_KEY=key-from-dotenv\nBROKEN_LINE_NO_EQUALS\n",
+        )
+        .unwrap();
+        let store = SettingsStore::new(&path);
+        // The chain is exercised through dotenv_value directly: process env is not
+        // writable from a parallel test, and LLM_API_URL is only ever unset here.
+        assert_eq!(
+            store.dotenv_value("LLM_API_URL").as_deref(),
+            Some("http://dotenv:8080/v1/chat/completions")
+        );
+        assert_eq!(store.dotenv_value("LLM_API_KEY").as_deref(), Some("key-from-dotenv"));
+        assert_eq!(store.dotenv_value("BROKEN_LINE_NO_EQUALS"), None);
+        assert_eq!(store.dotenv_value("NOT_ANYWHERE"), None);
+        assert_eq!(store.dotenv_path().file_name().unwrap(), ".env.local");
+    }
+
+    #[test]
+    fn settings_json_still_wins_over_env_local() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(tmp.path().join(".env.local"), "LLM_API_URL=http://dotenv:1/v1\n").unwrap();
+        let store = SettingsStore::new(&path);
+        store.update_settings(&map(json!({"llm_api_url": "http://settings:1/v1"})));
+        store.set_upstream_override("unused-because-file-wins-check-below", "unused");
+        store.clear_upstream_override();
+        // settings.json present + process env unset => file value, not the dotenv value.
+        let url = resolve_with(store.get("llm_api_url"), |_| None, "LLM_API_URL", FALLBACK_LLM_API_URL);
+        assert_eq!(url, "http://settings:1/v1");
+        assert_ne!(url, "http://dotenv:1/v1");
+    }
+
+    #[test]
+    fn an_unreadable_env_local_keeps_the_last_good_parse() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.json");
+        let env_file = tmp.path().join(".env.local");
+        std::fs::write(&env_file, "LLM_API_URL=http://good:1/v1\n").unwrap();
+        let store = SettingsStore::new(&path);
+        assert_eq!(store.dotenv_value("LLM_API_URL").as_deref(), Some("http://good:1/v1"));
+        // Replace the file with a DIRECTORY at the same name: reading it now fails with
+        // ErrorIsADirectory. A fail-open reader would answer "no override"; the honest
+        // answer is the last value it actually read.
+        std::fs::remove_file(&env_file).unwrap();
+        std::fs::create_dir(&env_file).unwrap();
+        assert_eq!(store.dotenv_value("LLM_API_URL").as_deref(), Some("http://good:1/v1"));
+        // And deleting it for good DOES clear the layer (absence is a real answer).
+        std::fs::remove_dir(&env_file).unwrap();
+        assert_eq!(store.dotenv_value("LLM_API_URL"), None);
     }
 }

@@ -10,7 +10,12 @@ import {
   type RouteAxis,
   type RoutedQuery,
 } from "./router";
-import { retrieveEvidence, type RetrieveOpts } from "./retrieve";
+import {
+  retrieveEvidenceWithRerank,
+  type RankedEvidence,
+  type RetrieveOpts,
+} from "./retrieve";
+import { makeRerankStage, rerankWindow } from "./rerank";
 import { indexDir, readIndex, readNotes, readShownEntry, writeShown } from "./store";
 import type { LoadedIndex } from "./types";
 
@@ -333,7 +338,19 @@ export async function buildAttachmentTurn(
         : { mode: "point_qa", demote, budget }; // "module 9" in a 3-block spine → best-effort hybrid
     }
 
-    let ev = retrieveEvidence(index, rawQ, queryVec, opts);
+    // D-058: one neural rerank stage per attachment turn, shared by the raw
+    // question and the anchored fallback. It is additive: when it cannot run,
+    // the fused order stands and `ev.rerank` says exactly why.
+    const rerankStage = makeRerankStage({ signal });
+    const window = rerankWindow();
+    let ev: RankedEvidence = await retrieveEvidenceWithRerank(
+      index,
+      rawQ,
+      queryVec,
+      opts,
+      rerankStage,
+      window,
+    );
 
     // F07: anchored fallback, LAZILY and at most once more. Only when the raw
     // question found nothing at all does the previous question's topic get
@@ -345,7 +362,14 @@ export async function buildAttachmentTurn(
       } catch {
         // Same seam: BM25 alone still ranks the passages.
       }
-      ev = retrieveEvidence(index, anchored, fallbackVec, opts);
+      ev = await retrieveEvidenceWithRerank(
+        index,
+        anchored,
+        fallbackVec,
+        opts,
+        rerankStage,
+        window,
+      );
     }
     if (!ev.text) continue;
 
@@ -370,6 +394,25 @@ export async function buildAttachmentTurn(
       (totalFrames > 0 ? `; ${frames.length} of ${totalFrames} saved keyframes shown` : "") +
       " -- anything outside this selection was NOT read this turn]";
 
+    // D-058: the reranker's own honesty line, kept OUT of the mirrored
+    // [coverage: ...] marker so the Rust mirror of that marker stays
+    // byte-identical. ASCII-only. It names the ranker the ENGINE reported,
+    // how many passages it actually scored, and never implies a ranker ran
+    // when the stage was skipped, refused or unreachable.
+    const rk = ev.rerank;
+    const rankLine =
+      `\n[ranking: ` +
+      (rk.mode === "neural"
+        ? `${rk.engine ?? "neural reranker"} re-ordered ${rk.scored} of the ${rk.candidates} passages the retrieval ranked for it; ${rk.changed} position(s) changed`
+        : rk.mode === "structural_selection"
+          ? `no neural rerank (${rk.reason ?? "this selection is ordered by the source's own structure"})`
+          : `the fused ${ev.vectorMode === "hybrid" ? "semantic + lexical" : "lexical"} order stands; no neural rerank ran (${rk.reason ?? "not attempted"})`) +
+      (rk.mode === "neural" && rk.unscored > 0
+        ? `; ${rk.unscored} passage(s) in the window were never scored and kept their fused position below the scored ones`
+        : "") +
+      (rk.note ? `; ${rk.note}` : "") +
+      " -- passages the retrieval did not rank were never seen by the reranker]";
+
     blocks.push(
       `<knowledge_index name="${ref.name}">\n` +
         `Passages relevant to this question, retrieved from "${ref.name}" ` +
@@ -382,6 +425,7 @@ export async function buildAttachmentTurn(
             ? "\n[more relevant passages exist; this turn's budget showed the best ones]"
             : "") +
         covered +
+        rankLine +
         `\n${rules(ref)}\n</knowledge_index>`,
     );
     turnUsed += ev.text.length;

@@ -53,9 +53,10 @@ pub fn requested_deliverables(env: &DecisionEnvelope) -> Vec<RendererMode> {
     out
 }
 
-/// `buildDecisionSkillBlock`. Returns `None` exactly when the TS returns
-/// `null`: no skill bundle, no active-mode contract AND no typed deliverable
-/// request (i.e. ordinary standard_chat with nothing to produce).
+/// `buildDecisionSkillBlock`. No mode is contract-less anymore: artifact
+/// modes carry their output contract, standard_chat the D-070 fence
+/// catalogue, so a block exists for every envelope; `None` stays only as
+/// the honest mirror of a MODE_CONTRACTS entry set back to `null`.
 pub fn build_decision_skill_block(env: &DecisionEnvelope, root: &Path) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
 
@@ -87,7 +88,7 @@ pub fn build_decision_skill_block(env: &DecisionEnvelope, root: &Path) -> Option
         return None;
     }
     Some(format!(
-        "<decision_skill mode=\"{}\" decided_by=\"{}\">\n{}\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); never emit other renderer fences.\n</decision_skill>",
+        "<decision_skill mode=\"{}\" decided_by=\"{}\">\n{}\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); where none names one, emit a renderer fence only from the catalogue above and only when the request clearly calls for one.\n</decision_skill>",
         env.active_mode.as_str(),
         env.decided_by,
         parts.join("\n\n"),
@@ -128,13 +129,21 @@ mod tests {
     }
 
     #[test]
-    fn standard_chat_with_no_skill_produces_no_block() {
+    fn standard_chat_with_no_skill_still_carries_the_fence_catalogue() {
+        // D-070: the catalogue rides every chat turn - knowledge, not a
+        // keyword rule. A prose answer was invisible to fenceRepair because
+        // nothing failed a validator; now the model is told which fences
+        // exist even when the engine proposed no mode.
         let tmp = tempfile::TempDir::new().unwrap();
-        assert!(build_decision_skill_block(
+        let block = build_decision_skill_block(
             &envelope(RendererMode::StandardChat, "in-process-fallback"),
-            tmp.path()
+            tmp.path(),
         )
-        .is_none());
+        .expect("standard_chat now carries the catalogue");
+        assert!(block.starts_with("<decision_skill mode=\"standard_chat\" decided_by=\"in-process-fallback\">\n"));
+        assert!(block.contains(crate::contracts_generated::CONTRACT_STANDARD_CHAT));
+        assert!(!block.contains("<core_skill"));
+        assert!(block.ends_with("\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); where none names one, emit a renderer fence only from the catalogue above and only when the request clearly calls for one.\n</decision_skill>"));
     }
 
     #[test]
@@ -148,7 +157,7 @@ mod tests {
         ));
         assert!(!block.contains("<core_skill"));
         assert!(block.contains(crate::contracts_generated::CONTRACT_CHART));
-        assert!(block.ends_with("\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); never emit other renderer fences.\n</decision_skill>"));
+        assert!(block.ends_with("\nFollow the skill and output contract above exactly for this request. Emit only the fence type named in the contract (if any); where none names one, emit a renderer fence only from the catalogue above and only when the request clearly calls for one.\n</decision_skill>"));
     }
 
     #[test]
@@ -232,7 +241,10 @@ mod tests {
     #[test]
     fn constraint_injection_is_bounded_and_type_validated() {
         let tmp = tempfile::TempDir::new().unwrap();
-        // garbage, unknown modes and the active mode never inject a contract
+        // Garbage, unknown modes and the active mode never inject an EXTRA
+        // contract. (D-070 changed the pre-condition: standard_chat is no
+        // longer contract-less — the block it returns carries ONLY the
+        // catalogue, no artifact contract and no multi note.)
         let env = envelope_with_constraints(
             RendererMode::StandardChat,
             &[
@@ -241,7 +253,12 @@ mod tests {
                 "deliverable-request=standard_chat",
             ],
         );
-        assert!(build_decision_skill_block(&env, tmp.path()).is_none());
+        let block = build_decision_skill_block(&env, tmp.path()).expect("catalogue block");
+        assert!(block.contains(crate::contracts_generated::CONTRACT_STANDARD_CHAT));
+        assert!(!block.contains(crate::contracts_generated::CONTRACT_PDF));
+        assert!(!block.contains(crate::contracts_generated::CONTRACT_EXCEL));
+        assert!(!block.contains(MULTI_DELIVERABLE_NOTE));
+        assert!(!block.contains("<core_skill"));
         // three requests still inject at most MAX_EXTRA_DELIVERABLE_CONTRACTS
         let env = envelope_with_constraints(
             RendererMode::StandardChat,

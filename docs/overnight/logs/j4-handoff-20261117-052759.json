@@ -1,0 +1,565 @@
+{
+  "run_at": "2026-11-17T05:27:59",
+  "seconds": 0.4,
+  "attended_scenarios_ran": false,
+  "main_model": {
+    "provider": "strata",
+    "endpoint": "http://127.0.0.1:8080",
+    "loaded": true,
+    "model": "qwen3.8-flash-next-iq3_s",
+    "busy": null,
+    "queued": null,
+    "auto_load": null,
+    "detail": "ok",
+    "reachable": true,
+    "checked_at": 1794873479.9937575,
+    "lifecycle_supported": true,
+    "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+  },
+  "host": {
+    "measured": true,
+    "source": "GlobalMemoryStatusEx",
+    "total_physical_mib": 65299,
+    "free_physical_mib": 8046,
+    "commit_total_mib": 100115,
+    "commit_available_mib": 24821,
+    "free_physical_floor_mib": 1024,
+    "definitions": {
+      "free_physical_mib": "resident RAM free now",
+      "commit_available_mib": "pagefile-backed charge still grantable"
+    },
+    "sampled_at": 1794873479.9937575
+  },
+  "lease_after": {
+    "held": false,
+    "path": "D:\\Projects\\WebUI\\WebUI\\.ai-coordination\\llm-handoff.lock"
+  },
+  "journal_after": {},
+  "scenarios": [
+    {
+      "scenario": "lease_conflict",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "no_preexisting_lease",
+          "ok": true,
+          "detail": "{'held': False, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        },
+        {
+          "check": "lease_visible_after_acquire",
+          "ok": true,
+          "detail": "{'held': True, 'stale': False, 'alive': True, 'proof': 'pid 18152 is running with the recorded start time', 'holder': {'heartbeat': 1794873479.618388, 'owner': 'j4-probe', 'phase': 'waiting', 'pid': 18152, 'pid_created': 134393470795111675, 'started': 1794873479.617888, 'token': '7b790e9b882d4a88a86b93a987949468'}, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        },
+        {
+          "check": "lease_names_owner",
+          "ok": true,
+          "detail": "{'heartbeat': 1794873479.618388, 'owner': 'j4-probe', 'phase': 'waiting', 'pid': 18152, 'pid_created': 134393470795111675, 'started': 1794873479.617888, 'token': '7b790e9b882d4a88a86b93a987949468'}"
+        },
+        {
+          "check": "second_acquire_refused",
+          "ok": true,
+          "detail": "handoff lease is held by j4-probe (pid 18152, phase waiting)"
+        },
+        {
+          "check": "lease_gone_after_release",
+          "ok": true,
+          "detail": "{'held': False, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        }
+      ],
+      "ok": true,
+      "misses": []
+    },
+    {
+      "scenario": "live_holder_not_stolen",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "holder_read_back",
+          "ok": true,
+          "detail": "{'held': True, 'stale': False, 'alive': True, 'proof': 'pid 18152 is running with the recorded start time', 'holder': {'heartbeat': 1794873479.6228287, 'owner': 'a-live-foreign-holder', 'phase': 'processing', 'pid': 18152, 'pid_created': 134393470795111675, 'started': 1794873479.6228287, 'token': 'probe-written'}, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        },
+        {
+          "check": "live_holder_not_called_stale",
+          "ok": true,
+          "detail": "{'alive': True, 'stale': False, 'proof': 'pid 18152 is running with the recorded start time'}"
+        },
+        {
+          "check": "acquire_refuses_live_holder_break_stale=False",
+          "ok": true,
+          "detail": "handoff lease is held by a-live-foreign-holder (pid 18152, phase processing)"
+        },
+        {
+          "check": "live_lease_still_on_disk_break_stale=False",
+          "ok": true,
+          "detail": "{'held': True, 'stale': False, 'alive': True, 'proof': 'pid 18152 is running with the recorded start time', 'holder': {'heartbeat': 1794873479.6228287, 'owner': 'a-live-foreign-holder', 'phase': 'processing', 'pid': 18152, 'pid_created': 134393470795111675, 'started': 1794873479.6228287, 'token': 'probe-written'}, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        },
+        {
+          "check": "acquire_refuses_live_holder_break_stale=True",
+          "ok": true,
+          "detail": "handoff lease is held by a-live-foreign-holder (pid 18152, phase processing)"
+        },
+        {
+          "check": "live_lease_still_on_disk_break_stale=True",
+          "ok": true,
+          "detail": "{'held': True, 'stale': False, 'alive': True, 'proof': 'pid 18152 is running with the recorded start time', 'holder': {'heartbeat': 1794873479.6228287, 'owner': 'a-live-foreign-holder', 'phase': 'processing', 'pid': 18152, 'pid_created': 134393470795111675, 'started': 1794873479.6228287, 'token': 'probe-written'}, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        }
+      ],
+      "ok": true,
+      "misses": []
+    },
+    {
+      "scenario": "stale_holder_broken_with_proof",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "innocent_process_is_live",
+          "ok": true,
+          "detail": "pid 19780"
+        },
+        {
+          "check": "reuse_record_flagged_stale",
+          "ok": true,
+          "detail": "pid 19780 now belongs to a process started LATER than the lock recorded, i.e. the pid was reused"
+        },
+        {
+          "check": "reuse_proof_names_pid_reuse",
+          "ok": true,
+          "detail": "pid 19780 now belongs to a process started LATER than the lock recorded, i.e. the pid was reused"
+        },
+        {
+          "check": "acquire_without_break_refuses_stale",
+          "ok": true,
+          "detail": "pid 19780 now belongs to a process started LATER than the lock recorded, i.e. the pid was reused"
+        },
+        {
+          "check": "acquire_with_proof_succeeds",
+          "ok": true,
+          "detail": "{'token': '2fb59893829041469c1e904943ebdfe4', 'owner': 'j4-after-reuse', 'pid': 18152, 'pid_created': 134393470795111675, 'phase': 'waiting', 'started': 1794873479.635328, 'heartbeat': 1794873479.635828}"
+        },
+        {
+          "check": "innocent_process_not_terminated",
+          "ok": true,
+          "detail": "pid 19780 poll=None"
+        },
+        {
+          "check": "innocent_process_same_generation",
+          "ok": true,
+          "detail": "pid 19780"
+        },
+        {
+          "check": "innocent_child_stopped_by_probe_only",
+          "ok": true,
+          "detail": "pid 19780"
+        },
+        {
+          "check": "dead_generation_flagged_stale",
+          "ok": true,
+          "detail": "pid 20008 now belongs to a process started LATER than the lock recorded, i.e. the pid was reused"
+        },
+        {
+          "check": "dead_generation_break_yields_a_new_lease",
+          "ok": true,
+          "detail": "{'token': '129051737f4f42e3a616634df1615275', 'owner': 'j4-after-dead', 'pid': 18152, 'pid_created': 134393470795111675, 'phase': 'waiting', 'started': 1794873479.6817427, 'heartbeat': 1794873479.6852424}"
+        }
+      ],
+      "ok": true,
+      "misses": [],
+      "innocent_pid": 19780,
+      "proof_1": "pid 19780 now belongs to a process started LATER than the lock recorded, i.e. the pid was reused",
+      "proof_2": "pid 20008 now belongs to a process started LATER than the lock recorded, i.e. the pid was reused"
+    },
+    {
+      "scenario": "fits_no_unload",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "run_ok",
+          "ok": true,
+          "detail": "ok"
+        },
+        {
+          "check": "no_unload_phase_when_it_fits",
+          "ok": true,
+          "detail": "['processing', 'releasing_worker', 'ready']"
+        },
+        {
+          "check": "phases_as_amended",
+          "ok": true,
+          "detail": "['processing', 'releasing_worker', 'ready']"
+        },
+        {
+          "check": "device_recorded",
+          "ok": true,
+          "detail": "cpu"
+        },
+        {
+          "check": "no_load_call_when_nothing_unloaded",
+          "ok": true,
+          "detail": "['capability', 'device_used', 'final_status', 'lease_release', 'measure_after_work', 'measure_before', 'ok', 'original_main_model', 'phases', 'plan', 'work', 'work_peak']"
+        },
+        {
+          "check": "main_model_state_unchanged",
+          "ok": true,
+          "detail": "{'before': {'provider': 'strata', 'endpoint': 'http://127.0.0.1:8080', 'loaded': True, 'model': 'qwen3.8-flash-next-iq3_s', 'busy': None, 'queued': None, 'auto_load': None, 'detail': 'ok', 'reachable': True, 'checked_at': 1794873479.6987438, 'lifecycle_supported': True, 'lifecycle_detail': 'Strata serves POST /unload and POST /load (verified in serve/server.py)'}, 'after': {'provider': 'strata', 'endpoint': 'http://127.0.0.1:8080', 'loaded': True, 'model': 'qwen3.8-flash-next-iq3_s', 'busy': None, 'queued': None, 'auto_load': None, 'detail': 'ok', 'reachable': True, 'checked_at': 1794873479.79"
+        },
+        {
+          "check": "journal_cleared_after_ok",
+          "ok": true,
+          "detail": "{}"
+        }
+      ],
+      "ok": true,
+      "misses": [],
+      "plan": {
+        "capability": "documents.ocr",
+        "device": "cpu",
+        "fits": true,
+        "needs_handoff": false,
+        "reason": "CPU placement: GPU execution is disabled for this run; measured RAM and commit headroom are sufficient",
+        "evidence": {
+          "ram": {
+            "measured": true,
+            "fits": true,
+            "free_physical_mib": 8048,
+            "total_physical_mib": 65299,
+            "commit_available_mib": 24824,
+            "est_peak_mib": 32,
+            "required_mib": 1024,
+            "reasons": [],
+            "estimate": "measured",
+            "floor_free_physical_mib": 1024,
+            "policy": "free-physical-plus-commit",
+            "sampled_at": 1794873479.7360544
+          },
+          "vram": {
+            "available": true,
+            "free_mib": 2805,
+            "devices": [
+              {
+                "name": "NVIDIA GeForce RTX 3060",
+                "total_mib": 12288,
+                "used_mib": 9483,
+                "free_mib": 2805
+              }
+            ],
+            "detail": "1 GPU(s); most free: NVIDIA GeForce RTX 3060 2805 MiB of 12288 MiB",
+            "source": "nvidia-smi",
+            "sampled_at": 1794873479.7014942
+          },
+          "est_peak_mib": 32,
+          "est_peak_basis": "probe: trivial fixture allocation",
+          "est_peak_vram_mib": 0,
+          "est_vram_basis": "no estimate declared",
+          "margin_mib": 256,
+          "main_model": {
+            "provider": "strata",
+            "endpoint": "http://127.0.0.1:8080",
+            "loaded": true,
+            "model": "qwen3.8-flash-next-iq3_s",
+            "busy": null,
+            "queued": null,
+            "auto_load": null,
+            "detail": "ok",
+            "reachable": true,
+            "checked_at": 1794873479.7009943,
+            "lifecycle_supported": true,
+            "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+          }
+        }
+      },
+      "measure_before": {
+        "free_physical_mib": 8055,
+        "commit_available_mib": 24825,
+        "free_vram_mib": 2805,
+        "vram_available": true
+      }
+    },
+    {
+      "scenario": "resource_limit_without_unload",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "typed_resource_limit",
+          "ok": true,
+          "detail": "resource_limit"
+        },
+        {
+          "check": "no_work_ran_under_resource_limit",
+          "ok": true,
+          "detail": "work ran: False"
+        },
+        {
+          "check": "no_unload_taken_without_opt_in",
+          "ok": true,
+          "detail": "[]"
+        },
+        {
+          "check": "reason_states_measured_numbers",
+          "ok": true,
+          "detail": "neither device fits: free physical RAM is 8046 MiB, under the 9000256 MiB this load needs (measured load peak 9000000 MiB + 256 MiB margin); available commit charge is 24822 MiB, under the 9000256 MiB this capability would need; GPU: free VRAM is 2805 MiB, under the 9000256 MiB this needs (9000000 M"
+        },
+        {
+          "check": "lease_released_after_refusal",
+          "ok": true,
+          "detail": "{'held': False, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        }
+      ],
+      "ok": true,
+      "misses": [],
+      "reason": "neither device fits: free physical RAM is 8046 MiB, under the 9000256 MiB this load needs (measured load peak 9000000 MiB + 256 MiB margin); available commit charge is 24822 MiB, under the 9000256 MiB this capability would need; GPU: free VRAM is 2805 MiB, under the 9000256 MiB this needs (9000000 MiB estimate + 256 MiB margin); the main model is resident and would have to be released first",
+      "plan": {
+        "capability": "documents.ocr",
+        "device": "none",
+        "fits": false,
+        "needs_handoff": true,
+        "reason": "neither device fits: free physical RAM is 8046 MiB, under the 9000256 MiB this load needs (measured load peak 9000000 MiB + 256 MiB margin); available commit charge is 24822 MiB, under the 9000256 MiB this capability would need; GPU: free VRAM is 2805 MiB, under the 9000256 MiB this needs (9000000 MiB estimate + 256 MiB margin); the main model is resident and would have to be released first",
+        "evidence": {
+          "ram": {
+            "measured": true,
+            "fits": false,
+            "free_physical_mib": 8046,
+            "total_physical_mib": 65299,
+            "commit_available_mib": 24822,
+            "est_peak_mib": 9000000,
+            "required_mib": 9000256,
+            "reasons": [
+              "free physical RAM is 8046 MiB, under the 9000256 MiB this load needs (measured load peak 9000000 MiB + 256 MiB margin)",
+              "available commit charge is 24822 MiB, under the 9000256 MiB this capability would need"
+            ],
+            "estimate": "measured",
+            "floor_free_physical_mib": 1024,
+            "policy": "free-physical-plus-commit",
+            "sampled_at": 1794873479.8286133
+          },
+          "vram": {
+            "available": true,
+            "free_mib": 2805,
+            "devices": [
+              {
+                "name": "NVIDIA GeForce RTX 3060",
+                "total_mib": 12288,
+                "used_mib": 9483,
+                "free_mib": 2805
+              }
+            ],
+            "detail": "1 GPU(s); most free: NVIDIA GeForce RTX 3060 2805 MiB of 12288 MiB",
+            "source": "nvidia-smi",
+            "sampled_at": 1794873479.7975185
+          },
+          "est_peak_mib": 9000000,
+          "est_peak_basis": "probe: deliberately impossible estimate",
+          "est_peak_vram_mib": 9000000,
+          "est_vram_basis": "declared 9000000 MiB with no recorded measurement on this host",
+          "margin_mib": 256,
+          "main_model": {
+            "provider": "strata",
+            "endpoint": "http://127.0.0.1:8080",
+            "loaded": true,
+            "model": "qwen3.8-flash-next-iq3_s",
+            "busy": null,
+            "queued": null,
+            "auto_load": null,
+            "detail": "ok",
+            "reachable": true,
+            "checked_at": 1794873479.7970176,
+            "lifecycle_supported": true,
+            "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "work_crash_typed_failure",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "crash_becomes_typed_status",
+          "ok": true,
+          "detail": "handoff_failed"
+        },
+        {
+          "check": "crash_detail_carries_exception",
+          "ok": true,
+          "detail": "RuntimeError: probe-injected worker crash"
+        },
+        {
+          "check": "crash_never_returns_ok",
+          "ok": true,
+          "detail": "False"
+        },
+        {
+          "check": "lease_released_after_crash",
+          "ok": true,
+          "detail": "{'held': False, 'path': 'D:\\\\Projects\\\\WebUI\\\\WebUI\\\\.ai-coordination\\\\llm-handoff.lock'}"
+        },
+        {
+          "check": "no_unload_was_taken",
+          "ok": true,
+          "detail": "['capability', 'detail', 'final_status', 'lease_release', 'measure_before', 'note', 'ok', 'original_main_model', 'phases', 'plan', 'reason']"
+        }
+      ],
+      "ok": true,
+      "misses": []
+    },
+    {
+      "scenario": "journal_records_phase_during_work",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "journal_says_processing_during_work",
+          "ok": true,
+          "detail": "{'journal_phase': 'processing', 'lease_phase': 'processing', 'lease_device': 'cpu'}"
+        },
+        {
+          "check": "lease_says_processing_during_work",
+          "ok": true,
+          "detail": "{'journal_phase': 'processing', 'lease_phase': 'processing', 'lease_device': 'cpu'}"
+        },
+        {
+          "check": "lease_carries_device",
+          "ok": true,
+          "detail": "{'journal_phase': 'processing', 'lease_phase': 'processing', 'lease_device': 'cpu'}"
+        },
+        {
+          "check": "run_ok",
+          "ok": true,
+          "detail": "ok"
+        }
+      ],
+      "ok": true,
+      "misses": [],
+      "observed": {
+        "journal_phase": "processing",
+        "lease_phase": "processing",
+        "lease_device": "cpu"
+      }
+    },
+    {
+      "scenario": "journal_recovery_noop_when_not_loaded",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "recovery_ran",
+          "ok": true,
+          "detail": "{'needed': True, 'restored': True, 'detail': 'journal cleared (nothing to restore: the model was not loaded before)', 'journal': {'capability': 'documents.ocr', 'original': {'endpoint': 'http://127.0.0.1:8080', 'loaded': False, 'provider': 'strata'}, 'owner': 'j4-probe', 'phase': 'processing', 'token': 'probe', 'unloaded_by_us': False}}"
+        },
+        {
+          "check": "recovery_restored_true",
+          "ok": true,
+          "detail": "{'needed': True, 'restored': True, 'detail': 'journal cleared (nothing to restore: the model was not loaded before)', 'journal': {'capability': 'documents.ocr', 'original': {'endpoint': 'http://127.0.0.1:8080', 'loaded': False, 'provider': 'strata'}, 'owner': 'j4-probe', 'phase': 'processing', 'token': 'probe', 'unloaded_by_us': False}}"
+        },
+        {
+          "check": "recovery_did_not_load_a_model",
+          "ok": true,
+          "detail": "['detail', 'journal', 'needed', 'restored']"
+        },
+        {
+          "check": "journal_cleared_after_recovery",
+          "ok": true,
+          "detail": "{}"
+        }
+      ],
+      "ok": true,
+      "misses": [],
+      "recover": {
+        "needed": true,
+        "restored": true,
+        "detail": "journal cleared (nothing to restore: the model was not loaded before)",
+        "journal": {
+          "capability": "documents.ocr",
+          "original": {
+            "endpoint": "http://127.0.0.1:8080",
+            "loaded": false,
+            "provider": "strata"
+          },
+          "owner": "j4-probe",
+          "phase": "processing",
+          "token": "probe",
+          "unloaded_by_us": false
+        }
+      }
+    },
+    {
+      "scenario": "playwright_lock_conflict",
+      "class": "safe",
+      "checks": [
+        {
+          "check": "browser_lock_conflict",
+          "ok": true,
+          "detail": "NOT_RUN: no live browser lock right now. The rule under test is that acquire() checks the shared Playwright lock BEFORE creating its own lease; scoring it needs a real browser window holding that lock."
+        }
+      ],
+      "ok": true,
+      "misses": [],
+      "note": "not_run"
+    },
+    {
+      "scenario": "unload_process_restore",
+      "class": "held",
+      "checks": [
+        {
+          "check": "attended_only",
+          "ok": true,
+          "detail": "HELD: needs --allow-unload --confirm UNLOAD with an operator watching the screen, because it parks the shared main model for minutes. Not run, not claimed."
+        }
+      ],
+      "ok": true,
+      "misses": []
+    },
+    {
+      "scenario": "resource_limit_with_unload_and_restore",
+      "class": "held",
+      "checks": [
+        {
+          "check": "attended_only",
+          "ok": true,
+          "detail": "HELD: needs --allow-unload --confirm UNLOAD with an operator watching the screen, because it parks the shared main model for minutes. Not run, not claimed."
+        }
+      ],
+      "ok": true,
+      "misses": []
+    },
+    {
+      "scenario": "kill_mid_window_recovery",
+      "class": "held",
+      "checks": [
+        {
+          "check": "attended_only",
+          "ok": true,
+          "detail": "HELD: needs --allow-unload --confirm UNLOAD with an operator watching the screen, because it parks the shared main model for minutes. Not run, not claimed."
+        }
+      ],
+      "ok": true,
+      "misses": []
+    },
+    {
+      "scenario": "inference_gate_holds_during_window",
+      "class": "held",
+      "checks": [
+        {
+          "check": "attended_only",
+          "ok": true,
+          "detail": "HELD: needs --allow-unload --confirm UNLOAD with an operator watching the screen, because it parks the shared main model for minutes. Not run, not claimed."
+        }
+      ],
+      "ok": true,
+      "misses": []
+    },
+    {
+      "scenario": "no_overlapping_reload_peaks",
+      "class": "held",
+      "checks": [
+        {
+          "check": "attended_only",
+          "ok": true,
+          "detail": "HELD: needs --allow-unload --confirm UNLOAD with an operator watching the screen, because it parks the shared main model for minutes. Not run, not claimed."
+        }
+      ],
+      "ok": true,
+      "misses": []
+    }
+  ],
+  "misses": 0,
+  "definitions": "free_physical_mib = GlobalMemoryStatusEx ullAvailPhys; commit_available_mib = ullAvailPageFile; llm working set = psutil rss of the strata.exe pid; this probe issues no inference request",
+  "note": "the safe scenarios exercise coordination, typed failure and journal recovery against real code with no model lifecycle call. The attended scenarios prove unload/process/restore and are never run unattended."
+}

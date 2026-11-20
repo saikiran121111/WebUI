@@ -1,0 +1,32 @@
+test_a_sample_that_reported_nothing_leaves_the_stage_unmeasured (tests.test_measurement_unknown.FoldingPeaks.test_a_sample_that_reported_nothing_leaves_the_stage_unmeasured) ... ok
+test_an_unreported_field_is_counted_not_folded_as_zero (tests.test_measurement_unknown.FoldingPeaks.test_an_unreported_field_is_counted_not_folded_as_zero) ... ok
+test_maxima_never_degrade_and_never_invent (tests.test_measurement_unknown.FoldingPeaks.test_maxima_never_degrade_and_never_invent) ... ok
+test_ocr_child_monitor_reports_unknown_not_zero (tests.test_measurement_unknown.FoldingPeaks.test_ocr_child_monitor_reports_unknown_not_zero) ... ok
+test_a_field_the_driver_refused_to_answer_is_None (tests.test_measurement_unknown.GpuRowsThatHalfAnswer.test_a_field_the_driver_refused_to_answer_is_None) ... ok
+test_a_partial_row_is_never_ranked_as_a_free_amount (tests.test_measurement_unknown.GpuRowsThatHalfAnswer.test_a_partial_row_is_never_ranked_as_a_free_amount) ... ok
+test_no_readable_row_means_VRAM_is_unknown (tests.test_measurement_unknown.GpuRowsThatHalfAnswer.test_no_readable_row_means_VRAM_is_unknown) ... ok
+test_an_unreadable_sample_makes_the_freed_amount_unknown (tests.test_measurement_unknown.HandoffFreedAmounts.test_an_unreadable_sample_makes_the_freed_amount_unknown) ... ok
+test_two_real_samples_give_the_difference (tests.test_measurement_unknown.HandoffFreedAmounts.test_two_real_samples_give_the_difference) ... ok
+test_a_member_that_cannot_be_queried_gives_unknown_not_zero (tests.test_measurement_unknown.LiveJobCharge.test_a_member_that_cannot_be_queried_gives_unknown_not_zero) ... ok
+test_a_partly_readable_tree_marks_the_total_a_lower_bound (tests.test_measurement_unknown.LiveJobCharge.test_a_partly_readable_tree_marks_the_total_a_lower_bound) ... ok
+test_a_measured_host_still_reports_the_number_it_needs (tests.test_measurement_unknown.PlacementEvidence.test_a_measured_host_still_reports_the_number_it_needs) ... ok
+test_an_unreadable_host_does_not_claim_a_zero_ram_requirement (tests.test_measurement_unknown.PlacementEvidence.test_an_unreadable_host_does_not_claim_a_zero_ram_requirement) ... ok
+test_no_reporting_row_is_unknown_not_zero (tests.test_measurement_unknown.SummingReportedRows.test_no_reporting_row_is_unknown_not_zero) ... ok
+test_only_rows_that_reported_are_summed (tests.test_measurement_unknown.SummingReportedRows.test_only_rows_that_reported_are_summed) ... ok
+test_tree_total_names_the_field_that_went_unmeasured (tests.test_measurement_unknown.SummingReportedRows.test_tree_total_names_the_field_that_went_unmeasured)
+A readable tree with one unreadable counter must not fold a 0 into the total. ... FAIL
+test_unreadable_tree_still_reports_unknown (tests.test_measurement_unknown.SummingReportedRows.test_unreadable_tree_still_reports_unknown) ... ok
+
+======================================================================
+FAIL: test_tree_total_names_the_field_that_went_unmeasured (tests.test_measurement_unknown.SummingReportedRows.test_tree_total_names_the_field_that_went_unmeasured)
+A readable tree with one unreadable counter must not fold a 0 into the total.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_measurement_unknown.py", line 53, in test_tree_total_names_the_field_that_went_unmeasured
+    self.assertIn("UNKNOWN", got["note"])
+AssertionError: 'UNKNOWN' not found in 'these rows reported no value for the named field; the total covers only the rows that reported, and a field with no reporting row is None'
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.410s
+
+FAILED (failures=1)

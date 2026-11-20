@@ -1,0 +1,13 @@
+ffmpeg: D:\Projects\WebUI\WebUI\node_modules\ffmpeg-static\ffmpeg.exe
+speech.wav dur=6.543 samples 104688 6.54s audio_state selected
+speech.wav vad= False -> [[0.0, 6.24, "The Kestrel Depot Inventory lists 11 crates of copper cable worth 2400 euros."]]
+speech.wav vad= True -> [[0.0, 6.24, "The Kestrel Depot Inventory lists 11 crates of copper cable worth 2400 euros."]]
+final.wav dur=5.173 samples 82768 5.17s audio_state selected
+final.wav vad= False -> [[0.0, 4.24, "Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine"]]
+final.wav vad= True -> [[0.0, 4.24, "Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine"]]
+long.wav dur=21.717 samples 347465 21.72s audio_state selected
+long.wav vad= False -> [[0.0, 7.0, "The Kestrel Depot inventory lists 11 crates of copper cable worth 2,400 euros."], [7.0, 21.0, "Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine."]]
+long.wav vad= True -> [[0.0, 16.55, "The Kestrel Depot inventory lists 11 crates of copper cable worth 2,400 euros."], [16.55, 21.55, "Embrose Finch parked a maroon bicycle behind the lighthouse at quarter past nine."]]
+tone.wav dur=5.000 samples 80000 5.00s audio_state selected
+tone.wav vad= False -> [[0.0, 5.0, "."], [5.0, 10.0, "."], [10.0, 15.0, "."], [15.0, 20.0, "."], [20.0, 25.0, "."], [25.0, 29.0, "."]]
+tone.wav vad= True -> []

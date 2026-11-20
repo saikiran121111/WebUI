@@ -1,0 +1,10 @@
+fixture cards_av.mp4: built size=98074
+evidence written: D:\Projects\WebUI\WebUI\docs\overnight\logs\f53-video-evidence.json
+FAILURES:
+  - V1 authored text found at 4.0s: state=recognised missing=['harbour', 'ledger', 'kettle', '9'] text='the arbryerkeereerweprey   kg'
+  - V1 authored text found at 14.0s: state=recognised missing=['throughput', '3.5', 'percent'] text='larter lj iprbblyhhgrprbse 1d  8 percer'
+  - V1 authored text found at 27.0s: state=recognised missing=['lighthouse'] text='the gru lpra sedi 1913'
+  - V3 ASR ran on the video container's audio track: state=failed payload.state=None reason=model_unavailable
+  - V3 CPU device policy on the pinned ASR model: device=None compute=None model=None
+  - V3 tail content accuracy against authored truth: WER=1.000 over 13 truth words (limit 0.35) text=''
+  - V3 the tail sits near the END of the source, source-relative: segment_windows=[]

@@ -1,0 +1,31 @@
+test_child_env_pins_utf8_codecs_for_owned_children (tests.test_worker_protocol.ChildEnvironment.test_child_env_pins_utf8_codecs_for_owned_children) ... ok
+test_a_frame_survives_a_locale_text_layer_that_cannot_represent_it (tests.test_worker_protocol.FrameEncoding.test_a_frame_survives_a_locale_text_layer_that_cannot_represent_it) ... ok
+test_a_lone_surrogate_cannot_kill_the_pipe (tests.test_worker_protocol.FrameEncoding.test_a_lone_surrogate_cannot_kill_the_pipe) ... ok
+test_the_old_text_layer_write_is_what_broke_so_the_regression_stays_exercised (tests.test_worker_protocol.FrameEncoding.test_the_old_text_layer_write_is_what_broke_so_the_regression_stays_exercised) ... ok
+test_a_non_ascii_parse_result_comes_back_instead_of_a_worker_crash (tests.test_worker_protocol.OwnedRoundTrip.test_a_non_ascii_parse_result_comes_back_instead_of_a_worker_crash) ... ok
+test_a_still_running_worker_keeps_its_request_pipe (tests.test_worker_protocol.PipeHygiene.test_a_still_running_worker_keeps_its_request_pipe)
+End of stdout alone never justifies closing the pool's write end. ... ok
+test_reaping_a_worker_releases_its_request_pipe (tests.test_worker_protocol.PipeHygiene.test_reaping_a_worker_releases_its_request_pipe)
+The reaper is the routine path, and it must not leak the write end. ... ok
+test_the_readers_close_their_pipes_and_tolerate_a_race (tests.test_worker_protocol.PipeHygiene.test_the_readers_close_their_pipes_and_tolerate_a_race) ... ok
+test_canon_json_stable (tests.test_contracts_security.Contracts.test_canon_json_stable) ... ok
+test_embedding_compatibility (tests.test_contracts_security.Contracts.test_embedding_compatibility) ... ok
+test_rejects (tests.test_contracts_security.Contracts.test_rejects) ... ok
+test_round_trip (tests.test_contracts_security.Contracts.test_round_trip) ... ok
+test_worker_env_blocks_egress (tests.test_contracts_security.Egress.test_worker_env_blocks_egress) ... ok
+test_good_paths_stay_inside (tests.test_contracts_security.Paths.test_good_paths_stay_inside) ... ok
+test_loopback_and_token (tests.test_contracts_security.Paths.test_loopback_and_token) ... ok
+test_ratio_explosion (tests.test_contracts_security.Paths.test_ratio_explosion) ... ok
+test_reserved_device_names (tests.test_contracts_security.Paths.test_reserved_device_names) ... ok
+test_traversal_rejected (tests.test_contracts_security.Paths.test_traversal_rejected) ... ok
+test_zip_bomb_and_names (tests.test_contracts_security.Paths.test_zip_bomb_and_names) ... ok
+test_every_declared_capability_reaches_a_worker_handler (tests.test_contracts_security.WireReasons.test_every_declared_capability_reaches_a_worker_handler) ... ok
+test_every_reason_the_package_raises_is_a_legal_wire_reason (tests.test_contracts_security.WireReasons.test_every_reason_the_package_raises_is_a_legal_wire_reason) ... ok
+test_reason_names_are_unique (tests.test_contracts_security.WireReasons.test_reason_names_are_unique) ... ok
+test_a_spawned_child_gets_no_egress_path_and_the_right_pythonpath (tests.test_contracts_security.WorkerOwnership.test_a_spawned_child_gets_no_egress_path_and_the_right_pythonpath) ... ok
+test_a_worker_that_announces_a_dead_control_channel_fails_fast (tests.test_contracts_security.WorkerOwnership.test_a_worker_that_announces_a_dead_control_channel_fails_fast) ... ok
+
+----------------------------------------------------------------------
+Ran 24 tests in 2.185s
+
+OK

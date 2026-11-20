@@ -1,0 +1,36 @@
+..................................................................................................................................................................................................................................C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\case.py:589: ResourceWarning: unclosed file <_io.TextIOWrapper name=3 encoding='utf-8'>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+................EOF marker not found
+......................................................................................F.......C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\subprocess.py:1127: ResourceWarning: subprocess 2500 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+C:\Users\Ruku\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\Lib\unittest\case.py:589: ResourceWarning: unclosed file <_io.TextIOWrapper name=3 encoding='utf-8'>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.18:12:34 127.0.0.1 "GET /health HTTP/1.1" 200 -
+.18:12:34 127.0.0.1 "POST /job HTTP/1.1" 401 -
+.18:12:34 127.0.0.1 "POST /job HTTP/1.1" 200 -
+.18:12:34 127.0.0.1 "POST /job HTTP/1.1" 552 -
+.18:12:34 127.0.0.1 "POST /job HTTP/1.1" 413 -
+.18:12:34 127.0.0.1 "POST /job HTTP/1.1" 400 -
+.18:12:34 127.0.0.1 "GET /capabilities HTTP/1.1" 200 -
+...connection closed by client: ConnectionResetError
+18:12:34 127.0.0.1 "GET /health HTTP/1.1" 200 -
+.18:12:34 127.0.0.1 "POST /shutdown HTTP/1.1" 401 -
+18:12:34 127.0.0.1 "POST /shutdown HTTP/1.1" 200 -
+....FATAL: the supervisor may bind only to loopback
+..........................................................
+======================================================================
+FAIL: test_a_heavy_worker_declares_what_it_loaded_before_it_answers (tests.test_supervisor_workers.OwnedWorkers.test_a_heavy_worker_declares_what_it_loaded_before_it_answers)
+Cold-load evidence: the handshake carries the native graph the worker imported
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Projects\WebUI\WebUI\python-backend\tests\test_supervisor_workers.py", line 405, in test_a_heavy_worker_declares_what_it_loaded_before_it_answers
+    self.assertIsNotNone(rep, "the helper is owned and must report its startup")
+AssertionError: unexpectedly None : the helper is owned and must report its startup
+
+----------------------------------------------------------------------
+Ran 409 tests in 56.019s
+
+FAILED (failures=1)

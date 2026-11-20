@@ -20,6 +20,8 @@ from typing import Any
 from .config import (ENV_RPC_TOKEN, ENV_SECRET_FILE, LIMITS, ensure_dirs, fingerprint, runtime_dir)
 from .contracts import CAPABILITIES, JobRequest, JobResult, StructuredError, canon_json
 from .health import Health
+from .models import job_limits          # stdlib ctypes only: this stays a light startup
+from .models import resources           # stdlib ctypes + psutil-free host numbers, no model import
 from .models.lifecycle import WorkerPool
 from .models.registry import catalog
 from .security import is_loopback, token_ok
@@ -27,6 +29,14 @@ from .security import is_loopback, token_ok
 HEAVY_MODULES = ("torch", "paddle", "paddleocr", "transformers", "sentence_transformers", "docling",
                  "pyannote", "FlagEmbedding", "faster_whisper", "qwen_asr", "onnxruntime", "cv2",
                  "tensorflow", "ultralytics")
+# Captured while this module is being imported, because that is the contract: importing
+# the supervisor must not drag a heavy framework into the process that will serve /job.
+# It is deliberately a snapshot rather than a live probe. The live set is ALSO reported
+# (heavy_imports_now) so nothing is hidden: a heavy module can be seen there while the
+# startup set stays empty, which is exactly the state of a worker host that has run a
+# real engine. main() below still refuses to serve if a heavy module is live at startup,
+# and StartupContract re-imports in a fresh interpreter to prove the import contract.
+HEAVY_AT_IMPORT = tuple(sorted(m for m in HEAVY_MODULES if m in sys.modules))
 DISCOVERY_FILE = "supervisor.json"
 # Loopback clients that go away (cancelled probes, teardown, idle keep-alive) are ordinary
 # traffic; they must cost one log line and no thread, never a traceback or a parked thread.
@@ -117,7 +127,20 @@ def make_handler(health: Health, pool: WorkerPool, secret: str, audit: list[str]
             if self.path.startswith("/health"):
                 snap = health.snapshot()
                 snap["workers"] = pool.report()
-                snap["heavy_imports_at_startup"] = heavy_imports_present()
+                # Both sets, with different meanings. The startup set is the import
+                # contract; the live set shows a model that has since been loaded in the
+                # same process. Reporting only one of them makes "no heavy model loaded"
+                # either a lie or a tautology depending on which one you pick.
+                snap["heavy_imports_at_startup"] = list(HEAVY_AT_IMPORT)
+                snap["heavy_imports_now"] = heavy_imports_present()
+                # Which ceiling is actually enforced, and what the OS recorded as the peak
+                # commit for each worker it reaped. The budget claim is meaningless without it.
+                snap["memory_ceiling"] = job_limits.status()
+                snap["ceiling_evidence"] = pool.ceiling_evidence()
+                # The host numbers the ceiling and the admission gate are actually acting on,
+                # so a caller can tell "under the ceiling" from "the host has no RAM left".
+                snap["host_memory"] = resources.memory_report()
+                snap["pressure_releases"] = pool.pressure_releases()
                 self._send(200, snap)
                 return
             if self.path.startswith("/capabilities"):
@@ -184,17 +207,33 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--discovery", default="", help="where to write the discovery JSON")
     ap.add_argument("--idle-ttl", type=float, default=LIMITS.idle_ttl_s)
+    ap.add_argument("--mem-ceiling-bytes", type=int, default=LIMITS.mem_ceiling_bytes,
+                    help="hard commit ceiling for this process and every worker it spawns")
     args = ap.parse_args(argv)
 
+    # Bind safety first. It is a pure function of the arguments and must produce the
+    # same exit code no matter what else happens to be loaded in the process; the
+    # heavy-import guard below is a property of this process's import graph.
+    if not is_loopback(args.host):
+        sys.stderr.write("FATAL: the supervisor may bind only to loopback\n")
+        return 4
     heavy = heavy_imports_present()
     if heavy:
         sys.stderr.write(f"FATAL: supervisor imported heavy modules before serving: {heavy}\n")
         return 3
-    if not is_loopback(args.host):
-        sys.stderr.write("FATAL: the supervisor may bind only to loopback\n")
-        return 4
 
     LIMITS.idle_ttl_s = args.idle_ttl
+    # Put the whole runtime tree under an OS-enforced commit ceiling BEFORE any worker can be
+    # spawned. Children created by a job member join the job at create time, so a lazily
+    # loaded heavy model cannot walk past the cap on its way in. If the OS refuses, that is
+    # logged as an acceptance failure rather than folded into a normal startup line.
+    ceiling = job_limits.install_process_job(args.mem_ceiling_bytes)
+    if ceiling.get("enforced"):
+        sys.stderr.write(f"ruke-ml commit ceiling enforced: {ceiling.get('limit_bytes')} bytes "
+                         f"via {ceiling.get('mechanism')} ({ceiling.get('name')})\n")
+    else:
+        sys.stderr.write(f"ruke-ml memory ceiling NOT enforced: {ceiling.get('mechanism')} "
+                         f"reason={ceiling.get('reason')} win32={ceiling.get('win32_error')}\n")
     ensure_dirs()
     started = time.time()
     rdir = runtime_dir()

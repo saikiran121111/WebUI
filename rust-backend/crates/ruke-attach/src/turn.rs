@@ -43,6 +43,59 @@ use crate::QueryEmbedder;
 const MAX_FRAMES: usize = 4;
 const FOLLOWUP_MAX: usize = 60;
 
+/// D-068: the reason this owner reports when it has NO route to a neural
+/// reranker at all. Byte-identical to `RERANK_NO_ROUTE_REASON` in
+/// `lib/server/attachindex/rerank.ts`, because the `[ranking: ...]` line is
+/// part of the cross-language wire contract (fixtures/attachments replay is
+/// byte-exact) and the sentence has to be TRUE on both sides. The Rust
+/// attachment turn owner has no rerank stage, so naming one runtime ("the
+/// Rust backend is not enabled") would have been a lie in exactly the
+/// deployment that mirrors it.
+pub(crate) const NO_RERANK_ROUTE: &str =
+    "this retrieval owner has no neural rerank route in this deployment";
+
+/// D-068: mirror of the `[ranking: ...]` honesty line in `turn.ts`.
+///
+/// Only two of the four TS shapes are computable here, and both are decided
+/// by STRUCTURE rather than by a candidate count this port does not carry:
+///  * `structural_selection` — the same three branches that make
+///    `rankCandidates` return `rankable: false` (retrieve.ts:221-270), i.e.
+///    a spine range or an explicit time selection, where reordering by
+///    "similarity" would be wrong and the order IS the source's structure;
+///  * `rrf_only` / `not_attempted` — the fused order stands and no reranker
+///    ran, with `NO_RERANK_ROUTE` as the reason.
+///
+/// Documented divergence: TS's "fewer than two candidates were ranked"
+/// wording is not reproducible here — `Evidence` carries the served passages,
+/// never the candidate-field size the stage was handed — and no fixture, and
+/// no non-degenerate retrieval, reaches it (a field that small produces no
+/// evidence block at all). `neural` is unreachable here because this owner
+/// has no rerank stage; adding one means extending BOTH sides at once.
+pub(crate) fn rank_line(opts: &RetrieveOpts, vector_mode: &str) -> String {
+    let structural = if opts.mode == QueryMode::Sequential && opts.range.is_some() {
+        Some("this turn selected a spine range, so the order is reading order, not relevance")
+    } else if opts.mode == QueryMode::TimeRange && !opts.windows.is_empty() {
+        Some("this turn selected explicit time windows, so the order is the timeline")
+    } else if opts.mode == QueryMode::TimeRange && opts.from_sec.is_some() {
+        Some("this turn selected an explicit time range, so the order is the timeline")
+    } else {
+        None
+    };
+    let head = match structural {
+        Some(reason) => format!("no neural rerank ({reason})"),
+        None => format!(
+            "the fused {} order stands; no neural rerank ran ({})",
+            if vector_mode == crate::vectors::MODE_HYBRID {
+                "semantic + lexical"
+            } else {
+                "lexical"
+            },
+            NO_RERANK_ROUTE
+        ),
+    };
+    format!("\n[ranking: {head} -- passages the retrieval did not rank were never seen by the reranker]")
+}
+
 /// `TURN_BUDGET` (I05): the ceiling SHARED by every attachment in one turn
 /// — notes and retrieved passages alike count against it. `ATTACH_TURN_
 /// BUDGET_CHARS` ?? 48000, JS `Number()` semantics via `env_number`. Never
@@ -583,6 +636,10 @@ pub async fn build_attachment_turn(
             );
         }
         block.push_str(&covered);
+        // D-058/D-068: the reranker's own honesty line, kept OUT of the
+        // mirrored [coverage: ...] marker, ASCII-only, byte-identical to
+        // turn.ts's rankLine.
+        block.push_str(&rank_line(&opts, &ev.vector_mode));
         block.push('\n');
         block.push_str(&rules(r));
         block.push_str("\n</knowledge_index>");
@@ -1516,5 +1573,57 @@ mod tests {
         .await;
         assert_eq!(r, Err(Cancelled));
         assert_eq!(msgs.len(), 1); // no partial injection
+    }
+
+    // ---- D-068: the [ranking: ...] honesty line -------------------------
+    #[test]
+    fn rank_line_mirrors_turn_ts_byte_for_byte() {
+        // The default fused case: no rerank stage exists here, so the line
+        // names THIS owner's route, never one runtime.
+        assert_eq!(
+            rank_line(&RetrieveOpts::default(), crate::vectors::MODE_HYBRID),
+            "\n[ranking: the fused semantic + lexical order stands; no neural rerank ran (this retrieval owner has no neural rerank route in this deployment) -- passages the retrieval did not rank were never seen by the reranker]"
+        );
+        assert_eq!(
+            rank_line(&RetrieveOpts::default(), crate::vectors::MODE_LEXICAL_ONLY),
+            "\n[ranking: the fused lexical order stands; no neural rerank ran (this retrieval owner has no neural rerank route in this deployment) -- passages the retrieval did not rank were never seen by the reranker]"
+        );
+        // Structural selections: the order IS the source's structure, and the
+        // three reasons are the same three `rankable: false` branches of
+        // rankCandidates (retrieve.ts:221-270).
+        let spine = RetrieveOpts {
+            mode: QueryMode::Sequential,
+            range: Some((0, 3)),
+            ..Default::default()
+        };
+        assert!(rank_line(&spine, crate::vectors::MODE_HYBRID).contains(
+            "[ranking: no neural rerank (this turn selected a spine range, so the order is reading order, not relevance) --"
+        ));
+        let windows = RetrieveOpts {
+            mode: QueryMode::TimeRange,
+            windows: vec![(10.0, 20.0)],
+            from_sec: Some(10.0),
+            ..Default::default()
+        };
+        assert!(rank_line(&windows, crate::vectors::MODE_HYBRID).contains(
+            "[ranking: no neural rerank (this turn selected explicit time windows, so the order is the timeline) --"
+        ));
+        let span = RetrieveOpts {
+            mode: QueryMode::TimeRange,
+            from_sec: Some(4230.0),
+            ..Default::default()
+        };
+        assert!(rank_line(&span, crate::vectors::MODE_HYBRID).contains(
+            "[ranking: no neural rerank (this turn selected an explicit time range, so the order is the timeline) --"
+        ));
+        // A TimeRange ask with NO selection on either axis falls through to
+        // the fused branch, exactly like rankCandidates.
+        let no_axis = RetrieveOpts {
+            mode: QueryMode::TimeRange,
+            ..Default::default()
+        };
+        assert!(rank_line(&no_axis, crate::vectors::MODE_HYBRID).contains("the fused semantic + lexical order stands"));
+        // The line is ASCII-only, like the [coverage: ...] marker it sits next to.
+        assert!(rank_line(&span, crate::vectors::MODE_LEXICAL_ONLY).is_ascii());
     }
 }

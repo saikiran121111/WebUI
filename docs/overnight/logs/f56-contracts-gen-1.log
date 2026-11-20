@@ -1,0 +1,19 @@
+npm notice run webui-chat@0.2.0 contracts:generate
+npm notice run node rust-backend/scripts/gen-mode-contracts.mjs && node rust-backend/scripts/gen-contract-manifest.mjs
+excel         -> CONTRACT_EXCEL sha=6079047343a91258… bytes=4376
+docs          -> CONTRACT_DOCS sha=9eb1151e8f1f9886… bytes=1877
+pdf           -> CONTRACT_PDF sha=bcaa59a0e542369a… bytes=2160
+ppt           -> CONTRACT_PPT sha=6c8601f65d3b84e8… bytes=3437
+chart         -> CONTRACT_CHART sha=4167ef9308609d84… bytes=1936
+html_render   -> CONTRACT_HTML_RENDER sha=1eee54fa63cde6c0… bytes=1836
+standard_chat -> CONTRACT_STANDARD_CHAT = null
+wrote rust-backend\crates\ruke-decision\src\contracts_generated.rs
+(node:10804) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Projects/WebUI/WebUI/lib/decision/contracts.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Projects\WebUI\WebUI\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+wrote rust-backend\fixtures\contracts\manifest.json (17059 bytes)
+(node:20912) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Projects/WebUI/WebUI/lib/decision/types.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Projects\WebUI\WebUI\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)

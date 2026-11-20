@@ -1,0 +1,1959 @@
+{
+  "capability": "rerank",
+  "endpoint": "http://127.0.0.1:54610",
+  "supervisor_pid": 6760,
+  "mode_requested": "neural_cross_encoder_minilm",
+  "model": {
+    "id": "Xenova/ms-marco-MiniLM-L-6-v2",
+    "revision": "sha256:c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870",
+    "provider": "onnxruntime-cpu"
+  },
+  "cold_call_ms": 348,
+  "warm_call_ms": 28,
+  "order_cold": [
+    "c0",
+    "c1",
+    "c3",
+    "c2"
+  ],
+  "order_warm": [
+    "c0",
+    "c1",
+    "c3",
+    "c2"
+  ],
+  "expected": "c1",
+  "scores_cold": [
+    {
+      "chunk_id": "c0",
+      "rank": 1,
+      "score": 0.9999759017336606
+    },
+    {
+      "chunk_id": "c1",
+      "rank": 2,
+      "score": 0.9999688652043148
+    },
+    {
+      "chunk_id": "c3",
+      "rank": 3,
+      "score": 0.02826109593810439
+    },
+    {
+      "chunk_id": "c2",
+      "rank": 4,
+      "score": 0.0017494604616838856
+    }
+  ],
+  "lexical_reported": "lexical",
+  "bad_mode": {
+    "status": 552,
+    "error": {
+      "capability": "rerank",
+      "human_step": "run the retrieval quality gate, then pin the reranker",
+      "message": "reranker 'neural_gpt4_all_pro' is not a mode this process runs (installed modes: lexical, neural (dense bi-encoder), neural_cross_encoder (pinned cross-encoder); any other ranker would need its own pinned asset, adapter and protocol, and none is registered)",
+      "reason": "evaluation_required",
+      "retryable": false
+    }
+  },
+  "memory": {
+    "samples": 5,
+    "baseline_tree_working_set_mib": 19.0,
+    "peak_tree_working_set_mib": 186.0,
+    "peak_tree_commit_mib": 159.0,
+    "peak_bytes": 195035136,
+    "commit_bytes": 166723584,
+    "pids_at_peak": [
+      6760,
+      9036,
+      17068
+    ],
+    "after_job_working_set_mib": 186.0,
+    "after_idle_release_working_set_mib": 19.0,
+    "definition": "K32GetProcessMemoryInfo summed over the supervisor pid and its owned worker children; working set = resident RAM, commit = pagefile charge; the 5,000,000,000 B ceiling is a COMMIT ceiling"
+  },
+  "limits": {
+    "mem_ceiling_bytes": 5000000000,
+    "target_bytes": 4000000000
+  },
+  "health": {
+    "active_jobs": 0,
+    "capabilities": {
+      "artifacts.docx": {
+        "binary": null,
+        "detail": "registry row typescript-docx names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "engine": "TypeScript DOCX writer remains the verified writer"
+            },
+            "detail": "registry row typescript-docx names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "typescript-docx",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "not-migrated",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {}
+          }
+        ],
+        "status": "not_configured"
+      },
+      "artifacts.pptx": {
+        "binary": null,
+        "detail": "registry row typescript-pptx names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "engine": "TypeScript PPTX writer remains the verified writer"
+            },
+            "detail": "registry row typescript-pptx names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "typescript-pptx",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "not-migrated",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {}
+          }
+        ],
+        "status": "not_configured"
+      },
+      "artifacts.xlsx": {
+        "binary": null,
+        "detail": "registry row typescript-exceljs names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "engine": "TypeScript ExcelJS remains the verified writer"
+            },
+            "detail": "registry row typescript-exceljs names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "typescript-exceljs",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "not-migrated",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {}
+          }
+        ],
+        "status": "not_configured"
+      },
+      "documents.ocr": {
+        "binary": {
+          "detail": "validated by `tesseract --version; found via project-local",
+          "found": true,
+          "inside_repo": true,
+          "name": "tesseract",
+          "path": ".data/tools/tesseract/tesseract.exe",
+          "source": "project-local"
+        },
+        "detail": "built into this package; the external program it needs was validated via project-local: validated by `tesseract --version; found via project-local",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.documents.ocr_tesseract",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": {
+              "detail": "validated by `tesseract --version; found via project-local",
+              "found": true,
+              "inside_repo": true,
+              "name": "tesseract",
+              "path": ".data/tools/tesseract/tesseract.exe",
+              "source": "project-local"
+            },
+            "builtin": true,
+            "claims": {
+              "coverage": "whatever the installed tesseract + installed language packs actually cover, probed per run",
+              "languages": []
+            },
+            "detail": "built into this package; the external program it needs was validated via project-local: validated by `tesseract --version; found via project-local",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "tesseract",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "tesseract",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "available",
+            "verified": {
+              "hi": false,
+              "te": false
+            }
+          },
+          {
+            "adapter": "ruke_ml.documents.ocr_paddle",
+            "also_requires_binaries": [],
+            "asset": "PaddlePaddle/PaddleOCR-VL-1.6",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "device": "cpu only - the pinned paddlepaddle wheel is the x64 CPU build",
+              "languages": [
+                "en",
+                "fr",
+                "de",
+                "ja",
+                "ko",
+                "zh",
+                "es",
+                "pt",
+                "it",
+                "ru",
+                "ar",
+                "hi",
+                "bn",
+                "te",
+                "ta",
+                "mr",
+                "sa",
+                "fa",
+                "ur"
+              ],
+              "ocr": "document pipeline: layout analysis + element recognition + structured assembly (PP-DocLayoutV3 + PaddleOCR-VL 1.6)"
+            },
+            "detail": "adapter ruke_ml.documents.ocr_paddle is implemented and runs in the isolated interpreter D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe; interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe; heavy weights load only inside an owned worker",
+            "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+            "est_peak_mib": 3300,
+            "executable": true,
+            "extra_assets": [
+              {
+                "repo_id": "PaddlePaddle/PP-DocLayoutV3",
+                "required_files": [
+                  [
+                    "inference.json",
+                    100000
+                  ],
+                  [
+                    "inference.pdiparams",
+                    130000000
+                  ],
+                  [
+                    "inference.yml",
+                    100
+                  ]
+                ],
+                "revision": "241f8bdfc77a7c7bee915a5057aaee58c235a8d3"
+              }
+            ],
+            "heavy": true,
+            "id": "PaddleOCR-VL-1.6",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": "paddle-ocr-cpu",
+            "revision": "132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd",
+            "runtime": {
+              "cpu_only_verified": true,
+              "detail": "interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe",
+              "found": true,
+              "inside_project": true,
+              "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+              "mismatched": [],
+              "missing": [],
+              "pinned": {
+                "opencv-contrib-python": "4.10.0.84",
+                "paddleocr": "3.6.0",
+                "paddlepaddle": "3.2.1",
+                "paddlex": "3.6.1"
+              },
+              "runtime": "paddle-ocr-cpu"
+            },
+            "status": "available",
+            "verified": {
+              "complex_layout": false,
+              "en": false,
+              "formula": false,
+              "hi": false,
+              "table": false,
+              "te": false
+            }
+          }
+        ],
+        "status": "available"
+      },
+      "documents.parse": {
+        "binary": null,
+        "detail": "built into this package; it runs here and must state its own quality mode",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.documents.parser",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": true,
+            "claims": {
+              "formats": [
+                "xlsx",
+                "docx",
+                "pptx",
+                "txt",
+                "md",
+                "log",
+                "csv",
+                "json"
+              ],
+              "languages": []
+            },
+            "detail": "built into this package; it runs here and must state its own quality mode",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-ooxml-reader",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          },
+          {
+            "adapter": "ruke_ml.documents.pdf",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "extraction": "native text layer per page, rotation and per-page honesty; scanned pages are routed to OCR, never invented",
+              "formats": [
+                "pdf"
+              ],
+              "languages": []
+            },
+            "detail": "adapter ruke_ml.documents.pdf is implemented, pypdf is importable, no external asset is needed; heavy weights load only inside an owned worker",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "pypdf",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "available",
+            "verified": {
+              "formula": false,
+              "indic_ocr": false,
+              "tables": false
+            }
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "formats": [],
+              "languages": []
+            },
+            "detail": "registry row docling names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "docling",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "formula": false,
+              "indic_ocr": false,
+              "tables": false
+            }
+          }
+        ],
+        "status": "available"
+      },
+      "embeddings": {
+        "binary": null,
+        "detail": "built into this package; it runs here and must state its own quality mode",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.retrieval.embeddings",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": true,
+            "claims": {
+              "coverage": "hashed lexical term weights, not model-quality",
+              "dim": 512,
+              "normalization": "l2"
+            },
+            "detail": "built into this package; it runs here and must state its own quality mode",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-lexical-hash",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {
+              "model_quality_parity": false
+            }
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "Qwen/Qwen3-Embedding-0.6B",
+            "asset_problems": [
+              "Qwen/Qwen3-Embedding-0.6B: no snapshot for this repo id in any configured cache root"
+            ],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "dim": 1024,
+              "languages": [],
+              "pooling": "documented last-token + normalize"
+            },
+            "detail": "registry row Qwen/Qwen3-Embedding-0.6B names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Qwen/Qwen3-Embedding-0.6B",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": false,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present",
+                "the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare)"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "multilingual_quality_on_this_host": false
+            }
+          },
+          {
+            "adapter": "ruke_ml.retrieval.nn_embed",
+            "also_requires_binaries": [],
+            "asset": "Xenova/all-MiniLM-L6-v2",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "asset_identity": "sha256 of onnx/model.onnx re-verified at load: 759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e",
+              "dependencies": "onnxruntime + tokenizers in the project venv",
+              "dim": 384,
+              "language_note": "no measured non-English quality on this host",
+              "languages": [],
+              "max_tokens": 256,
+              "pooling": "mean over the attention mask, then L2 normalize (the published protocol for this checkpoint)",
+              "providers": [
+                "CPUExecutionProvider"
+              ]
+            },
+            "detail": "adapter ruke_ml.retrieval.nn_embed is implemented, onnxruntime is importable, asset Xenova/all-MiniLM-L6-v2 is in the local cache; heavy weights load only inside an owned worker",
+            "est_peak_basis": "measured: cold-load peak working set of one CPU onnxruntime session, 48 texts, 2026-11-17; commit/private was ~1012 MiB, so the budget report must quote BOTH or it understates pressure",
+            "est_peak_mib": 288,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Xenova/all-MiniLM-L6-v2",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin",
+            "runtime": null,
+            "status": "available",
+            "verified": {
+              "asset_digest_verified_on_this_host": true,
+              "cpu_provider_only": true,
+              "dense_vectors_load_and_embed_on_this_host": true,
+              "model_quality_parity": false,
+              "multilingual_quality_on_this_host": false
+            }
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "BAAI/bge-m3",
+            "asset_problems": [
+              "BAAI/bge-m3: no snapshot for this repo id in any configured cache root"
+            ],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": []
+            },
+            "detail": "registry row BAAI/bge-m3 names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "BAAI/bge-m3",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": false,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present",
+                "the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare)"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "multilingual_quality_on_this_host": false
+            }
+          }
+        ],
+        "status": "available"
+      },
+      "rerank": {
+        "binary": null,
+        "detail": "built into this package; it runs here and must state its own quality mode",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.retrieval.reranker",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": true,
+            "claims": {
+              "coverage": "lexical only"
+            },
+            "detail": "built into this package; it runs here and must state its own quality mode",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-lexical-bm25",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          },
+          {
+            "adapter": "ruke_ml.retrieval.reranker",
+            "also_requires_binaries": [],
+            "asset": "Xenova/all-MiniLM-L6-v2",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "not_a": "cross-encoder — no joint query/passage scoring happens",
+              "protocol": "cosine of L2-normalized mean-pooled vectors; query and candidate are encoded independently",
+              "scoring": "cosine in [-1,1], descending rank"
+            },
+            "detail": "adapter ruke_ml.retrieval.reranker is implemented, onnxruntime is importable, asset Xenova/all-MiniLM-L6-v2 is in the local cache; heavy weights load only inside an owned worker",
+            "est_peak_basis": "measured with the embedding row above",
+            "est_peak_mib": 288,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "ruke-neural-biencoder-minilm",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin",
+            "runtime": null,
+            "status": "available",
+            "verified": {
+              "asset_digest_verified_on_this_host": true,
+              "cpu_provider_only": true,
+              "cross_encoder_parity": false
+            }
+          },
+          {
+            "adapter": "ruke_ml.retrieval.nn_rerank",
+            "also_requires_binaries": [],
+            "asset": "Xenova/ms-marco-MiniLM-L-6-v2",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "asset_identity": "sha256 of onnx/model.onnx re-verified at load: c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870",
+              "dependencies": "onnxruntime + tokenizers in the project venv",
+              "language_note": "English MS MARCO training distribution; no measured non-English quality on this host",
+              "languages": [],
+              "max_tokens": 256,
+              "not_a": "bi-encoder - query and candidate are never embedded separately here; and not a recall fix - it only reorders given candidates",
+              "preparation": "python -m ruke_ml.models.prepare --model Xenova/ms-marco-MiniLM-L-6-v2 --local  (project-local checkout + asset-manifest.json; ordinary startup never downloads it)",
+              "protocol": "joint (query, passage) tokenization [CLS] q [SEP] p [SEP], one logit per pair, sigmoid into (0,1); this is the published scoring head of the upstream cross-encoder checkpoint",
+              "providers": [
+                "CPUExecutionProvider"
+              ],
+              "truncation": "tail beyond max_tokens is dropped by the tokenizer and REPORTED per job in the payload, never hidden",
+              "upstream_source": "cross-encoder/ms-marco-MiniLM-L-6-v2, ONNX export"
+            },
+            "detail": "adapter ruke_ml.retrieval.nn_rerank is implemented, onnxruntime is importable, asset Xenova/ms-marco-MiniLM-L-6-v2 is in the local cache; heavy weights load only inside an owned worker",
+            "est_peak_basis": "measured: 267.7 MiB peak working set of the g05 probe process, which held BOTH the bi-encoder and the cross-encoder ONNX sessions plus numpy/onnxruntime/tokenizers import time (logs/f27-g05-rerank-2.log, 2026-11-17). Not an isolated single-engine figure; a worker that loads only this engine is smaller (91 MB fp32 weights), but commit charge is not measured here.",
+            "est_peak_mib": 268,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Xenova/ms-marco-MiniLM-L-6-v2",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "a09144355adeed5f58c8ed011d209bf8ee5a1fec",
+            "runtime": null,
+            "status": "available",
+            "verified": {
+              "asset_digest_verified_on_this_host": true,
+              "asset_pinned_revision_recorded": true,
+              "beats_dense_biencoder_on_g05_set": false,
+              "cpu_provider_only": true,
+              "joint_pair_scoring_executed_on_this_host": true,
+              "model_quality_parity": false,
+              "multilingual_quality_on_this_host": false,
+              "numeric_fact_case_fixed": false,
+              "production_caller_wired": false,
+              "ranking_top1_9_of_10_on_g05_set": true,
+              "scores_reproducible_on_this_host": true
+            }
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "Qwen/Qwen3-Reranker-0.6B",
+            "asset_problems": [
+              "Qwen/Qwen3-Reranker-0.6B: no snapshot for this repo id in any configured cache root"
+            ],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": [],
+              "protocol": "documented generative/instruct scoring"
+            },
+            "detail": "registry row Qwen/Qwen3-Reranker-0.6B names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Qwen/Qwen3-Reranker-0.6B",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": false,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present",
+                "the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare)"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "quality_on_this_host": false
+            }
+          }
+        ],
+        "status": "available"
+      },
+      "speech.align": {
+        "binary": null,
+        "detail": "adapter ruke_ml.speech.whisper_ct2 is implemented, faster_whisper is importable, asset Systran/faster-whisper-base is in the local cache; heavy weights load only inside an owned worker",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.speech.whisper_ct2",
+            "also_requires_binaries": [],
+            "asset": "Systran/faster-whisper-base",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": [
+                "af",
+                "am",
+                "ar",
+                "as",
+                "az",
+                "ba",
+                "be",
+                "bg",
+                "bn",
+                "bo",
+                "br",
+                "bs",
+                "ca",
+                "cs",
+                "cy",
+                "da",
+                "de",
+                "el",
+                "en",
+                "es",
+                "et",
+                "eu",
+                "fa",
+                "fi",
+                "fo",
+                "fr",
+                "gl",
+                "gu",
+                "ha",
+                "haw",
+                "he",
+                "hi",
+                "hr",
+                "ht",
+                "hu",
+                "hy",
+                "id",
+                "is",
+                "it",
+                "ja",
+                "jw",
+                "ka",
+                "kk",
+                "km",
+                "kn",
+                "ko",
+                "la",
+                "lb",
+                "ln",
+                "lo",
+                "lt",
+                "lv",
+                "mg",
+                "mi",
+                "mk",
+                "ml",
+                "mn",
+                "mr",
+                "ms",
+                "mt",
+                "my",
+                "ne",
+                "nl",
+                "nn",
+                "no",
+                "oc",
+                "pa",
+                "pl",
+                "ps",
+                "pt",
+                "ro",
+                "ru",
+                "sa",
+                "sd",
+                "si",
+                "sk",
+                "sl",
+                "sn",
+                "so",
+                "sq",
+                "sr",
+                "su",
+                "sv",
+                "sw",
+                "ta",
+                "te",
+                "tg",
+                "th",
+                "tk",
+                "tl",
+                "tr",
+                "tt",
+                "uk",
+                "ur",
+                "uz",
+                "vi",
+                "yi",
+                "yo",
+                "yue",
+                "zh"
+              ],
+              "output": "word timing from the model's own cross-attention, validated on receipt"
+            },
+            "detail": "adapter ruke_ml.speech.whisper_ct2 is implemented, faster_whisper is importable, asset Systran/faster-whisper-base is in the local cache; heavy weights load only inside an owned worker",
+            "est_peak_basis": "",
+            "est_peak_mib": 388,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Systran/faster-whisper-base",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "Qwen/Qwen3-ForcedAligner-0.6B",
+            "asset_problems": [
+              "Qwen/Qwen3-ForcedAligner-0.6B: no snapshot for this repo id in any configured cache root"
+            ],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": [],
+              "output": "word/character timing"
+            },
+            "detail": "registry row Qwen/Qwen3-ForcedAligner-0.6B names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Qwen/Qwen3-ForcedAligner-0.6B",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": false,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present",
+                "the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare)"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "en": false,
+              "hi": false,
+              "te": false
+            }
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": [],
+              "output": "word timing cross-checked against the ASR hypothesis"
+            },
+            "detail": "registry row whisperx/whisper-alignment names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "whisperx/whisper-alignment",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "en": false,
+              "hi": false,
+              "te": false
+            }
+          }
+        ],
+        "status": "available"
+      },
+      "speech.asr": {
+        "binary": null,
+        "detail": "adapter ruke_ml.speech.whisper_ct2 is implemented, faster_whisper is importable, asset Systran/faster-whisper-base is in the local cache; heavy weights load only inside an owned worker",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.speech.whisper_ct2",
+            "also_requires_binaries": [],
+            "asset": "Systran/faster-whisper-base",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "device_policy": "cpu/int8 - a GPU on this host belongs to the main LLM",
+              "language_detection": true,
+              "language_table": "faster_whisper.tokenizer._LANGUAGE_CODES",
+              "languages": [
+                "af",
+                "am",
+                "ar",
+                "as",
+                "az",
+                "ba",
+                "be",
+                "bg",
+                "bn",
+                "bo",
+                "br",
+                "bs",
+                "ca",
+                "cs",
+                "cy",
+                "da",
+                "de",
+                "el",
+                "en",
+                "es",
+                "et",
+                "eu",
+                "fa",
+                "fi",
+                "fo",
+                "fr",
+                "gl",
+                "gu",
+                "ha",
+                "haw",
+                "he",
+                "hi",
+                "hr",
+                "ht",
+                "hu",
+                "hy",
+                "id",
+                "is",
+                "it",
+                "ja",
+                "jw",
+                "ka",
+                "kk",
+                "km",
+                "kn",
+                "ko",
+                "la",
+                "lb",
+                "ln",
+                "lo",
+                "lt",
+                "lv",
+                "mg",
+                "mi",
+                "mk",
+                "ml",
+                "mn",
+                "mr",
+                "ms",
+                "mt",
+                "my",
+                "ne",
+                "nl",
+                "nn",
+                "no",
+                "oc",
+                "pa",
+                "pl",
+                "ps",
+                "pt",
+                "ro",
+                "ru",
+                "sa",
+                "sd",
+                "si",
+                "sk",
+                "sl",
+                "sn",
+                "so",
+                "sq",
+                "sr",
+                "su",
+                "sv",
+                "sw",
+                "ta",
+                "te",
+                "tg",
+                "th",
+                "tk",
+                "tl",
+                "tr",
+                "tt",
+                "uk",
+                "ur",
+                "uz",
+                "vi",
+                "yi",
+                "yo",
+                "yue",
+                "zh"
+              ],
+              "measured_on_this_host": {
+                "en": {
+                  "clips": 1,
+                  "compute_type": "int8",
+                  "device": "cpu",
+                  "evidence": "docs/overnight/logs/e03-speech-20261116T16564630343.json",
+                  "note": "en-US synthetic TTS; a second clip inside an MP4 container scored 0.0",
+                  "truth_words": 13,
+                  "word_error_rate": 0.0769
+                }
+              },
+              "not_measured": "multilingual quality (the published table is a claim), music/speech content classification, speaker separation",
+              "task": "transcribe+translate",
+              "timestamps": "source-time segments; word timing only with word_timestamps"
+            },
+            "detail": "adapter ruke_ml.speech.whisper_ct2 is implemented, faster_whisper is importable, asset Systran/faster-whisper-base is in the local cache; heavy weights load only inside an owned worker",
+            "est_peak_basis": "",
+            "est_peak_mib": 388,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Systran/faster-whisper-base",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "Xenova/whisper-base.en",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": [
+                "en"
+              ]
+            },
+            "detail": "registry row Xenova/whisper-base.en names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Xenova/whisper-base.en",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {}
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "openai/whisper-large-v3",
+            "asset_problems": [
+              "openai/whisper-large-v3: no snapshot for this repo id in any configured cache root"
+            ],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": [
+                "af",
+                "am",
+                "ar",
+                "as",
+                "az",
+                "ba",
+                "be",
+                "bg",
+                "bn",
+                "bo",
+                "br",
+                "bs",
+                "ca",
+                "cs",
+                "cy",
+                "da",
+                "de",
+                "el",
+                "en",
+                "es",
+                "et",
+                "eu",
+                "fa",
+                "fi",
+                "fo",
+                "fr",
+                "gl",
+                "gu",
+                "ha",
+                "haw",
+                "he",
+                "hi",
+                "hr",
+                "ht",
+                "hu",
+                "hy",
+                "id",
+                "is",
+                "it",
+                "ja",
+                "jw",
+                "ka",
+                "kk",
+                "km",
+                "kn",
+                "ko",
+                "la",
+                "lb",
+                "ln",
+                "lo",
+                "lt",
+                "lv",
+                "mg",
+                "mi",
+                "mk",
+                "ml",
+                "mn",
+                "mr",
+                "ms",
+                "mt",
+                "my",
+                "ne",
+                "nl",
+                "nn",
+                "no",
+                "oc",
+                "pa",
+                "pl",
+                "ps",
+                "pt",
+                "ro",
+                "ru",
+                "sa",
+                "sd",
+                "si",
+                "sk",
+                "sl",
+                "sn",
+                "so",
+                "sq",
+                "sr",
+                "su",
+                "sv",
+                "sw",
+                "ta",
+                "te",
+                "tg",
+                "th",
+                "tk",
+                "tl",
+                "tr",
+                "tt",
+                "uk",
+                "ur",
+                "uz",
+                "vi",
+                "yi",
+                "yo",
+                "yue",
+                "zh"
+              ]
+            },
+            "detail": "registry row openai/whisper-large-v3 names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "openai/whisper-large-v3",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": false,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present",
+                "the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare)"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "en": false,
+              "hi": false,
+              "te": false
+            }
+          },
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "Qwen/Qwen3-ASR-1.7B",
+            "asset_problems": [
+              "Qwen/Qwen3-ASR-1.7B: no snapshot for this repo id in any configured cache root"
+            ],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": []
+            },
+            "detail": "registry row Qwen/Qwen3-ASR-1.7B names no importable adapter module, so this capability cannot execute here regardless of what is installed",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "Qwen/Qwen3-ASR-1.7B",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": false,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present",
+                "the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare)"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "not_configured",
+            "verified": {
+              "hi": false,
+              "te": false
+            }
+          }
+        ],
+        "status": "available"
+      },
+      "speech.diarize": {
+        "binary": null,
+        "detail": "provider requires an access token and licence acceptance; startup must not fail",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "",
+            "also_requires_binaries": [],
+            "asset": "pyannote/speaker-diarization-community-1",
+            "asset_problems": [
+              "pyannote/speaker-diarization-community-1: no snapshot for this repo id in any configured cache root"
+            ],
+            "binary": null,
+            "builtin": false,
+            "claims": {
+              "languages": [],
+              "speakers": "anonymous labels only"
+            },
+            "detail": "provider requires an access token and licence acceptance; startup must not fail",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": false,
+            "extra_assets": [],
+            "heavy": true,
+            "id": "pyannote/speaker-diarization-community-1",
+            "readiness": {
+              "access_satisfied": false,
+              "assets_validated": false,
+              "blockers": [
+                "no adapter code is registered for this model id",
+                "the pinned dependency (package or external program) is not present",
+                "the pinned model asset is not in the local cache (prepare it explicitly: python -m ruke_ml.models.prepare)",
+                "provider access/licence acceptance is missing"
+              ],
+              "configuration_valid": true,
+              "dependencies_present": false,
+              "executable": false,
+              "implemented": false
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "unpinned",
+            "runtime": null,
+            "status": "license_acceptance_required",
+            "verified": {}
+          }
+        ],
+        "status": "license_acceptance_required"
+      },
+      "video.frame_ocr": {
+        "binary": {
+          "detail": "validated by `ffmpeg -version; found via project-local",
+          "found": true,
+          "inside_repo": true,
+          "name": "ffmpeg",
+          "path": "node_modules/ffmpeg-static/ffmpeg.exe",
+          "source": "project-local"
+        },
+        "detail": "built into this package; the external program it needs was validated via project-local: validated by `ffmpeg -version; found via project-local",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.video.frame_ocr",
+            "also_requires_binaries": [
+              "tesseract"
+            ],
+            "asset": "",
+            "asset_problems": [],
+            "binary": {
+              "detail": "validated by `ffmpeg -version; found via project-local",
+              "found": true,
+              "inside_repo": true,
+              "name": "ffmpeg",
+              "path": "node_modules/ffmpeg-static/ffmpeg.exe",
+              "source": "project-local"
+            },
+            "builtin": true,
+            "claims": {
+              "coverage": "only the sampled instants that were decoded AND recognised; a bounded sample of instants can never establish visual coverage of a recording",
+              "languages": [],
+              "output": "per-instant text with source-relative presentation times and the engine that produced it"
+            },
+            "detail": "built into this package; the external program it needs was validated via project-local: validated by `ffmpeg -version; found via project-local",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-video-frame-ocr",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "ffmpeg",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          }
+        ],
+        "status": "available"
+      },
+      "video.observations": {
+        "binary": null,
+        "detail": "built into this package; it runs here and must state its own quality mode",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.video.observations",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": true,
+            "claims": {
+              "storage": "timestamped observation records with provenance"
+            },
+            "detail": "built into this package; it runs here and must state its own quality mode",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-video-observations",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          }
+        ],
+        "status": "available"
+      },
+      "video.scenes": {
+        "binary": null,
+        "detail": "built into this package; it runs here and must state its own quality mode",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.video.scenes",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": true,
+            "claims": {
+              "coverage": "bounded sampling plan, head/middle/tail + query windows"
+            },
+            "detail": "built into this package; it runs here and must state its own quality mode",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-video-scenes",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          }
+        ],
+        "status": "available"
+      },
+      "video.search_hints": {
+        "binary": null,
+        "detail": "built into this package; it runs here and must state its own quality mode",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.video.search_hints",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": null,
+            "builtin": true,
+            "claims": {
+              "output": "MediaSearchHints with provenance + source intervals"
+            },
+            "detail": "built into this package; it runs here and must state its own quality mode",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-video-search-hints",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          }
+        ],
+        "status": "available"
+      },
+      "video.timeline": {
+        "binary": {
+          "detail": "validated by `ffmpeg -version; found via project-local",
+          "found": true,
+          "inside_repo": true,
+          "name": "ffmpeg",
+          "path": "node_modules/ffmpeg-static/ffmpeg.exe",
+          "source": "project-local"
+        },
+        "detail": "built into this package; the external program it needs was validated via project-local: validated by `ffmpeg -version; found via project-local",
+        "metadata_problems": [],
+        "models": [
+          {
+            "adapter": "ruke_ml.video.timeline",
+            "also_requires_binaries": [],
+            "asset": "",
+            "asset_problems": [],
+            "binary": {
+              "detail": "validated by `ffmpeg -version; found via project-local",
+              "found": true,
+              "inside_repo": true,
+              "name": "ffmpeg",
+              "path": "node_modules/ffmpeg-static/ffmpeg.exe",
+              "source": "project-local"
+            },
+            "builtin": true,
+            "claims": {
+              "evidence": "atomic timeline record with per-stage coverage",
+              "timing": "source timestamps from the container, never frame_index/nominal_fps"
+            },
+            "detail": "built into this package; the external program it needs was validated via project-local: validated by `ffmpeg -version; found via project-local",
+            "est_peak_basis": "",
+            "est_peak_mib": 0,
+            "executable": true,
+            "extra_assets": [],
+            "heavy": false,
+            "id": "ruke-video-timeline",
+            "readiness": {
+              "access_satisfied": true,
+              "assets_validated": true,
+              "blockers": [],
+              "configuration_valid": true,
+              "dependencies_present": true,
+              "executable": true,
+              "implemented": true
+            },
+            "requires_binary": "ffmpeg",
+            "requires_runtime": null,
+            "revision": "builtin-v1",
+            "runtime": null,
+            "status": "available",
+            "verified": {}
+          }
+        ],
+        "status": "available"
+      }
+    },
+    "ceiling_evidence": [
+      {
+        "at": 1794904167.4504266,
+        "capability": "rerank",
+        "limit_bytes": 603979776,
+        "peak_job_commit_mib": 16,
+        "peak_process_commit_mib": 16,
+        "pid": 12648
+      },
+      {
+        "at": 1794904262.6143634,
+        "capability": "rerank",
+        "limit_bytes": 603979776,
+        "peak_job_commit_mib": 16,
+        "peak_process_commit_mib": 15,
+        "pid": 10020
+      },
+      {
+        "at": 1794904382.8920674,
+        "capability": "rerank",
+        "limit_bytes": 603979776,
+        "peak_job_commit_mib": 14,
+        "peak_process_commit_mib": 13,
+        "pid": 12324
+      }
+    ],
+    "fingerprint": "d82c9a7df37240c5",
+    "heavy_imports_at_startup": [],
+    "heavy_imports_now": [],
+    "heavy_models_resident": [],
+    "heavy_worker_running": "rerank",
+    "host_memory": {
+      "commit_available_mib": 26406,
+      "commit_total_mib": 100115,
+      "definitions": {
+        "commit_available_mib": "pagefile-backed charge still grantable",
+        "free_physical_mib": "resident RAM free now"
+      },
+      "free_physical_floor_mib": 1024,
+      "free_physical_mib": 8213,
+      "measured": true,
+      "sampled_at": 1794905516.7330322,
+      "source": "GlobalMemoryStatusEx",
+      "total_physical_mib": 65299
+    },
+    "last_error": "",
+    "limits": {
+      "heavy_concurrency": 1,
+      "idle_ttl_s": 120.0,
+      "mem_budget_mib": 4096
+    },
+    "memory_ceiling": {
+      "assigned_pids": [
+        6760
+      ],
+      "available": 1,
+      "enforced": true,
+      "flags": 512,
+      "limit_bytes": 4999999488,
+      "limit_mib": 4768,
+      "mechanism": "windows-job-object",
+      "name": "ruke-runtime",
+      "peak_job_commit_mib": 192,
+      "peak_process_commit_mib": 170,
+      "sampled_at": 1794905516.7330322
+    },
+    "pressure_releases": 0,
+    "state": "ready",
+    "uptime_s": 4107.481,
+    "workers": {
+      "rerank": {
+        "ceiling": {
+          "ceiling_policy": {
+            "estimate": "measured",
+            "measured_load_peak_mib": 288
+          },
+          "enforced": true,
+          "estimated": 603979776,
+          "limit_bytes": 603979776,
+          "mechanism": "windows-job-object",
+          "pid": 9036,
+          "scope": "per-worker"
+        },
+        "ceiling_peaks": {
+          "available": 1,
+          "limit_bytes": 603979776,
+          "peak_job_commit_mib": 171,
+          "peak_process_commit_mib": 170,
+          "sampled_at": 1794905516.7330322
+        },
+        "created": 134393791161926539,
+        "current_note": "",
+        "current_stage": "",
+        "heavy": true,
+        "idle_s": 0.1,
+        "last_detail": "reranker 'neural_gpt4_all_pro' is not a mode this process runs (installed modes: lexical, neural (dense bi-encoder), neural_cross_encoder (pinned cross-encoder); any other ranker would need its own pinned asset, adapter and protocol, and none is registered)",
+        "last_state": "failed",
+        "memory": {
+          "available": 1,
+          "commit_mib": 139,
+          "definition": "K32GetProcessMemoryInfo over the owned child plus its process children; working set = resident RAM, commit = pagefile charge",
+          "peak_commit_mib": 170,
+          "peak_working_set_mib": 196,
+          "pids": [
+            9036,
+            17068
+          ],
+          "private_mib": 139,
+          "processes": [
+            {
+              "available": 1,
+              "commit_mib": 0,
+              "peak_commit_mib": 0,
+              "peak_working_set_mib": 5,
+              "pid": 9036,
+              "private_mib": 0,
+              "working_set_mib": 5
+            },
+            {
+              "available": 1,
+              "commit_mib": 139,
+              "peak_commit_mib": 170,
+              "peak_working_set_mib": 191,
+              "pid": 17068,
+              "private_mib": 139,
+              "working_set_mib": 162
+            }
+          ],
+          "working_set_mib": 167
+        },
+        "pid": 9036,
+        "prelude": {
+          "import_failures": [],
+          "imports": [
+            "numpy",
+            "onnxruntime",
+            "tokenizers"
+          ],
+          "prelude_ms": 105
+        },
+        "progress_seq": 8,
+        "resident": []
+      }
+    }
+  },
+  "checks": [
+    {
+      "name": "cold call reaches a real worker (HTTP 200 + ready)",
+      "ok": true,
+      "detail": "status=200 state=ready err=None"
+    },
+    {
+      "name": "the engine says it ran the PINNED cross-encoder, not lexical",
+      "ok": true,
+      "detail": "neural_cross_encoder_minilm"
+    },
+    {
+      "name": "engine identity matches the pinned model/revision",
+      "ok": true,
+      "detail": "Xenova/ms-marco-MiniLM-L-6-v2 @ sha256:c623d0bcb99f4622b provider=onnxruntime-cpu"
+    },
+    {
+      "name": "provider is CPU ONNX (no GPU compute for processing jobs)",
+      "ok": true,
+      "detail": "onnxruntime-cpu"
+    },
+    {
+      "name": "one finite probability per candidate, ranked 1..n",
+      "ok": true,
+      "detail": [
+        1.0,
+        1.0,
+        0.0283,
+        0.0017
+      ]
+    },
+    {
+      "name": "coverage says the whole candidate field was examined",
+      "ok": true,
+      "detail": "reranking only reorders candidates it was given; it cannot recover evi"
+    },
+    {
+      "name": "a warm repeat call reproduces the order",
+      "ok": true,
+      "detail": "['c0', 'c1', 'c3', 'c2'] -> ['c0', 'c1', 'c3', 'c2'] in 28 ms"
+    },
+    {
+      "name": "the expected passage ranks first on this item",
+      "ok": false,
+      "detail": "expected c1, got c0"
+    },
+    {
+      "name": "a lexical request is served AND reported as lexical",
+      "ok": true,
+      "detail": "state=ready mode=lexical"
+    },
+    {
+      "name": "an unknown mode is a typed failure, not a substitution",
+      "ok": true,
+      "detail": "status=552 reason=evaluation_required"
+    }
+  ]
+}

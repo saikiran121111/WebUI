@@ -1,0 +1,34 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run vitest run __tests__/rust-golden/decision-parity.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+ ❯ __tests__/rust-golden/decision-parity.test.ts (2 tests | 1 failed) 59ms
+   × golden: Part 3 mode-contract byte hashes (skills/06) > records sha256/bytes/utf16 for every MODE_CONTRACTS entry 4ms
+     → Fixture drift detected in skills/06-mode-contracts-hashes.json (first difference at line 35):
+  existing: "      \"sha256\": \"7e7f4dd3a2c0011926cf21af5e3b4cf2b873fa73781ef94c676d80b283875226\","
+  recorded: "      \"sha256\": \"6c8601f65d3b84e8be974cb48eb6bcd471e83b7c4260167d6833d5f9d4ec7d3d\","
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/rust-golden/decision-parity.test.ts > golden: Part 3 mode-contract byte hashes (skills/06) > records sha256/bytes/utf16 for every MODE_CONTRACTS entry
+Error: Fixture drift detected in skills/06-mode-contracts-hashes.json (first difference at line 35):
+  existing: "      \"sha256\": \"7e7f4dd3a2c0011926cf21af5e3b4cf2b873fa73781ef94c676d80b283875226\","
+  recorded: "      \"sha256\": \"6c8601f65d3b84e8be974cb48eb6bcd471e83b7c4260167d6833d5f9d4ec7d3d\","
+ ❯ Module.writeJsonFixture __tests__/rust-golden/support/golden.ts:91:13
+     89|         return;
+     90|       }
+     91|       throw new Error(
+       |             ^
+     92|         `Fixture drift detected in ${rel} (first difference at line ${…
+     93|         `  existing: ${JSON.stringify(a[at] ?? "")}\n  recorded: ${JSO…
+ ❯ __tests__/rust-golden/decision-parity.test.ts:312:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  23:05:09
+   Duration  368ms (transform 51ms, setup 26ms, collect 74ms, tests 59ms, environment 0ms, prepare 60ms)
+
