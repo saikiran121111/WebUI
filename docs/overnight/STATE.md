@@ -1,3 +1,41 @@
+# STATE - Session F77 (2026-11-21 Asia/Calcutta): chart-export URL law, video-law verification, EMPTY-ANSWER law
+
+**F77 frozen acceptance checklist = the takeover brief's three confirmed defects + the acceptance checks:**
+(1) Windows chart exports when the temp path contains `#`/`%/space/Unicode` - canonical `pathToFileURL` on
+navigation AND the exact guard-permitted file, chart failures never silent; (2) unsupported video claims +
+scorer blindness - verify the landed F76 VIDEO_MOMENTS_LAW, keep fixture markers out of production; (3)
+numeric-answer reliability - reconcile the 51/54 vs 50/54 acceptance report and fix the saved
+`finishReason:"stop"` + one `[DONE]` + empty-answer turn: require visible answer content for ordinary
+answer turns while preserving valid tool-call and cancellation behavior; repair bounded, no duplicate
+answers. Plus the standing acceptance checks: PaddleOCR primary page + low-memory handoff, long video,
+exclusive Playwright live-UI stage, final consolidated gates. **Read this F77 checklist after compaction.**
+
+## F77 identity (recorded at run start)
+- Branch **local**, HEAD **c8c9c05** (F76 shipped commit). Working tree at start: the brief's three defect
+  areas + new F77 test files (see TASKS F77). Nothing committed/pushed/reset by this session so far.
+- Live instance law unchanged: :3000 next **20220**, :3101 ruke-server **6672**, :8080 Strata **15232**
+  (also serves this coding session) - reuse, never kill/probe/unload/restart. Live dispatches pin
+  `RUKE_LLM_AUTOMATIC_HANDOFF=0 RUKE_OCR_ALLOW_UNLOAD=0`.
+- Scratch counter: `.data/tmp` max g76 (g76 = offline video-log rescorer - re-judges every saved
+  `f76-video-*.json` chat.answer under the CURRENT probe law, regexes extracted from the probe source,
+  no model, `node .data/tmp/g76.mjs`) - **next free g77**.
+- Lesson recorded: probes ignore unknown flags - `--help` on the numeric probe STARTED a live run
+  (logs quarantined to `docs/overnight/logs/quarantine-f77-accidental/`). Read the probe header for
+  modes first; never pass unsupported flags.
+
+## F77 status table (PASS / FAIL / BLOCKED / UNTESTED)
+| Row | Status | Evidence / notes |
+|---|---|---|
+| 1. chart exports under `# % space Unicode` temp path | **PASS (model-free)** | `__tests__/documents/chart-special-path.test.ts` 6/6 green: real PNG render, XLSX reopens with all 3 chart images + `chartFailures==[]`, DOCX 2 media, PPTX native chart + Chromium artwork, PDF setContent control, guard permits exact own file + blocks unrelated file. documents suite 131/131. Browser stage deferred to final exclusive loop. |
+| 2. VIDEO_MOMENTS_LAW landed + scorer catches unfounded span claims | **PASS (model-free)** | law in `lib/chat/client.ts:134` on both delivery shapes (:183 indexed, :241 unindexed); unit suites 7/7 (frame labels, keyframe coverage, ASR failure coverage); `node .data/tmp/g76.mjs`: saved 7 logs rescored under current law 5/7 - the 2 FAILs are PRE-law model answers the CURRENT scorer correctly flags (prefix-1 saved PASS under the old lenient scorer = the scorer blindness the brief named, now caught); fixture markers absent from production (grep clean). Live gap+control probes -> final exclusive stage. |
+| 3a. numeric report reconciliation | **PASS** | independent rescore 58 PASS/4 FAIL over 62 law-on samples = **50/54 case samples** (`.data/tmp/f77-rescore-corpus.log`); FINAL-REPORT addendum appended + both 51/54 claims annotated; 4 fails = 3 arithmetic asides + 1 empty answer + 0 scorer errors. |
+| 3b. EMPTY-ANSWER law (stop + zero visible content) | **PASS (model-free)** | TS `lib/chat/web-tool-loop.ts` + Rust `chat/web_loop.rs` mirrored; 8/8 `__tests__/chat/web-tool-loop-empty-answer.test.ts`; Rust `empty_answer_shape_table` 1/1; loop suites 47/47; `cargo check -p ruke-server` Finished; `tsc --noEmit` exit 0. Live single-answer streaming -> final exclusive stage. |
+| PaddleOCR primary real page + low-memory handoff lifecycle | **BLOCKED (attended)** | the only route to green unloads the model this coding session runs on; exact blocked step recorded in TASKS F77. Model-free partials stand from F76. |
+| long video with human-labelled early/middle/late events | **BLOCKED (needs recording)** | 3-hour course stays UNVERIFIED until a representative human-labelled recording passes; no fixture authoring can substitute. |
+| exclusive Playwright live-UI stage (upload readiness, single-answer streaming, hidden review text, reading-to-thinking labels, scroll stability) | **PASS (F77 tree)** | run-1 8/8 (real inference: greeting/numeric/chat-stream/routing); run-2 27+1skip, drag fail render.spec.ts:187 ROOT-CAUSED + FIXED (F77 ANCHOR LAW) → run-2b render.spec **21 passed/1 skipped exit 0**; run-3 file-reading+pdf-egress (real inference) **passed, failedTests: []** (`test-results/.last-run.json`, log `.data/tmp/f77-pw-3b.log`); lock released, zero orphans. Real-inference vs controlled-event split recorded in FINAL-REPORT F77 section. |
+| scroll stability (drag test defect) | **PASS** | F77 ANCHOR LAW: pointerdown on content anchors the pin to the acted element; stream delta / human intent / follow release it. Pure reducer 23/23 (F19 suite + 7 new anchor tests), tsc exit 0, probe at failing geometry (SLOWMO=300, 1280x720): header stays y=92 (was -27), drag mid [216,96,96,96,96,134]. Content-neutral: gesture+geometry inputs only. |
+| final consolidated gates on the F77 tree | **PASS (final tree)** | vitest **2561 passed/25 skipped** (`.data/tmp/f77-vitest-full-2.log`), cargo 740/0, python 539 OK (skipped=2), tsc exit 0 (post-scroll-fix), contracts OK. |
+
 # STATE - Session F76 takeover (2026-11-21 Asia/Calcutta): PDF/video reliability, universal fixes
 
 **F76 frozen acceptance checklist = the takeover brief's six workstreams** (recover state; two live-UI defects -

@@ -369,6 +369,82 @@ async fn release_round(
     len
 }
 
+/// F77 (brief 2026-11-21): the honest failure text when an ordinary turn
+/// stays empty even after the one bounded repair. Byte-identical to the ⇔
+/// TS `EMPTY_ANSWER_MESSAGE`. Content-neutral by construction: it names
+/// the shape (no visible content), never the topic.
+const EMPTY_ANSWER_MESSAGE: &str =
+    "The model returned an empty answer. The turn was retried once and stayed empty — please send the message again.";
+
+/// F77 EMPTY-ANSWER LAW: an ORDINARY terminal — `finish_reason: "stop"`
+/// carrying zero visible answer content for the whole turn and no tool-call
+/// fragments — is not a completed answer. The saved defect shape is
+/// `finish_reason:"stop"` + one `[DONE]` + empty answer: a "successful"
+/// turn with nothing to show. Cancellations ("abort"/"interrupted"),
+/// truncation ("length"), tool-call terminals and upstream failures are
+/// NOT this shape. ⇔ TS `isEmptyOrdinaryTerminal`.
+fn is_empty_ordinary_terminal(relay: &ToolStreamRelay, streamed_total: usize) -> bool {
+    relay.finish.as_deref() == Some("stop")
+        && relay.calls.is_empty()
+        && relay.content.trim().is_empty()
+        && streamed_total == 0
+}
+
+/// F77 EMPTY-ANSWER LAW (⇔ TS `emptyAnswerRepair`): the caller detected an
+/// [`is_empty_ordinary_terminal`] relay. ONE bounded repair per turn:
+/// re-issue the IDENTICAL round payload. The failed attempt streamed zero
+/// answer bytes, so the repair cannot duplicate visible text, and its
+/// parked terminal frames die with the attempt — the repair owns the
+/// terminal, so the stream keeps exactly one `[DONE]`. If the repair lands
+/// empty again (or the round closed), the caller fails the turn honestly
+/// with `EMPTY_ANSWER_MESSAGE` instead of shipping a blank success. No
+/// feedback bytes, no prompt edits: this repairs the zero-byte
+/// stream-completion shape, not a flagged answer (the feedback lifecycle
+/// stays CLOSED, brief 2026-11-13).
+async fn empty_answer_repair(
+    state: &AppState,
+    payload: &Value,
+    url: &str,
+    span: &Span,
+    token: &CancellationToken,
+    ch: &mut ProgressChannel,
+    failed: &ToolStreamRelay,
+    streamed_total: usize,
+    repaired: &mut bool,
+) -> Option<(ToolStreamRelay, Vec<Vec<u8>>)> {
+    if *repaired {
+        return None; // the ONE repair for this turn already happened
+    }
+    *repaired = true;
+    tracing::warn!(
+        parent: span,
+        "answer ended stop with zero visible content; replaying the round once"
+    );
+    // The failed attempt may have streamed INVISIBLE residue (whitespace —
+    // the shape requires trim() == ""). Cut it back through the SAME
+    // in-place revise channel the audit uses, so the repair's answer is the
+    // only displayed text. The guard-shape bytes are not an answer, so this
+    // is NOT a flagged-answer retraction — that lifecycle stays CLOSED
+    // (brief 2026-11-13): a real answer is still never erased.
+    if !failed.content.is_empty() {
+        let mut ev = StageEvent::new("web:content_revise");
+        ev.content_cut_to = Some(streamed_total as u64);
+        ev.content_text = Some(String::new());
+        ch.stage(&ev).await;
+    }
+    match stream_round(state, payload, url, span, token, ch).await {
+        // A Done outcome means stream_round already closed/failed the channel.
+        Round::Done(_) => None,
+        Round::Relay(relay, held) => {
+            if is_empty_ordinary_terminal(&relay, streamed_total) {
+                None // still empty: fail honestly
+            } else {
+                Some((relay, held))
+            }
+        }
+    }
+}
+
 /// One upstream request/response round: serialize `payload`, stream the
 /// RAW bytes through a fresh relay, forward complete frames to `ch`.
 /// The request/stream block is the browser loop's verbatim (same error
@@ -749,16 +825,51 @@ pub async fn run_web_tool_loop(
     // this offset and a released round advances it. ⇔ JS
     // `String.length`/`slice` semantics (utf16_len).
     let mut streamed_total = 0usize;
+    // F77: ONE bounded empty-answer repair per turn, across the normal
+    // rounds AND the forced final round (⇔ TS `emptyRepaired`).
+    let mut empty_repaired = false;
     let outcome = 'outer: {
         for round in 0..max_rounds {
             if token.is_cancelled() {
                 break 'outer Outcome::Aborted;
             }
             let round_start_len = streamed_total;
-            let (relay, mut held) = match stream_round(state, &payload, &url, span, token, ch).await
+            let (relay, held) = match stream_round(state, &payload, &url, span, token, ch).await
             {
                 Round::Done(o) => break 'outer o,
                 Round::Relay(r, h) => (r, h),
+            };
+
+            // F77 EMPTY-ANSWER GUARD (brief 2026-11-21, ⇔ TS
+            // web-tool-loop.ts): an ordinary stop with zero visible content
+            // is not a completed answer. ONE bounded repair (identical
+            // payload), then an honest failure — never a blank success.
+            let (relay, mut held) = if is_empty_ordinary_terminal(&relay, streamed_total) {
+                match empty_answer_repair(
+                    state,
+                    &payload,
+                    &url,
+                    span,
+                    token,
+                    ch,
+                    &relay,
+                    streamed_total,
+                    &mut empty_repaired,
+                )
+                .await
+                {
+                    Some(rh) => rh,
+                    None => {
+                        tracing::warn!(
+                            parent: span,
+                            round = round + 1,
+                            "empty answer survived the bounded repair; failing the turn honestly"
+                        );
+                        break 'outer Outcome::Failed(EMPTY_ANSWER_MESSAGE.to_string());
+                    }
+                }
+            } else {
+                (relay, held)
             };
 
             if relay.finish.as_deref() != Some("tool_calls") || relay.calls.is_empty() {
@@ -1116,7 +1227,37 @@ pub async fn run_web_tool_loop(
         let round_start_len = streamed_total;
         match stream_round(state, &payload, &url, span, token, ch).await {
             Round::Done(o) => break 'outer o,
-            Round::Relay(r, mut held) => {
+            Round::Relay(r, held) => {
+                // F77 EMPTY-ANSWER GUARD (⇔ TS final-round mirror): the
+                // forced final round is the normal finish path for a
+                // cap-exhausted turn — an empty ordinary stop there gets the
+                // SAME one bounded repair, then an honest failure.
+                let (r, mut held) = if is_empty_ordinary_terminal(&r, streamed_total) {
+                    match empty_answer_repair(
+                        state,
+                        &payload,
+                        &url,
+                        span,
+                        token,
+                        ch,
+                        &r,
+                        streamed_total,
+                        &mut empty_repaired,
+                    )
+                    .await
+                    {
+                        Some(rh) => rh,
+                        None => {
+                            tracing::warn!(
+                                parent: span,
+                                "empty answer survived the bounded repair; failing the turn honestly"
+                            );
+                            break 'outer Outcome::Failed(EMPTY_ANSWER_MESSAGE.to_string());
+                        }
+                    }
+                } else {
+                    (r, held)
+                };
                 // The forced final answer streams LIVE and gets the SAME
                 // audit + revise treatment as every other round — the
                 // audit law names "the normal finish path" and this path
@@ -1420,5 +1561,41 @@ mod tests {
         assert!(meta < done, "web_meta must precede the terminal that closes the turn: {wire}");
         assert_eq!(wire.matches("[DONE]").count(), 1, "exactly one terminal: {wire}");
         assert!(held.is_empty(), "flush_held drained the parked terminal frames");
+    }
+
+    #[test]
+    fn empty_answer_shape_table() {
+        // F77 EMPTY-ANSWER LAW boundary table (⇔ the TS
+        // web-tool-loop-empty-answer tests): exactly one shape gets the
+        // bounded repair — an ORDINARY terminal ("stop") with zero visible
+        // content for the WHOLE turn and no tool-call fragments. Every
+        // neighbouring shape must stay OUTSIDE the law: cancellations,
+        // truncation, tool rounds, turns with prior visible narration, and
+        // any content-carrying stop. Content-neutral: no phrases, no topics.
+        use crate::chat::browser_loop::CallAcc;
+        fn relay(content: &str, finish: Option<&str>, calls: usize) -> ToolStreamRelay {
+            let mut r = ToolStreamRelay::new();
+            r.content = content.to_string();
+            r.finish = finish.map(str::to_string);
+            for i in 0..calls {
+                r.calls.insert(i, CallAcc::default());
+            }
+            r
+        }
+        // THE shape: empty (or whitespace-only) + "stop" + nothing streamed.
+        assert!(is_empty_ordinary_terminal(&relay("", Some("stop"), 0), 0));
+        assert!(is_empty_ordinary_terminal(&relay("  \n\t", Some("stop"), 0), 0));
+        // NOT the shape:
+        // content-carrying stop — a complete answer;
+        assert!(!is_empty_ordinary_terminal(&relay("Boreal costs $99.", Some("stop"), 0), 0));
+        // earlier rounds already released visible text (streamed_total > 0);
+        assert!(!is_empty_ordinary_terminal(&relay("", Some("stop"), 0), 7));
+        // cancellation and truncation terminals keep their own paths;
+        assert!(!is_empty_ordinary_terminal(&relay("", Some("abort"), 0), 0));
+        assert!(!is_empty_ordinary_terminal(&relay("It costs $50 p", Some("length"), 0), 0));
+        // tool rounds are not answers;
+        assert!(!is_empty_ordinary_terminal(&relay("", Some("tool_calls"), 1), 0));
+        // a terminal that also carries call fragments is mid-tooling, not empty.
+        assert!(!is_empty_ordinary_terminal(&relay("", Some("stop"), 1), 0));
     }
 }

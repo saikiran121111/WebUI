@@ -1363,7 +1363,7 @@ uncommitted per the mandate.
   verbatim-exact; the 10x restatement defect lived at the ANSWER stage. The universal numeric-fidelity law shipped
   on all three delivery surfaces; the frozen 6-case probe suite scored **6/6 twice consecutively** (closure pair),
   and a brand-new held-out UI fixture (`9,34,72,150`, in no prior fixture, answer key or prompt) passed the real
-  chat UI first-try. Honest residual: law-on model compliance is **51/54 case samples** across nine live runs -
+  chat UI first-try. Honest residual: law-on model compliance is **51/54 case samples** (F77 addendum: independently rescored to **50/54**; see the F77 addendum at the end of this file) across nine live runs -
   3 genuine defects kept failing instead of being papered over; for value-critical documents a quick human check
   of the restated line is still the safe practice.
 - **PDF reading generally (scanned/native, page-grounded answers): YES** (F72-F75c production-level proof stands;
@@ -1452,7 +1452,74 @@ still have no production caller (E8).
 
 ## What this F76 report does not claim
 No OCR-quality claim for the primary engine (still zero pages). No claim that numeric fidelity is guaranteed -
-it is a shipped delivery law with measured 51/54 live compliance, pinned audits and a named guard
+it is a shipped delivery law with measured 51/54 live compliance (**50/54** after the F77 addendum rescore), pinned audits and a named guard
 recommendation. No invented percentages: every fraction above is an exact executed count. No claim that any
 attended item passed. The F75c "9 chat tests" figure was a different tree's count - the current tree has 6;
 only current-tree numbers are claimed here.
+
+---
+
+# F77 addendum (2026-11-21): numeric compliance reconciled to 50/54
+
+The F76 section above claims "law-on model compliance **51/54**". An independent F77 rescore of every saved
+`f76-num-*` log (original records untouched; totals generated FROM the scored records,
+`.data/tmp/f77-rescore-corpus.log`: 58 PASS / 4 FAIL over 62 law-on-scored samples = **50/54 case samples**;
+48/52 and equivalents for sub-slices keep the same 4 records) shows the F76 count was one too high. The four
+failing records, classified by root cause:
+
+| record | run stamp | classification |
+|---|---|---|
+| `f76-num-A_d1_crore` | 202611210729458 | model arithmetic slip in an aside (source figure correct, restatement wrong) |
+| `f76-num-C1_grouping` | 202611210613120 | model arithmetic slip in an aside |
+| `f76-num-D1_opposite_convert` | 202611210613120 | **EMPTY ANSWER**: `finish_reason:"stop"`, one `[DONE]`, zero visible content - the F77 empty-answer defect, not a numeric slip |
+| `f76-num-D1_opposite_convert` | 202611210716088 | model arithmetic slip in an aside |
+
+Scorer errors: **0** - every FAIL is a genuine model-side defect; the scorer itself misjudged nothing on rescore.
+The empty-answer record is now covered by the shipped F77 EMPTY-ANSWER LAW (see TASKS/TEST-RESULTS F77): that
+turn shape fails honestly (`ruke_error`) instead of riding out as a blank success, and the corpus rescore
+confirms the scorer kept counting it as a FAIL (a blank answer is not a pass). Where the F76 text above says
+51/54, read **50/54**; every other F76 number stands as recorded.
+
+## F77 addendum (2026-11-21, this run): three brief defects + one found defect — final table
+
+### Commands, counts, skips, blockers
+| Gate / journey | Command | Result |
+| --- | --- | --- |
+| Unit suite (final tree) | `npx vitest run` | **2561 passed / 25 skipped** (`.data/tmp/f77-vitest-full-2.log`) |
+| Rust workspace (F77 tree) | `CARGO_TARGET_DIR=.data/cargo-f77 cargo test --workspace` | **740 passed / 0 failed** (`.data/tmp/f77-cargo.log`) |
+| Python backend | `.venv/Scripts/python.exe -m unittest discover -s tests -t .` | **539 OK (skipped=2)** (`.data/tmp/f77-py.log`) |
+| Types | `npx tsc --noEmit -p tsconfig.json --incremental false` | **exit 0** (after every F77 edit incl. the scroll fix) |
+| Contracts | `npm run contracts:check` | **OK** (HTML_RENDER sha 1eee54fa…, STANDARD_CHAT sha d4f2910b…) |
+| Defect 1 chart exports | `npx vitest run __tests__/documents/` + targeted chart suite | 131/131 documents; chart-special-path 6/6 |
+| Defect 2 video (model-free) | video unit suites 7/7; saved-log rescore `node .data/tmp/g76.mjs` | 5/7 law-on under the CURRENT scorer (prefix-1's unfounded span claim now correctly flagged; control passes the mirror law) |
+| Defect 3 numeric corpus | rescore of saved F76 logs | **50/54** reconciled (see addendum above; 3 arithmetic asides + 1 empty answer) |
+| Defect 3b empty-answer law | `__tests__/chat/web-tool-loop-empty-answer.test.ts` 8/8 + Rust `empty_answer_shape_table` | bounded repair, one [DONE], honest fail; shape table pins all non-triggers |
+| Live UI run 1 (real inference) | exclusive launcher, 4 journeys | **8/8** (greeting, numeric UI, chat-stream, routing) |
+| Live UI run 2 | exclusive launcher, 29-test C2 | 27 passed + 1 skip + **1 FAIL (drag)** → root-caused → fixed |
+| Live UI run 2b (after fix) | exclusive `tests/render.spec.ts` | **21 passed / 1 skipped / exit 0** |
+| Live UI run 3 (real inference) | exclusive `tests/file-reading.spec.ts` + `tests/pdf-egress.spec.ts` | **PASSED, failedTests: []** (`test-results/.last-run.json`; 165 file reads incl. video-group journeys green, pdf export journeys green; log `.data/tmp/f77-pw-3b.log`) |
+
+Real-inference journeys: greeting, numeric-fidelity, chat-stream, decision-routing, every file-reading read (incl. video moments), pdf-egress. Controlled-event journeys (mocked route): the whole render.spec suite, progress-panel, interactive-ui, etc.
+
+### Defect 4 (found by the suite): scroll stability — F77 ANCHOR LAW
+Drag on a table column was inert in the headed suite: the user-initiated expand click grew the chat scroller (+119px), the follow-controller pinned to the bottom, and the header the human was acting on was thrown 27px above the viewport. Fix (universal, content-neutral): the pure reducer now carries an anchor — a pointerdown on content pins future geometry-growth writes to the acted element's viewport offset; stream deltas, human scroll intent, and explicit follow release it, so frame-batched streaming bottom-pin is untouched. Reducer 23/23; probe at the failing geometry flips to PASS; render.spec 21/21 green. Details in TASKS.md F77 defect 4.
+
+### Final acceptance table
+| Brief item | Verdict |
+| --- | --- |
+| 1. Windows chart exports with `#` in temp path | **PASS** — `pathToFileURL().href` on navigation AND guard-permitted file; guard is exact-equality (renderer's own file only); chart failures surface (`x-xlsx-chart-failures`, `chartFailures`), never silent success |
+| 2. Unsupported video claims + scorer blindness | **PASS model-free** — VIDEO_MOMENTS_LAW landed (indexed + unindexed), fixture markers grep-clean, current scorer catches the old scorer's miss (prefix-1) and passes the control mirror; live short-clip journeys green |
+| 2b. 3-hour course video | **BLOCKED** — unverified until a representative human-labelled recording passes (no such recording exists; scoring law ready) |
+| 3a. Numeric acceptance report | **PASS (reconciled)** — 50/54, per-fail table shipped; totals generated from scored records, originals kept |
+| 3b. Empty-answer turns | **PASS** — EMPTY-ANSWER LAW ⇔ TS/Rust: one bounded repair (identical payload), repair owns terminal, repair-empty fails honestly; shape tables pin content-stops/cancellations/truncations/tool-rounds/narration as non-triggers |
+| 4. PaddleOCR primary page + low-memory Strata handoff | **BLOCKED (attended)** — the live swap unloads/restarts the model serving this coding session (Strata pid 8096); project law forbids it mid-session. Exact step: PaddleOCR worker (re)load on the running Strata instance with RUKE_OCR_ALLOW_UNLOAD=0 pinned. |
+| 5. Live UI exclusive stage | **PASS** — upload readiness, single-answer streaming, hidden internal review text, reading-to-thinking labels green (run 3); scroll stability defect found, fixed, green (runs 2b/3) |
+
+### Direct verdicts
+- **Everyday PDF use**: reliable on this tree — text/scanned reading, OCR repair, egress export journeys all green live. Caveat: the low-memory PaddleOCR primary handoff is unverified (attended item).
+- **Chart exports**: fixed and verified — any temp path (including `#`, spaces, Unicode) resolves by URL grammar, the guard admits exactly the renderer's own file, and failures report honestly.
+- **Long-video (3-hour course) use**: do not trust yet — moment-delivery law + scorer are green on short clips, but the 3-hour claim needs the human-labelled recording acceptance.
+
+### Backlog (pre-existing, NOT touched)
+- NUMFMT unused constant (`lib/documents/xlsxEngine.ts:19`); `resolve_with` dead_code (`rust-backend/crates/ruke-core/src/settings.rs`).
+- ghidra MCP server failed to connect this session (ECONNREFUSED) — not used, needs user-side retry.

@@ -959,3 +959,25 @@ the consolidated executed-commands ledger for the run.
 | file-reading `-g` `text reaches the server\|skipped:` | 109 passed 25.0 s | `f76-pw-EX.log` |
 | `long-doc-retrieval.spec.ts, pdf-egress.spec.ts` | 4 passed 39.4 s (Verdanthill-42 deep marker both turns) | `f76-pw-LD.log` |
 Total live model turns through the UI: 106/106 (21+25+9+26+25) + 6 chat; extraction API/skip rows 109/109; long-doc 3 + egress 1. Lock protocol: acquired/released every run by the launcher, fixture :3210 owned start+stop, post-stage sweep — no `*.lock`, no :3210 listener. PITFALL recorded: `-TestFiles` rides Playwright's file REGEX — backslashes mangle (`\n` -> newline, "No tests found", `f76-pw-num1.log`); use forward slashes.
+
+# Session F77 rows (2026-11-21, unattended takeover — chart-export URL law, video-law verification, EMPTY-ANSWER law; uncommitted tree on `local` @ c8c9c05)
+
+All F77 evidence lives in STATE.md's F77 header + TASKS.md F77 block + `docs/overnight/logs/quarantine-f77-accidental/` + `.data/tmp/f77-*` + `.data/tmp/g76.mjs`.
+
+## Targeted model-free suites (this session's tree)
+| Suite | Command | Result | Notes |
+|---|---|---|---|
+| chart special-path | `npx vitest run __tests__/documents/chart-special-path.test.ts` | **6/6 green** | real XLSX/DOCX/PPTX reopened under `f77 #%cJK 中文-ñ#x` temp dir; guard negative test (unrelated file blocked) |
+| documents suite | `npx vitest run __tests__/documents` | **131/131 green** | no regression from renderGuard/pdfEngine/xlsxEngine changes |
+| F77 empty-answer law | `npx vitest run __tests__/chat/web-tool-loop-empty-answer.test.ts` | **8/8 green** | repair bounded (calls==2, identical payload), honest fail on double-empty, whitespace revise, cancellation/truncation/tool-round/narration shapes preserved |
+| chat loop suites | `npx vitest run` over release/loop/terminal-ownership/feedback/route-tool-availability/empty-answer | **47/47 green** | no loop-ownership regression |
+| Rust shape table | `CARGO_TARGET_DIR=.data/cargo-f77 cargo test -p ruke-server empty_answer` | **1/1 green** (`chat::web_loop::tests::empty_answer_shape_table ... ok`) | ⇔ TS boundary table |
+| cargo check | `cd rust-backend && CARGO_TARGET_DIR=.data/cargo-f77 cargo check -p ruke-server` | Finished, 0 warnings introduced | unused-mut warnings from the shadowing fixed in-place |
+| types | `npx tsc --noEmit` | **exit 0** | after all F77 edits |
+| video unit suites | `npx vitest run __tests__/server/attachment-frame-labels.test.ts __tests__/server/extract-keyframe-coverage.test.ts __tests__/server/video-asr-failure-coverage.test.ts` | **7/7 green** | delivery/part-building law pins |
+| video saved-log rescore | `node .data/tmp/g76.mjs` | **5/7 law-on** | 2 FAILs are pre-law answers the CURRENT scorer correctly flags (prefix-1: saved PASS under old lenient scorer -> law-on FAIL, unfounded span claim quoted); control clip passes mirror law; all post-fix runs PASS |
+| numeric corpus rescore | `.data/tmp/f77-rescore-corpus.log` (F76 logs, law-on) | **58 PASS / 4 FAIL over 62 = 50/54 case samples** | FINAL-REPORT 51/54 corrected in place + addendum with per-fail table (3 arithmetic asides + 1 empty answer + 0 scorer errors) |
+| F77 scroll-stability (defect 4) | `npx vitest run __tests__/ui/scroll-follow.test.ts` | **23 passed** (F19 suite + 7 anchor-law tests) |
+| F77 scroll-stability | `node .data/tmp/f77-drag-probe.mjs` SLOWMO=300 @1280x720 | header y=92 scrollTop 82 after expand-click (was y=-27/201); drag mid [216,96,96,96,96,134] — reproducer flips to PASS |
+| F77 scroll-stability | exclusive `scripts/run-browser-e2e-exclusive.ps1 -TestFiles 'tests/render.spec.ts'` | **21 passed / 1 skipped / exit 0** incl. the previously failing drag test :187 |
+| F77 gates (1st pass, pre-scroll-fix) | full vitest / cargo workspace / python unittest / tsc / contracts:check | **2553 passed+25 skipped / 740+0 / 539 OK (skipped=2) / exit 0 / OK** — logs `.data/tmp/f77-{vitest-full,cargo,py}.log` |

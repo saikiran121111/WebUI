@@ -25,7 +25,7 @@ import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
 import {
-  initialFollowState, reduceFollow, shouldPin, pinTarget, PIN_TOLERANCE_PX,
+  initialFollowState, reduceFollow, shouldPin, pinTarget, anchorTarget, PIN_TOLERANCE_PX,
   type FollowAction, type FollowState, type ScrollerGeometry,
 } from "../lib/ui/scrollFollow";
 import { getBrowserState } from "../lib/browser-client/browserStore";
@@ -113,10 +113,16 @@ export default function HomePage() {
   const messagesContentRef = useRef<HTMLDivElement | null>(null);
   const followRef = useRef<FollowState>(initialFollowState(true));
   const pinRafRef = useRef<number | null>(null);
+  // F77 ANCHOR LAW (pure side in lib/ui/scrollFollow.ts): the element a
+  // pointer landed on, with its viewport offset at that moment. The reducer
+  // owns the lifetime (anchorTop); this ref only carries the DOM element the
+  // pure law cannot hold. Cleared whenever the reducer releases the anchor.
+  const anchorRef = useRef<{ el: HTMLElement; top: number } | null>(null);
 
   const dispatchFollow = useCallback((action: FollowAction) => {
     const next = reduceFollow(followRef.current, action);
     followRef.current = next;
+    if (next.anchorTop == null) anchorRef.current = null;
     setHasScrolledUp(!next.following);          // projection for the pill ONLY
   }, []);
 
@@ -128,14 +134,24 @@ export default function HomePage() {
 
   // One rAF-coalesced pin per frame. The write is TAGGED before it lands, so
   // the scroll event it produces is consumed as programmatic and can never be
-  // read as reader intent (and can never unpin itself).
+  // read as reader intent (and can never unpin itself). While the reducer
+  // holds an ANCHOR (a user-initiated pointer action on content), the pin
+  // preserves that element's viewport offset instead of the bottom — an
+  // in-place expansion must not throw the element the human is acting on out
+  // of view. The anchor target is computed from LIVE geometry inside the rAF,
+  // so a detached element or a cleared anchor falls back to the bottom.
   const pinToBottom = useCallback(() => {
     if (pinRafRef.current != null) return;
     pinRafRef.current = requestAnimationFrame(() => {
       pinRafRef.current = null;
       const c = messagesContainerRef.current;
       if (!c || !shouldPin(followRef.current)) return;   // re-read at run time
-      const target = pinTarget(geometryOf(c));
+      const anchor = anchorRef.current;
+      const anchored = anchor && c.contains(anchor.el);
+      if (!anchored) anchorRef.current = null;
+      const target = anchored
+        ? anchorTarget(geometryOf(c), anchor.top, anchor.el.getBoundingClientRect().top - c.getBoundingClientRect().top)
+        : pinTarget(geometryOf(c));
       if (Math.abs(c.scrollTop - target) <= PIN_TOLERANCE_PX) return;
       followRef.current = reduceFollow(followRef.current, { type: "pin_request", target });
       c.scrollTop = target;
@@ -151,9 +167,13 @@ export default function HomePage() {
 
   // Content grew (stream delta): re-pin while following. The following check is
   // read INSIDE the rAF, so an unpin that happens in between is honoured.
+  // A streamed delta also releases any ANCHOR: the answer the human asked for
+  // owns the view again (the anchor law is for in-place controls only, and it
+  // never overrides the frame-batched streaming bottom-pin).
   useEffect(() => {
+    dispatchFollow({ type: "stream_delta" });
     if (shouldPin(followRef.current)) pinToBottom();
-  }, [messages, pinToBottom]);
+  }, [messages, dispatchFollow, pinToBottom]);
 
   // Async layout growth (images finishing, lazily mounted viewers, table
   // reflow) and viewport resizes change geometry WITHOUT a `messages` change.
@@ -211,12 +231,28 @@ export default function HomePage() {
       if (y != null) lastTouchY = y;
     };
     const onTouchEnd = () => { lastTouchY = null; };
+    // F77 ANCHOR LAW: a pointer landing on content records the acted element
+    // as the pin anchor (pure lifetime in the reducer). Any element, any
+    // control — the law is the gesture, not the widget. A pointer on the
+    // scroller itself (scrollbar, padding) is a view gesture, not a content
+    // action: no anchor.
+    const onPointerDown = (e: PointerEvent) => {
+      const c2 = messagesContainerRef.current;
+      if (!c2) return;
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (!t || t === c2) { dispatchFollow({ type: "release_anchor" }); return; }
+      const top = t.getBoundingClientRect().top - c2.getBoundingClientRect().top;
+      anchorRef.current = { el: t, top };
+      dispatchFollow({ type: "interact", anchorTop: top });
+    };
+    c.addEventListener("pointerdown", onPointerDown, { passive: true });
     c.addEventListener("scroll", onScroll, { passive: true });
     c.addEventListener("wheel", onWheel, { passive: true });
     c.addEventListener("touchstart", onTouchStart, { passive: true });
     c.addEventListener("touchmove", onTouchMove, { passive: true });
     c.addEventListener("touchend", onTouchEnd, { passive: true });
     return () => {
+      c.removeEventListener("pointerdown", onPointerDown);
       c.removeEventListener("scroll", onScroll);
       c.removeEventListener("wheel", onWheel);
       c.removeEventListener("touchstart", onTouchStart);

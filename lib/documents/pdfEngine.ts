@@ -5,6 +5,7 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { withRenderBrowser } from "./browser";
 import { buildPrintableHtml } from "./printCss";
 import { chartPageGuardOptions, isolateRenderPage } from "./renderGuard";
@@ -103,7 +104,10 @@ export async function renderChartPng(
         // loopback or WAN resources either.
         await isolateRenderPage(page, chartPageGuardOptions(tmpHtml));
         await fs.writeFile(tmpHtml, html, "utf8");
-        await page.goto("file:///" + tmpHtml.replace(/\\/g, "/"), { waitUntil: "networkidle", timeout: 30_000 });
+        // pathToFileURL (NOT string concatenation) is the same canonical form
+        // the guard compares against, so navigation and permission agree for
+        // every path — including ones containing #, %, spaces and Unicode.
+        await page.goto(pathToFileURL(tmpHtml).href, { waitUntil: "networkidle", timeout: 30_000 });
         await settle(page);
         const el = (await page.$("#chart-root")) ?? (await page.$("body"));
         const box = el ? await el.boundingBox() : null;

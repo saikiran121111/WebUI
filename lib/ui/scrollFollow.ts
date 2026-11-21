@@ -42,6 +42,18 @@ export interface ScrollerGeometry {
 export interface FollowState {
   /** The single source of truth: is the view following the stream? */
   following: boolean;
+  /**
+   * F77 ANCHOR LAW: while an anchor is active, a pin preserves the ANCHORED
+   * element's offset from the scroller's top edge instead of the bottom. The
+   * caller sets it from a pointerdown on content (the element the human is
+   * acting on); the reducer owns its lifetime. The defect it closes: a
+   * user-initiated in-place control (e.g. a table's expand button) grows the
+   * list, the RO pins to the bottom, and the element under the pointer is
+   * thrown out of the view the human is looking at. Stream growth and any
+   * human intent clear the anchor, so the bottom-following law is untouched.
+   * `null` = free; the bottom is the target.
+   */
+  anchorTop: number | null;
   lastScrollTop: number;
   lastScrollHeight: number;
   lastClientHeight: number;
@@ -68,6 +80,9 @@ export type FollowAction =
   | { type: "wheel_up" }
   | { type: "touch_up" }
   | { type: "pin_request"; target: number }
+  | { type: "interact"; anchorTop: number }
+  | { type: "stream_delta" }
+  | { type: "release_anchor" }
   | { type: "follow" }
   | { type: "free" }
   | { type: "reset" };
@@ -81,6 +96,7 @@ const geom = (g: ScrollerGeometry) => ({
 export function initialFollowState(following = true): FollowState {
   return {
     following,
+    anchorTop: null,
     lastScrollTop: 0,
     lastScrollHeight: 0,
     lastClientHeight: 0,
@@ -108,16 +124,43 @@ export function maxScrollTop(g: ScrollerGeometry): number {
  */
 export function reduceFollow(state: FollowState, action: FollowAction): FollowState {
   switch (action.type) {
+    case "interact":
+      // F77: the human put a pointer on content. Their gaze is that element,
+      // not the bottom. Does NOT touch `following` — acting on a control is
+      // not scrolling.
+      return { ...state, anchorTop: action.anchorTop };
+
+    case "stream_delta":
+      // New streamed content re-asserts the bottom-following law: the answer
+      // the human asked for owns the view again, so any anchor is released.
+      // Never touches `following` (a delta must not re-pin an intentional
+      // unpin) and never touches geometry.
+      return state.anchorTop == null ? state : { ...state, anchorTop: null };
+
+    case "release_anchor":
+      // A view gesture with no content under it (pointer on the scroller
+      // itself: scrollbar, padding). Release the anchor; leave the following
+      // state to the scroll events the gesture will produce.
+      return state.anchorTop == null ? state : { ...state, anchorTop: null };
+
     case "follow":
       // Programmatic re-engage (jump-to-bottom, new turn, new conversation):
       // synchronous and total — a queued pin must see this immediately.
-      return { ...state, following: true, pendingPinTop: null };
+      return { ...state, following: true, anchorTop: null, pendingPinTop: null };
 
     case "free":
       // Explicit human intent (wheel-up / touch drag). Synchronous unpin so a
-      // pin already scheduled this frame cannot land after it.
-      if (!state.following) return state;
-      return { ...state, following: false, pendingPinTop: null, userIntentUnpins: state.userIntentUnpins + 1 };
+      // pin already scheduled this frame cannot land after it. The anchor dies
+      // with the unpin: the human moved; their old anchor no longer describes
+      // where they are looking.
+      if (!state.following && state.anchorTop == null) return state;
+      return {
+        ...state,
+        following: false,
+        anchorTop: null,
+        pendingPinTop: null,
+        userIntentUnpins: state.userIntentUnpins + (state.following ? 1 : 0),
+      };
 
     case "wheel_up":
     case "touch_up":
@@ -165,16 +208,29 @@ export function reduceFollow(state: FollowState, action: FollowAction): FollowSt
 
       let following = state.following;
       let anchoringAbsorbed = state.anchoringAbsorbed;
+      let anchorTop = state.anchorTop;
       if (dist <= BOTTOM_REPIN_PX || clampedAtEnd) {
         following = true;                       // parked at the end = following
+        anchorTop = null;                       // the human chose the end: bottom law back
       } else if (movedUp) {
         if (explainedByLayout) anchoringAbsorbed += 1;
-        else following = false;                 // real reader intent
+        else {
+          following = false;                    // real reader intent
+          anchorTop = null;                     // ...and it releases the anchor
+        }
+      }
+      // Moved DOWN toward the middle, untagged (a scrollbar drag, keyboard
+      // paging): the human repositioned the view — the anchor is stale.
+      // (The consumed-pin branch returned above, so anything reaching here is
+      // a real movement, not our own tagged write.)
+      if (anchorTop != null && g.scrollTop > state.lastScrollTop + UP_INTENT_PX && dist > BOTTOM_REPIN_PX) {
+        anchorTop = null;
       }
       const unpinnedByIntent = following === false && state.following === true;
       return {
         ...state,
         following,
+        anchorTop,
         pendingPinTop: null,                    // any foreign event invalidates the tag
         pendingShrinkPx: 0,                     // the explanation window is one event wide
         anchoringAbsorbed,
@@ -193,4 +249,17 @@ export function shouldPin(state: FollowState): boolean {
 /** The write target for a pin, clamped to what the browser will accept. */
 export function pinTarget(g: ScrollerGeometry): number {
   return maxScrollTop(g);
+}
+
+/**
+ * F77: the write target for an ANCHORED pin — restore the anchored element to
+ * the viewport offset it had when the pointer landed on it (`savedTop`), given
+ * where it sits right now (`currentTop`, both measured from the scroller's top
+ * edge). Growing content above the anchor pushed it down (`currentTop` grew),
+ * so scroll down by the same amount to bring it back. Clamped like a normal
+ * pin. Content-neutral: pure geometry, no notion of what the element is.
+ */
+export function anchorTarget(g: ScrollerGeometry, savedTop: number, currentTop: number): number {
+  const raw = g.scrollTop + (currentTop - savedTop);
+  return Math.min(Math.max(raw, 0), maxScrollTop(g));
 }

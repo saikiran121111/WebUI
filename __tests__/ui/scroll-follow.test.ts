@@ -16,6 +16,7 @@ import {
   distanceFromBottom,
   maxScrollTop,
   pinTarget,
+  anchorTarget,
   shouldPin,
   BOTTOM_REPIN_PX,
   type FollowState,
@@ -160,5 +161,106 @@ describe("F19 — explicit intent wins, synchronously", () => {
     s = reduceFollow(s, { type: "wheel_up" });
     s = reduceFollow(s, { type: "wheel_up" });
     expect(s.userIntentUnpins).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F77 (brief 2026-11-21) — the ANCHOR LAW.
+// The live defect: a user-initiated IN-PLACE control (a table's expand
+// button) grows the chat list; the ResizeObserver pins to the bottom; the
+// header the human is operating on is thrown above the viewport and their
+// next gesture lands on nothing. The law: while a pointer acts on content,
+// a pin preserves THAT element's viewport offset; the bottom-following law
+// (streaming, jump-to-latest) is untouched. Content-neutral: the reducer
+// sees only a pointer gesture and geometry — never what the element is.
+// ---------------------------------------------------------------------------
+describe("F77 — anchor law: a user-initiated in-place control keeps its anchor", () => {
+  const anchored = () =>
+    reduceFollow(seed(initialFollowState(), g(600, 1000)), { type: "interact", anchorTop: 94 });
+
+  it("interact anchors the acted element and changes NOTHING else (no unpin, no geometry edit)", () => {
+    const before = seed(initialFollowState(), g(600, 1000));
+    const s = reduceFollow(before, { type: "interact", anchorTop: 94 });
+    expect(s.anchorTop).toBe(94);
+    expect(s.following).toBe(before.following);
+    expect(s.lastScrollTop).toBe(before.lastScrollTop);
+    expect(s.lastScrollHeight).toBe(before.lastScrollHeight);
+  });
+
+  it("the expand-click shape: geometry growth KEEPS the anchor so the pin preserves the element", () => {
+    let s = anchored();
+    s = reduceFollow(s, { type: "geometry", geo: g(600, 1119) }); // +119px in-place growth
+    expect(s.anchorTop).toBe(94);
+    expect(shouldPin(s)).toBe(true);
+  });
+
+  it("the anchor's own tagged pin keeps the anchor", () => {
+    let s = anchored();
+    s = reduceFollow(s, { type: "pin_request", target: 640 });
+    s = reduceFollow(s, { type: "scroll", geo: g(640, 1119) });
+    expect(s.anchorTop).toBe(94);
+    expect(s.following).toBe(true);
+  });
+
+  it("a stream delta releases the anchor (streaming keeps the bottom-pin) WITHOUT repinning an unpin", () => {
+    let s = anchored();
+    s = reduceFollow(s, { type: "stream_delta" });
+    expect(s.anchorTop).toBeNull();
+    expect(s.following).toBe(true);
+    // An intentional unpin must not be re-engaged by a delta.
+    let u = reduceFollow(anchored(), { type: "wheel_up" });
+    u = reduceFollow(u, { type: "stream_delta" });
+    expect(u.following).toBe(false);
+    expect(u.anchorTop).toBeNull();
+  });
+
+  it("human intent releases the anchor: wheel-up, jump-to-latest, reset", () => {
+    expect(reduceFollow(anchored(), { type: "wheel_up" }).anchorTop).toBeNull();
+    expect(reduceFollow(anchored(), { type: "touch_up" }).anchorTop).toBeNull();
+    expect(reduceFollow(anchored(), { type: "follow" }).anchorTop).toBeNull();
+    expect(reduceFollow(anchored(), { type: "reset" }).anchorTop).toBeNull();
+  });
+
+  it("a real scroll event releases the anchor; an absorbed layout compensation keeps it", () => {
+    // Reader scrolls up 300px with unchanged height: intent -> anchor gone.
+    let s = anchored();
+    s = reduceFollow(s, { type: "scroll", geo: g(300, 1000) });
+    expect(s.anchorTop).toBeNull();
+    expect(s.following).toBe(false);
+    // Parking at the new bottom by their own scroll: bottom law resumes.
+    let p = anchored();
+    p = reduceFollow(p, { type: "scroll", geo: g(996, 1600) }); // dist 4 <= repin
+    expect(p.anchorTop).toBeNull();
+    // Shrink-compensated movement (absorbed, not intent): anchor survives.
+    let a = reduceFollow(anchored(), { type: "geometry", geo: g(600, 1500) });
+    a = reduceFollow(a, { type: "geometry", geo: g(600, 1200) }); // -300 shrink budget
+    a = reduceFollow(a, { type: "scroll", geo: g(300, 1200) });   // upward, fully explained, mid-scroller
+    expect(a.following).toBe(true);
+    expect(a.anchorTop).toBe(94);
+    // Untagged downward reposition into the middle (scrollbar drag): stale.
+    let d = anchored();
+    d = reduceFollow(d, { type: "scroll", geo: g(620, 1000) });
+    expect(d.anchorTop).toBeNull();
+  });
+
+  it("release_anchor (pointer on the scroller itself) frees the anchor, leaves following alone", () => {
+    const s = reduceFollow(anchored(), { type: "release_anchor" });
+    expect(s.anchorTop).toBeNull();
+    expect(s.following).toBe(true);
+    // A stale anchor released via wheel-up is not a second unpin.
+    let u = reduceFollow(reduceFollow(anchored(), { type: "wheel_up" }), { type: "wheel_up" });
+    expect(u.userIntentUnpins).toBe(1);
+  });
+
+  it("anchorTarget: element pushed down by growth -> scroll by the delta; stable -> no-op; clamps", () => {
+    // In-place expand that pushed the element 119px down: bring it back.
+    expect(anchorTarget(g(600, 1119), 94, 213)).toBe(719);
+    // Native anchoring kept the element put: the pin is a NO-OP, not a jump.
+    expect(anchorTarget(g(600, 1119), 94, 94)).toBe(600);
+    // Growth ABOVE the anchor pushed it UP: scroll up to follow it.
+    expect(anchorTarget(g(600, 1119), 94, 44)).toBe(550);
+    // Clamped like a normal pin.
+    expect(anchorTarget(g(0, 1000), 94, 0)).toBe(0);
+    expect(anchorTarget(g(600, 1000, 400), 94, 900)).toBe(600); // max 600
   });
 });

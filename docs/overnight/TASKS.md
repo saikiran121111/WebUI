@@ -2429,3 +2429,99 @@ Results (logs in docs/overnight/logs):
 - HAZARD LEARNED (recorded as law for future loops): a foreground bash call killed at the 600 s cap (exit 143) can leave the playwright tree RUNNING - the orphan batch B wrote its own full summary ("159 passed / 60 failed, 19.5 m") into f75-pw-B.log AFTER the wrapper died. All 60 failures are kill artifacts, not product: "worker process exited unexpectedly (code=3221225794 = 0xC0000002)" cascading from the exact test in flight at the kill ("the assistant never finished answering"). Verified timeline via log mtimes (orphan finished 04:41:57; my g65 chromium sweep ran ~04:43 - i.e. it killed 28 genuine post-completion leaks, NOT live tests). Every one of the 60 was rerun green. Rule: before sweeping "orphans" after an exit-143 kill, check the log mtime / a still-growing file / process start times first.
 
 Final loop scoreboard: chat-streaming/routing/greeting 9/9, file-reading 215/215, long-doc 3/3, pdf-egress 1/1 - zero product failures in this slice.
+
+## F77 (2026-11-21): chart-export URL law + video-law verification + EMPTY-ANSWER law
+
+### Defect 1 - Windows chart exports when the temp path contains `#`
+- REPRODUCTION: chart exports (XLSX embedded images, DOCX media, PPTX Chromium artwork, standalone PNG)
+  fail when DOC_TEMP_DIR's path contains `#` (and the same class breaks on `%`, spaces, Unicode); worse,
+  an XLSX "succeeds" with ZERO chart images - silent incomplete export.
+- ROOT CAUSE (shared): file URLs built by STRING CONCATENATION ("file:///" + backslash-swapped path),
+  and the egress guard compares request URLs against that same hand-built string. Under URL grammar:
+  `#` = fragment separator (Chromium navigates to a truncated path); `%` = escape start (a literal "%20"
+  in a file name becomes a space); space/Unicode = raw bytes Chromium re-encodes, so the guard's raw
+  string never matches its own file. Navigation lands on the wrong file, or the guard refuses the
+  renderer's own file.
+- FIX (universal, one law both sides): `pathToFileURL(absolutePath).href` on the navigation AND the
+  exact file the guard permits; guard matches the canonicalized URL EXACTLY (never a prefix - the
+  renderer's own file only). Chart failures are counted and surfaced: xlsx `chartFailures` field +
+  `x-xlsx-chart-failures` / `x-xlsx-chart-failure-sample` headers - a workbook missing chart images
+  never reports as a plain success.
+- CHANGED: lib/documents/renderGuard.ts, lib/documents/pdfEngine.ts, lib/documents/xlsxEngine.ts,
+  app/api/documents/xlsx/route.ts.
+- TESTS: `__tests__/documents/chart-special-path.test.ts` (NEW, 6/6 green) - temp dir name
+  `f77 #%cJK 中文-ñ#x` exercises every class; REAL artifacts reopened: XLSX via ExcelJS = 3 chart
+  images + `chartFailures==[]`, DOCX zip = 2 word/media PNGs >1 KB, PPTX = native chart XML +
+  Chromium media, PNG signature check, PDF setContent control, guard permits exact own file / blocks
+  unrelated local file (negative test). documents suite 131/131.
+- EVIDENCE: the spec file itself; run logs in the session record. NEXT: documents-export journeys in the
+  final exclusive Playwright stage.
+
+### Defect 2 - unsupported video claims + scorer blindness (VERIFY the landed F76 law)
+- VERIFIED LANDED: VIDEO_MOMENTS_LAW `lib/chat/client.ts:134`, applied on BOTH delivery shapes
+  (:183 indexed, :241 unindexed). No production change this session.
+- MODEL-FREE VERIFICATION: (a) unit suites 7/7 green - attachment-frame-labels, extract-keyframe-coverage,
+  video-asr-failure-coverage (delivery/part-building law). (b) `node .data/tmp/g76.mjs` - offline rescore
+  of all 7 saved `docs/overnight/logs/f76-video-*.json` under the CURRENT probe law (SPAN/HEDGE/NEG regexes
+  extracted from the probe source, so tightening the probe tightens the rescore): **5/7 law-on**. The two
+  FAILs are PRE-law answers, and the current scorer CORRECTLY flags prefix-1's unqualified span claim
+  ("across nearly the whole 6-second clip ... no point ... without it") that the OLD lenient scorer PASSED -
+  the exact scorer blindness the brief named; a correct read + unfounded span claim now fails. Control clip
+  (marker genuinely continuous) passes the mirror absence law: no over-correction.
+- OVERFIT GUARD: fixture markers `GAP-MARKER-9F3K` / `READABLE-MARKER-MP4-7QX9` grep-clean from
+  lib/, app/, rust-backend/ production sources.
+- NEXT: live gap+control probes on the final exclusive stage (attended policy: probe is never a gate).
+
+### Defect 3 - numeric-answer reliability: report reconciliation + EMPTY-ANSWER law
+- RECONCILIATION: FINAL-REPORT claimed 51/54 law-on; independent rescore of every saved `f76-num-*` log
+  (originals untouched, totals generated FROM scored records) = 58 PASS / 4 FAIL over 62 law-on samples =
+  **50/54 case samples** (`.data/tmp/f77-rescore-corpus.log`). 4 fails: A_d1_crore run 0729458,
+  C1_grouping run 0613120, D1_opposite_convert run 0716088 (all arithmetic asides) +
+  D1_opposite_convert run 0613120 (EMPTY ANSWER, below). Scorer errors: 0. Run-7 A record is the
+  required "correct source figure + incorrect restatement -> must fail" case. FINAL-REPORT: F77 addendum
+  appended with the per-fail table; both 51/54 lines annotated to 50/54 in place; original text preserved.
+- REPRODUCTION (3b): saved turn `f76-num-D1_opposite_convert-202611210613120` -
+  `finish_reason:"stop"`, exactly one `data: [DONE]`, answer "" with `rukeError: null`: a "successful"
+  turn with zero visible content.
+- ROOT CAUSE: the tool loop passed an ordinary stop terminal through with no visible-content check -
+  stream completion said "done" because the transport said so, not because an answer exists.
+- FIX (F77 EMPTY-ANSWER LAW, TS ⇔ Rust): an ORDINARY terminal - finish "stop" + whole-turn visible
+  content trim()=="" + zero tool-call fragments + whole-turn streamedTotal===0 - is not a completed
+  answer. ONE bounded repair per turn: the IDENTICAL payload re-issued (failed attempt streamed zero
+  answer bytes, so nothing can duplicate); the repair owns the terminal (the dropped attempt's parked
+  finish/`[DONE]` die -> exactly one `[DONE]` ever); a failed attempt's invisible whitespace residue is
+  erased by ONE `web:content_revise` (contentCutTo=streamedTotal, contentText="") through the existing
+  in-place revise channel - NOT a flagged-answer retraction (that lifecycle stays CLOSED; real answers
+  are never erased); a repair landing empty fails the turn HONESTLY via `ch.fail(EMPTY_ANSWER_MESSAGE)`
+  - the blank never rides out as a success. NOT the shape (no repair, no fail): content-carrying stops,
+  "abort"/"interrupted" (cancellation), "length" (truncation), tool rounds, turns whose earlier rounds
+  already streamed visible narration. Cap-exhaustion's forced final round obeys the same law.
+  Chokepoint: the tool loop IS the ordinary-answer path (armed on every progress turn); research-disabled
+  + legacy plain-forward are explicit opt-outs; client parser untouched - the server-side guarantee
+  enforces the contract for all consumers.
+- CHANGED: lib/chat/web-tool-loop.ts (EMPTY_ANSWER_MESSAGE, isEmptyOrdinaryTerminal, emptyAnswerRepair,
+  in-loop + final-round guards, `emptyRepaired` once-flag); rust-backend/crates/ruke-server/src/chat/
+  web_loop.rs (byte-identical EMPTY_ANSWER_MESSAGE incl em-dash, is_empty_ordinary_terminal,
+  empty_answer_repair, mirrored guards, Outcome::Failed -> ch.fail wiring).
+- TESTS: `__tests__/chat/web-tool-loop-empty-answer.test.ts` (NEW, 8/8): repair-with-answer (calls==2,
+  IDENTICAL payload asserted, fold == repair's answer, 1 `[DONE]`, no fail), both-empty (calls==2, ONE
+  ruke_error, zero frames on wire, no close), whitespace residue (+revise), content-stop control
+  (calls==1), abort preserved, length+partial preserved, narrated-tool-round turns NOT chased, cap-path
+  (4 silent tool rounds -> final empty -> repair empty -> honest fail, calls==6, zero `[DONE]`).
+  Rust `empty_answer_shape_table` 1/1 (boundary table incl. stop+calls fragment, streamed_total>0).
+  Loop suites 47/47 (release/loop/terminal-ownership/feedback/route-tool-availability + new 8).
+  `cargo check -p ruke-server` Finished; `tsc --noEmit` exit 0.
+- NEXT: full gates + exclusive Playwright single-answer-streaming journeys on the final tree.
+
+### Backlog (pre-existing, deliberately NOT touched)
+- NUMFMT unused constant, lib/documents/xlsxEngine.ts:19 (IDE hint; tsc gate green).
+- `resolve_with` dead_code warning, rust-backend/crates/ruke-core/src/settings.rs (present in HEAD).
+
+## F77 defect 4 (found in exclusive run 2): column-resize drag inert — scroll stability (2026-11-21)
+- **Reproduction**: exclusive headed suite (`tests/render.spec.ts:187`, "dragging one column must not reflow other columns or row heights") — widen asserted >= 196, got 96. Headless/no-slowMo probe: drag WORKS. Headed geometry (slowMo 300, 1280x720): reproduces.
+- **Root cause**: user is parked at the bottom (`following: true`); the table-expand click grows the chat scroller (+119px); the ResizeObserver's follow-controller pins to the BOTTOM (scrollTop 82 -> 201); the table header the human is acting on is thrown 27px ABOVE the viewport; the raw mouse drag lands on nothing (handle box y=-27, `elementFromPoint` null). The resize law itself is intact (no-slowMo probe mid-drag [216,96,96,96,96,134]); predates F72 (component last touched 50bfb30), render.spec not in the F76 loops.
+- **Fix (universal, content-neutral)**: F77 ANCHOR LAW. Pure reducer `lib/ui/scrollFollow.ts`: new `anchorTop` state + `interact`/`stream_delta`/`release_anchor` actions + `anchorTarget()`; a pin while anchored preserves the ACTED element's viewport offset (pure geometry: `scrollTop + currentTop - savedTop`, clamped). `app/page.tsx`: pointerdown on content records the element+offset (pointer on the scroller itself releases the anchor); the rAF pin resolves anchor target from LIVE geometry (detached element falls back to bottom); stream delta dispatches `stream_delta` (streaming bottom-pin untouched); any human intent (wheel/touch/upward+downward real scroll/park-at-end) releases the anchor. Inputs are ONLY the pointer gesture and scroll geometry - no element identity, no content, no phrases: every general answer/turn/control path keeps the existing bottom-following law.
+- **Changed files**: lib/ui/scrollFollow.ts, app/page.tsx, __tests__/ui/scroll-follow.test.ts (+7 anchor tests, 23/23).
+- **Tests**: reducer 23/23; tsc exit 0; probe `.data/tmp/f77-drag-probe.mjs` at the failing headed geometry: after-click header y=92 scrollTop 82 (was y=-27 scrollTop 201), handle hit-tests, drag mid [216,96,96,96,96,134]; exclusive `tests/render.spec.ts` **21 passed / 1 skipped / exit 0** (`.data/tmp/f77-pw-2b.log` run 2 -> full-file rerun green).
+- **Evidence**: `.data/tmp/f77-pw-1.log`, `-pw-2.log`, `-pw-2b.log`, `.data/tmp/f77-drag-probe.mjs`.
+- **NEXT**: final consolidated gates + remaining exclusive runs on the final tree.

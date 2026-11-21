@@ -28,6 +28,7 @@
  * that never needed JS. `data:`/`blob:` URLs stay available — Chromium does not
  * route them, so inline images and base64 fonts keep working.
  */
+import { pathToFileURL } from "node:url";
 import type { Page } from "playwright";
 
 /** Handle for the canary tests: how many requests the render tried to make. */
@@ -43,8 +44,16 @@ export interface IsolateOptions {
   allowLocalFile?: string;
 }
 
+/**
+ * Canonical `file://` URL for an absolute path. Node's own encoder is the ONLY
+ * correct one: a hand-concatenated "file:///" + path is wrong for every
+ * URL-reserved character (`#` becomes a fragment, `%` a percent-escape, raw
+ * spaces/Unicode get re-encoded by Chromium), so the chart navigation and this
+ * guard must both go through `pathToFileURL` — the two sides then agree by
+ * construction for ANY path, no special-case branches.
+ */
 function toFileUrl(p: string): string {
-  return "file:///" + p.replace(/\\/g, "/");
+  return pathToFileURL(p).href;
 }
 
 /**
@@ -57,7 +66,12 @@ export async function isolateRenderPage(page: Page, opts: IsolateOptions = {}): 
 
   await page.route("**/*", async (route) => {
     const url = route.request().url();
-    if (allowed && url.startsWith(allowed)) return route.continue();
+    // EXACT equality with the canonical URL of the permitted file. The old
+    // startsWith() prefix also admitted anything nested under that path
+    // (file.html/deep/…) — the policy has always been "its OWN file", and
+    // canonicalized equality is what makes that enforceable under special
+    // characters, where a raw prefix never matched at all.
+    if (allowed && url === allowed) return route.continue();
     if (url.startsWith("data:") || url.startsWith("blob:") || url === "about:blank") return route.continue();
     blocked += 1;
     // "blockedbyclient" is the honest reason: the policy here refused it, so the

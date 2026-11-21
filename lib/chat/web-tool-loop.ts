@@ -506,10 +506,77 @@ async function streamRound(
 }
 
 /**
- * Run the model-facing web research turn. Owns the busy-slot claim for the
- * whole loop and closes/fails the channel exactly once — the route never
- * calls `forwardStreamInto` after this returns.
+ * F77 (brief 2026-11-21): the honest failure text when an ordinary turn
+ * stays empty even after the one bounded repair. Byte-identical to the ⇔
+ * Rust `EMPTY_ANSWER_MESSAGE`. Content-neutral by construction: it names
+ * the shape (no visible content), never the topic.
  */
+const EMPTY_ANSWER_MESSAGE =
+  "The model returned an empty answer. The turn was retried once and stayed empty — please send the message again.";
+
+/**
+ * F77 EMPTY-ANSWER LAW: an ORDINARY terminal — `finish_reason: "stop"`
+ * carrying ZERO visible answer content for the whole turn and no tool-call
+ * fragments — is not a completed answer. The saved defect shape is
+ * `finishReason:"stop"` + one `[DONE]` + answer "": the client rendered a
+ * "successful" turn with nothing to show, and offline scoring logged a
+ * blank. Cancellations ("abort"/"interrupted"), truncation ("length"),
+ * tool-call terminals and upstream failures are NOT this shape and keep
+ * their existing paths. `streamedTotal === 0` means no earlier round of
+ * this turn released visible text either. ⇔ Rust `is_empty_ordinary_terminal`.
+ */
+function isEmptyOrdinaryTerminal(relay: ToolStreamRelay, streamedTotal: number): boolean {
+  return (
+    relay.finish === "stop" &&
+    relay.calls.size === 0 &&
+    relay.content.trim() === "" &&
+    streamedTotal === 0
+  );
+}
+
+/**
+ * F77 EMPTY-ANSWER LAW (⇔ Rust `empty_answer_repair`): the caller detected
+ * an [[isEmptyOrdinaryTerminal]] relay. ONE bounded repair per turn:
+ * re-issue the IDENTICAL round payload. The failed attempt streamed zero
+ * answer bytes, so the repair cannot duplicate visible text, and its parked
+ * terminal frames die with the attempt — the repair owns the terminal, so
+ * the stream keeps exactly one `[DONE]`. If the repair lands empty again
+ * (or the round closed), the turn must FAIL: the caller emits
+ * `EMPTY_ANSWER_MESSAGE` through `ch.fail` instead of shipping a blank
+ * success. No harness-feedback bytes, no prompt edits: this repairs the
+ * zero-byte stream-completion shape, not a flagged answer (the feedback
+ * lifecycle stays CLOSED, brief 2026-11-13).
+ * Returns the relay + parked frames to release, or null when the turn fails.
+ */
+async function emptyAnswerRepair(
+  payload: any,
+  model: string,
+  signal: AbortSignal | undefined,
+  ch: WebProgressChannel,
+  failed: ToolStreamRelay,
+  streamedTotal: number,
+  repaired: { done: boolean },
+): Promise<{ relay: ToolStreamRelay; held: Uint8Array[] } | null> {
+  if (repaired.done) return null; // the ONE repair for this turn already happened
+  repaired.done = true;
+  log.warn(
+    { model },
+    "answer ended stop with zero visible content; replaying the round once",
+  );
+  // The failed attempt may have streamed INVISIBLE residue (whitespace —
+  // the shape requires trim() === ""). Cut it back through the SAME
+  // in-place revise channel the audit uses, so the repair's answer is the
+  // only displayed text. The guard-shape bytes are not an answer, so this
+  // is NOT a flagged-answer retraction — that lifecycle stays CLOSED
+  // (brief 2026-11-13): a real answer is still never erased.
+  if (failed.content !== "") {
+    ch.stage({ stage: "web:content_revise", contentCutTo: streamedTotal, contentText: "" });
+  }
+  const res = await streamRound(payload, model, signal, ch);
+  if (res.kind !== "relay") return null; // streamRound already closed/failed the channel
+  if (isEmptyOrdinaryTerminal(res.relay, streamedTotal)) return null; // still empty: fail honestly
+  return { relay: res.relay, held: res.held };
+}
 export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
   const { payload, lastUserIdx, fullText, model, depth, signal, ch } = opts;
 
@@ -633,6 +700,9 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
     // `String.length`/`slice` use (the ⇔ Rust law is `s.encode_utf16().count()`).
     // `web:content_revise.offsets` index the turn's displayed content by it.
     let streamedTotal = 0;
+    // F77: ONE bounded empty-answer repair per turn, across the normal
+    // rounds AND the forced final round (⇔ Rust `empty_repaired`).
+    const emptyRepaired = { done: false };
     /** The audit half of the release point: correct the live text IN PLACE with
      *  one `web:content_revise` frame and return the audited text. Never
      *  touches the round's held terminal frames. */
@@ -669,9 +739,27 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         return;
       }
       const roundStartLen = streamedTotal;
-      const res = await streamRound(payload, model, signal, ch);
+      let res = await streamRound(payload, model, signal, ch);
       if (res.kind === "closed") return;
-      const relay = res.relay;
+      let relay = res.relay;
+
+      // F77 EMPTY-ANSWER GUARD (brief 2026-11-21, ⇔ web_loop.rs): an
+      // ordinary stop carrying zero visible content is not a completed
+      // answer. ONE bounded repair (identical payload), then an honest
+      // ruke_error — never a blank success. See `emptyAnswerRepair`.
+      if (isEmptyOrdinaryTerminal(relay, streamedTotal)) {
+        const rep = await emptyAnswerRepair(payload, model, signal, ch, relay, streamedTotal, emptyRepaired);
+        if (!rep) {
+          log.warn(
+            { model, round: round + 1 },
+            "empty answer survived the bounded repair; failing the turn honestly",
+          );
+          ch.fail(EMPTY_ANSWER_MESSAGE);
+          return;
+        }
+        relay = rep.relay;
+        res = { kind: "relay", relay: rep.relay, held: rep.held };
+      }
 
       if (relay.finish !== "tool_calls" || relay.calls.size === 0) {
         // The feedback lifecycle is CLOSED (brief 2026-11-13): a flagged
@@ -908,12 +996,31 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
     const roundStartLen = streamedTotal;
     const last = await streamRound(payload, model, signal, ch);
     if (last.kind === "relay") {
+      let relay = last.relay;
+      let held = last.held;
+      // F77 EMPTY-ANSWER GUARD (⇔ web_loop.rs final-round mirror): the
+      // forced final round is the normal finish path for a cap-exhausted
+      // turn — an empty ordinary stop there gets the SAME one bounded
+      // repair, then an honest ruke_error. Never a blank success.
+      if (isEmptyOrdinaryTerminal(relay, streamedTotal)) {
+        const rep = await emptyAnswerRepair(payload, model, signal, ch, relay, streamedTotal, emptyRepaired);
+        if (!rep) {
+          log.warn(
+            { model },
+            "empty answer survived the bounded repair; failing the turn honestly",
+          );
+          ch.fail(EMPTY_ANSWER_MESSAGE);
+          return;
+        }
+        relay = rep.relay;
+        held = rep.held;
+      }
       // The forced final answer gets the SAME release check as every other
       // round — the audit law names "the normal finish path" and this path
       // explicitly. A model that never called tools still cannot ship an
       // uncited volatile claim uncited.
-      releaseRound(last.relay, last.held, roundStartLen);
-      if (last.relay.finish === "tool_calls") {
+      releaseRound(relay, held, roundStartLen);
+      if (relay.finish === "tool_calls") {
         // The relay swallowed this round's [DONE] (the model called tools
         // again, which we never execute). The grammar still carries exactly
         // one [DONE] for the whole stream: restore the terminal frame.

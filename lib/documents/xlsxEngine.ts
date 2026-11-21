@@ -85,6 +85,13 @@ export interface XlsxBuildResult {
   /** F11: every value the engine could not measure as given, and what it did
    *  instead. Never empty when the engine declined to invent a measurement. */
   valueIssues: XlsxValueIssue[];
+  /**
+   * F77: every chart whose PNG render failed, so an incomplete export can
+   * NEVER report success silently. The workbook still builds (the preview's
+   * inline-SVG fallback covers a missing image), but the caller and the route
+   * header state exactly which chart images are absent and why.
+   */
+  chartFailures: { title: string; reason: string }[];
 }
 
 export class XlsxRecalcError extends Error {
@@ -112,6 +119,7 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
   const sheetCtx: SheetCtx[] = [];
   const formulaCells: { cell: ExcelJS.Cell; key: string; f: string }[] = [];
   const valueIssues: XlsxValueIssue[] = [];
+  const chartFailures: { title: string; reason: string }[] = [];
 
   for (const sheet of spec.sheets) {
     const ws = wb.addWorksheet(sheet.name);
@@ -247,7 +255,15 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
           ext: { width: 640, height: 360 },
         } as unknown as Parameters<typeof ws.addImage>[1]);
         if (!cell) chartRow += 20;
-      } catch { /* skip embed; preview SVG fallback covers it */ }
+      } catch (err) {
+        // The workbook still builds and the preview SVG fallback covers it,
+        // but the failure is RECORDED, not swallowed: an export missing chart
+        // images must be able to say so (result field + response header).
+        chartFailures.push({
+          title: chart.title || chart.type,
+          reason: err instanceof Error ? err.message.split("\n")[0].slice(0, 200) : String(err).slice(0, 200),
+        });
+      }
     }
 
     // freeze_panes = "A2"
@@ -300,6 +316,7 @@ export async function buildXlsx(rawSpec: unknown): Promise<XlsxBuildResult> {
     contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     recalcErrors: 0,
     valueIssues,
+    chartFailures,
   };
 }
 
