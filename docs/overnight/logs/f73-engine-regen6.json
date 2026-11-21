@@ -1,0 +1,865 @@
+{
+  "ok": true,
+  "capability": "documents.ocr",
+  "phases": [
+    {
+      "phase": "processing",
+      "at": 1795203673.144462,
+      "note": "device=cpu est_peak_mib=3300"
+    },
+    {
+      "phase": "releasing_worker",
+      "at": 1795203675.5907712,
+      "note": "worker resources released by the adapter"
+    },
+    {
+      "phase": "ready",
+      "at": 1795203675.629699,
+      "note": "lease released"
+    }
+  ],
+  "original_main_model": {
+    "provider": "strata",
+    "endpoint": "http://127.0.0.1:8080",
+    "loaded": true,
+    "model": "qwen3.8-flash-next-iq3_s",
+    "busy": null,
+    "queued": null,
+    "auto_load": null,
+    "detail": "ok",
+    "reachable": true,
+    "checked_at": 1795203673.1085794,
+    "lifecycle_supported": true,
+    "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+  },
+  "measure_before": {
+    "free_physical_mib": 6428,
+    "commit_available_mib": 22281,
+    "free_vram_mib": 2805,
+    "vram_available": true
+  },
+  "plan": {
+    "capability": "documents.ocr",
+    "device": "cpu",
+    "fits": true,
+    "needs_handoff": false,
+    "reason": "CPU placement: GPU execution is disabled for this run; measured RAM and commit headroom are sufficient",
+    "evidence": {
+      "ram": {
+        "measured": true,
+        "fits": true,
+        "free_physical_mib": 6426,
+        "total_physical_mib": 65299,
+        "commit_available_mib": 22280,
+        "est_peak_mib": 3300,
+        "est_peak_mib_charged": 4950,
+        "estimate_basis": "provisional",
+        "required_mib": 5974,
+        "reasons": [],
+        "estimate": "provisional-estimate",
+        "floor_free_physical_mib": 1024,
+        "policy": "free-physical-plus-commit",
+        "sampled_at": 1795203673.1440074
+      },
+      "vram": {
+        "available": true,
+        "free_mib": 2805,
+        "devices": [
+          {
+            "name": "NVIDIA GeForce RTX 3060",
+            "total_mib": 12288,
+            "used_mib": 9483,
+            "free_mib": 2805
+          }
+        ],
+        "detail": "1 of 1 GPU row(s) readable; most free: NVIDIA GeForce RTX 3060 2805 MiB of 12288 MiB",
+        "source": "nvidia-smi",
+        "sampled_at": 1795203673.1090822
+      },
+      "est_peak_mib": 3300,
+      "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+      "est_peak_vram_mib": 6000,
+      "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+      "margin_mib": 256,
+      "charged": {
+        "ram_mib": 4950,
+        "vram_mib": 9000,
+        "rule": "unmeasured estimate charged at 1.5x with a 1024 MiB minimum margin",
+        "required_ram_mib": 5974
+      },
+      "main_model": {
+        "provider": "strata",
+        "endpoint": "http://127.0.0.1:8080",
+        "loaded": true,
+        "model": "qwen3.8-flash-next-iq3_s",
+        "busy": null,
+        "queued": null,
+        "auto_load": null,
+        "detail": "ok",
+        "reachable": true,
+        "checked_at": 1795203673.1085794,
+        "lifecycle_supported": true,
+        "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+      }
+    }
+  },
+  "work": {
+    "peak": {
+      "working_set_mib": 118,
+      "commit_mib": 90,
+      "measured": true,
+      "components": {
+        "primary_worker_child": {
+          "working_set_mib": null,
+          "commit_mib": null,
+          "samples": 0,
+          "measured": false,
+          "definition": "",
+          "device_used": "",
+          "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+        },
+        "owned_tree": {
+          "working_set_mib": 118,
+          "commit_mib": 90,
+          "samples": 4,
+          "usable_samples": 4,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 10760,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6a871923508c808c8fc39cef2aa03b40b24d73e99bf84bb7842a2ae2023c0be2.json",
+    "units_persisted": 6,
+    "device_used": "cpu",
+    "device_echo": {},
+    "pages": 6,
+    "recognised": 6,
+    "unresolved": []
+  },
+  "measure_after_work": {
+    "free_physical_mib": 6434,
+    "commit_available_mib": 22289,
+    "free_vram_mib": 2805,
+    "vram_available": true
+  },
+  "work_peak": {
+    "working_set_mib": 118,
+    "commit_mib": 90,
+    "measured": true,
+    "components": {
+      "primary_worker_child": {
+        "working_set_mib": null,
+        "commit_mib": null,
+        "samples": 0,
+        "measured": false,
+        "definition": "",
+        "device_used": "",
+        "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+      },
+      "owned_tree": {
+        "working_set_mib": 118,
+        "commit_mib": 90,
+        "samples": 4,
+        "usable_samples": 4,
+        "measured": true,
+        "processes": 3,
+        "label": "documents.ocr",
+        "stage": "total",
+        "sampled_pids": 10760,
+        "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+      }
+    },
+    "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+  },
+  "final_status": "ok",
+  "device_used": "cpu",
+  "lease_release": {
+    "released": true,
+    "detail": "own lease removed"
+  },
+  "work_detail": {
+    "pages": [
+      {
+        "page": 1,
+        "state": "recognised",
+        "text": "Section 4.2 Ground Water\nThe aquifer beneath the basin yields\n1.4 million cubic metres per month\nDownstream salinity rose to 3.1 ppt\nat the Kandla gauge in March 2019,\nwhich the committee attributed to",
+        "detail": "recovery after primary failure:",
+        "confidence": 0.9640472313690477,
+        "lines": [
+          {
+            "text": "Section 4.2 Ground Water",
+            "bbox": [
+              157,
+              66,
+              509,
+              90
+            ],
+            "confidence": 0.9644546875
+          },
+          {
+            "text": "The aquifer beneath the basin yields",
+            "bbox": [
+              156,
+              110,
+              647,
+              140
+            ],
+            "confidence": 0.964625
+          },
+          {
+            "text": "1.4 million cubic metres per month",
+            "bbox": [
+              159,
+              156,
+              619,
+              184
+            ],
+            "confidence": 0.96403169
+          },
+          {
+            "text": "Downstream salinity rose to 3.1 ppt",
+            "bbox": [
+              158,
+              200,
+              632,
+              229
+            ],
+            "confidence": 0.963894245
+          },
+          {
+            "text": "at the Kandla gauge in March 2019,",
+            "bbox": [
+              156,
+              245,
+              637,
+              274
+            ],
+            "confidence": 0.9624885657142858
+          },
+          {
+            "text": "which the committee attributed to",
+            "bbox": [
+              156,
+              289,
+              603,
+              311
+            ],
+            "confidence": 0.9647892
+          }
+        ],
+        "raster": {
+          "page": 1,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2"
+        },
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "provenance": "ocr"
+      },
+      {
+        "page": 2,
+        "state": "recognised",
+        "text": "measured across eleven observation wells.\nExtraction permits were capped at 62%\nof the recharge estimate for 2019.\nreduced dry-season flow rather than\ntidal intrusion alone.",
+        "detail": "recovery after primary failure:",
+        "confidence": 0.9638283806666668,
+        "lines": [
+          {
+            "text": "measured across eleven observation wells.",
+            "bbox": [
+              157,
+              67,
+              737,
+              89
+            ],
+            "confidence": 0.964058058
+          },
+          {
+            "text": "Extraction permits were capped at 62%",
+            "bbox": [
+              158,
+              110,
+              685,
+              139
+            ],
+            "confidence": 0.96762938
+          },
+          {
+            "text": "of the recharge estimate for 2019.",
+            "bbox": [
+              156,
+              155,
+              611,
+              185
+            ],
+            "confidence": 0.96790259
+          },
+          {
+            "text": "reduced dry-season flow rather than",
+            "bbox": [
+              157,
+              199,
+              643,
+              229
+            ],
+            "confidence": 0.9511637119999999
+          },
+          {
+            "text": "tidal intrusion alone.",
+            "bbox": [
+              156,
+              245,
+              425,
+              267
+            ],
+            "confidence": 0.9683881633333334
+          }
+        ],
+        "raster": {
+          "page": 2,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2"
+        },
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "provenance": "ocr"
+      },
+      {
+        "page": 3,
+        "state": "recognised",
+        "text": "Station Flow m3/s Turbidity NTU\nKandla 18.4 12.7\nGandhi Dham 44.0 3.9\nAranjes 12.6 51.2",
+        "detail": "recovery after primary failure:",
+        "confidence": 0.9500437567083333,
+        "lines": [
+          {
+            "text": "Station Flow m3/s Turbidity NTU",
+            "bbox": [
+              157,
+              66,
+              593,
+              96
+            ],
+            "confidence": 0.943653396
+          },
+          {
+            "text": "Kandla 18.4 12.7",
+            "bbox": [
+              157,
+              111,
+              385,
+              134
+            ],
+            "confidence": 0.9603177400000001
+          },
+          {
+            "text": "Gandhi Dham 44.0 3.9",
+            "bbox": [
+              157,
+              155,
+              461,
+              179
+            ],
+            "confidence": 0.9469467375
+          },
+          {
+            "text": "Aranjes 12.6 51.2",
+            "bbox": [
+              155,
+              200,
+              393,
+              229
+            ],
+            "confidence": 0.9492571533333333
+          }
+        ],
+        "raster": {
+          "page": 3,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2"
+        },
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "provenance": "ocr"
+      },
+      {
+        "page": 4,
+        "state": "recognised",
+        "text": "def recharge(precip_mm, area_km2):\nrunoff = precip_mm * 0.18 * area_km2\nreturn round(runoff * 1000, 1) # m3\nprint(recharge(740, 12.5))",
+        "detail": "recovery after primary failure:",
+        "confidence": 0.9157434273214285,
+        "lines": [
+          {
+            "text": "def recharge(precip_mm, area_km2):",
+            "bbox": [
+              156,
+              68,
+              611,
+              95
+            ],
+            "confidence": 0.8848800899999999
+          },
+          {
+            "text": "runoff = precip_mm * 0.18 * area_km2",
+            "bbox": [
+              157,
+              112,
+              624,
+              139
+            ],
+            "confidence": 0.92224713
+          },
+          {
+            "text": "return round(runoff * 1000, 1) # m3",
+            "bbox": [
+              157,
+              157,
+              583,
+              184
+            ],
+            "confidence": 0.9319498542857143
+          },
+          {
+            "text": "print(recharge(740, 12.5))",
+            "bbox": [
+              157,
+              201,
+              471,
+              228
+            ],
+            "confidence": 0.923896635
+          }
+        ],
+        "raster": {
+          "page": 4,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2"
+        },
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "provenance": "ocr"
+      },
+      {
+        "page": 5,
+        "state": "recognised",
+        "text": "Q=Wxbxsqrt(2gh)\nT =25degC, pH =7.4, EC =0.84 dS/m\nAppendix note: the borehole log for well BH-07 was transcribed from a field notebook.",
+        "detail": "recovery after primary failure:",
+        "confidence": 0.8060469992857143,
+        "lines": [
+          {
+            "text": "Q=Wxbxsqrt(2gh)",
+            "bbox": [
+              156,
+              73,
+              379,
+              94
+            ],
+            "confidence": 0.8426177199999999
+          },
+          {
+            "text": "T =25degC, pH =7.4, EC =0.84 dS/m",
+            "bbox": [
+              156,
+              117,
+              544,
+              138
+            ],
+            "confidence": 0.6161599185714286
+          },
+          {
+            "text": "Appendix note: the borehole log for well BH-07 was transcribed from a field notebook.",
+            "bbox": [
+              155,
+              162,
+              995,
+              183
+            ],
+            "confidence": 0.9593633592857144
+          }
+        ],
+        "raster": {
+          "page": 5,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2"
+        },
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "provenance": "ocr"
+      },
+      {
+        "page": 6,
+        "state": "recognised",
+        "text": "Chapter eleven records that the arbitration award of 14 November 2021 ordered\nthe defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6%\nper annum.",
+        "detail": "recovery after primary failure:",
+        "confidence": 0.9635688582478633,
+        "lines": [
+          {
+            "text": "Chapter eleven records that the arbitration award of 14 November 2021 ordered",
+            "bbox": [
+              157,
+              69,
+              1136,
+              95
+            ],
+            "confidence": 0.9651018766666667
+          },
+          {
+            "text": "the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6%",
+            "bbox": [
+              156,
+              113,
+              1123,
+              139
+            ],
+            "confidence": 0.9588897230769231
+          },
+          {
+            "text": "per annum.",
+            "bbox": [
+              157,
+              163,
+              293,
+              184
+            ],
+            "confidence": 0.966714975
+          }
+        ],
+        "raster": {
+          "page": 6,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2"
+        },
+        "engine": "tesseract v5.5.3.20260724",
+        "language_code": "eng",
+        "provenance": "ocr"
+      }
+    ],
+    "cascade": {
+      "policy": {
+        "primary": "paddleocr-vl-1.6",
+        "allow_gpu": false,
+        "allow_gpu_default_reason": "the pinned OCR runtime is the CPU build: paddle.is_compiled_with_cuda() returned False on this host (measured 2026-11-17). GPU placement becomes available by preparing a CUDA-enabled pinned build in the isolated runtime and setting RUKE_OCR_ALLOW_GPU=1; it is never enabled by borrowing the main LLM's device.",
+        "allow_unload": false,
+        "allow_unload_source": "env(RUKE_LLM_AUTOMATIC_HANDOFF)",
+        "allow_unload_default_reason": "the coordinated handoff is the configured deployment policy, not an acceptance-script flag: it is automatic when the measured resources do not fit alongside the resident main model AND the provider answers a validated unload/load lifecycle. It is switched off with RUKE_LLM_AUTOMATIC_HANDOFF=0; the legacy per-run override RUKE_OCR_ALLOW_UNLOAD=1/0 still wins over the configured default. Unloading is never taken when the job already fits, never while a turn is running, and never against a provider whose lifecycle calls are unvalidated.",
+        "source": "primary/gpu: env(RUKE_OCR_PRIMARY/RUKE_OCR_ALLOW_GPU); handoff policy: ruke_ml.models.provider_config (settings.json > env > .env.local > default)",
+        "provider": {
+          "chat_url": "http://127.0.0.1:8080/v1/chat/completions",
+          "api_key_set": true,
+          "api_key": "<redacted>",
+          "control_origin": "http://127.0.0.1:8080",
+          "api_prefix": "/v1",
+          "unload_url": "http://127.0.0.1:8080/unload",
+          "load_url": "http://127.0.0.1:8080/load",
+          "lifecycle_explicit": true,
+          "lifecycle_base": null,
+          "provider_hint": null,
+          "model": null,
+          "automatic_handoff": false,
+          "config_source": {
+            "chat_url": "dotenv(LLM_API_URL)",
+            "api_key": "dotenv(LLM_API_KEY)",
+            "control_origin": "derived-from-chat-url(dotenv(LLM_API_URL))",
+            "lifecycle_base": "unset(append to the control origin, which preserves the root-mounted lifecycle endpoints this deployment serves)",
+            "unload_url": "dotenv(LLM_UNLOAD_URL)",
+            "load_url": "dotenv(LLM_RELOAD_URL)",
+            "automatic_handoff": "env(RUKE_LLM_AUTOMATIC_HANDOFF)"
+          }
+        }
+      },
+      "units_requested": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "selection_note": "",
+      "primary": {
+        "engine": "paddleocr-vl-1.6",
+        "ready": true,
+        "blockers": [],
+        "runtime": {
+          "runtime": "paddle-ocr-cpu",
+          "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+          "found": true,
+          "inside_project": true,
+          "pinned": {
+            "paddlepaddle": "3.2.1",
+            "paddleocr": "3.6.0",
+            "paddlex": "3.6.1",
+            "opencv-contrib-python": "4.10.0.84",
+            "protobuf": "7.36.2"
+          },
+          "missing": [],
+          "mismatched": [],
+          "abi_issues": [],
+          "cpu_only_verified": true,
+          "detail": "interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe"
+        },
+        "assets": [
+          {
+            "model_id": "PaddlePaddle/PaddleOCR-VL-1.6",
+            "present": true,
+            "detail": "snapshot 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd found in the project cache root",
+            "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd"
+          },
+          {
+            "model_id": "PaddlePaddle/PP-DocLayoutV3",
+            "present": true,
+            "detail": "snapshot 241f8bdfc77a7c7bee915a5057aaee58c235a8d3 found in the project cache root",
+            "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PP-DocLayoutV3\\snapshots\\241f8bdfc77a7c7bee915a5057aaee58c235a8d3"
+          }
+        ],
+        "estimate": {
+          "est_peak_mib": 3300,
+          "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+          "est_peak_vram_mib": 6000,
+          "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)"
+        },
+        "run_refused": "resource_limit: refusing to spawn: the normal window can offer a commit ceiling of 5000000000 B (4768 MiB), under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak) | next step: the demand declared for this pipeline does not fit the resource window it ran in: open the coordinated exclusive window (drain inference, release the main model, re-check admission) or run the recovery engine; report this as a resource limit rather than an engine fault, and do NOT raise the hard maximum, drop a page, or re-prepare assets that are already valid",
+        "run": {
+          "whole_run_failure": "resource_limit"
+        }
+      },
+      "fallback": {
+        "reason": "resource_limit: refusing to spawn: the normal window can offer a commit ceiling of 5000000000 B (4768 MiB), under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak) | next step: the demand declared for this pipeline does not fit the resource window it ran in: open the coordinated exclusive window (drain inference, release the main model, re-check admission) or run the recovery engine; report this as a resource limit rather than an engine fault, and do NOT raise the hard maximum, drop a page, or re-prepare assets that are already valid",
+        "attempted": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "fidelity_note": "Tesseract recovery does NOT claim equivalent table, formula or layout fidelity; the affected pages are labelled with the engine that read them",
+        "ran": true,
+        "recognized": 6,
+        "states": {
+          "1": "recognised",
+          "2": "recognised",
+          "3": "recognised",
+          "4": "recognised",
+          "5": "recognised",
+          "6": "recognised"
+        },
+        "peak": {
+          "working_set_mib": 118,
+          "commit_mib": 90,
+          "samples": 4,
+          "usable_samples": 4,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "fallback",
+          "sampled_pids": 10760,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "device_plan": {
+        "capability": "documents.ocr",
+        "device": "cpu",
+        "fits": true,
+        "needs_handoff": false,
+        "reason": "device 'cpu' was chosen by the lease holder; the plan recomputed inside the window says 'cpu'",
+        "evidence": {
+          "ram": {
+            "measured": true,
+            "fits": true,
+            "free_physical_mib": 6423,
+            "total_physical_mib": 65299,
+            "commit_available_mib": 22282,
+            "est_peak_mib": 3300,
+            "est_peak_mib_charged": 4950,
+            "estimate_basis": "provisional",
+            "required_mib": 5974,
+            "reasons": [],
+            "estimate": "provisional-estimate",
+            "floor_free_physical_mib": 1024,
+            "policy": "free-physical-plus-commit",
+            "sampled_at": 1795203673.5121937
+          },
+          "vram": {
+            "available": true,
+            "free_mib": 2805,
+            "devices": [
+              {
+                "name": "NVIDIA GeForce RTX 3060",
+                "total_mib": 12288,
+                "used_mib": 9483,
+                "free_mib": 2805
+              }
+            ],
+            "detail": "1 of 1 GPU row(s) readable; most free: NVIDIA GeForce RTX 3060 2805 MiB of 12288 MiB",
+            "source": "nvidia-smi",
+            "sampled_at": 1795203673.1090822
+          },
+          "est_peak_mib": 3300,
+          "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+          "est_peak_vram_mib": 6000,
+          "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+          "margin_mib": 256,
+          "charged": {
+            "ram_mib": 4950,
+            "vram_mib": 9000,
+            "rule": "unmeasured estimate charged at 1.5x with a 1024 MiB minimum margin",
+            "required_ram_mib": 5974
+          },
+          "main_model": {
+            "provider": "strata",
+            "endpoint": "http://127.0.0.1:8080",
+            "loaded": true,
+            "model": "qwen3.8-flash-next-iq3_s",
+            "busy": null,
+            "queued": null,
+            "auto_load": null,
+            "detail": "ok",
+            "reachable": true,
+            "checked_at": 1795203673.5121937,
+            "lifecycle_supported": true,
+            "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+          }
+        }
+      },
+      "handoff": {},
+      "persisted": {
+        "ok": true,
+        "path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6a871923508c808c8fc39cef2aa03b40b24d73e99bf84bb7842a2ae2023c0be2.json",
+        "units_persisted": 6,
+        "units_unresolved": [],
+        "reusable_when_resuming": 6,
+        "detail": "wrote 6 unit(s) to D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6a871923508c808c8fc39cef2aa03b40b24d73e99bf84bb7842a2ae2023c0be2.json; 6 reusable by a resume; 0 still unresolved"
+      },
+      "peaks": {
+        "primary_worker_child": {
+          "working_set_mib": null,
+          "commit_mib": null,
+          "samples": 0,
+          "measured": false,
+          "definition": "",
+          "device_used": "",
+          "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+        },
+        "owned_tree": {
+          "working_set_mib": 118,
+          "commit_mib": 90,
+          "samples": 4,
+          "usable_samples": 4,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 10760,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "inside_handoff": true,
+      "resource_window": {
+        "inside_window": false,
+        "basis": "no coordinated unload happened for this operation, so the normal-operation maximum still applies in full"
+      },
+      "operation": {
+        "peak": {
+          "working_set_mib": 118,
+          "commit_mib": 90,
+          "measured": true,
+          "components": {
+            "primary_worker_child": {
+              "working_set_mib": null,
+              "commit_mib": null,
+              "samples": 0,
+              "measured": false,
+              "definition": "",
+              "device_used": "",
+              "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+            },
+            "owned_tree": {
+              "working_set_mib": 118,
+              "commit_mib": 90,
+              "samples": 4,
+              "usable_samples": 4,
+              "measured": true,
+              "processes": 3,
+              "label": "documents.ocr",
+              "stage": "total",
+              "sampled_pids": 10760,
+              "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+            }
+          },
+          "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+        },
+        "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6a871923508c808c8fc39cef2aa03b40b24d73e99bf84bb7842a2ae2023c0be2.json",
+        "units_persisted": 6,
+        "device_used": "cpu",
+        "device_echo": {},
+        "pages": 6,
+        "recognised": 6,
+        "unresolved": []
+      },
+      "engines_used": [
+        "tesseract v5.5.3.20260724"
+      ],
+      "units_read": 6,
+      "units_unresolved": [],
+      "units_not_read": []
+    }
+  },
+  "watchdog": {
+    "free_min": 6371,
+    "tripped": 0
+  },
+  "pages_requested": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "arguments": {
+    "pdf": "docs/overnight/fixtures/d1/pdfs/d1_scanned.pdf",
+    "language": "eng",
+    "device": "auto",
+    "allow_unload": false,
+    "allow_gpu": false,
+    "pages": "1-6",
+    "dpi": 200,
+    "load_timeout": 420.0,
+    "page_timeout": 240.0,
+    "unload_wait": 60.0,
+    "ready_timeout": 300.0,
+    "max_free_mib": 1024,
+    "inject_primary_failure_page": 0,
+    "resume_results": false,
+    "recover": false,
+    "lease_owner": "d1-regen6"
+  }
+}

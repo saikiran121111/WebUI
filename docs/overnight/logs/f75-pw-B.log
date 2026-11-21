@@ -1,0 +1,593 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test file-reading pdf-egress long-doc-retrieval --reporter=list
+
+Running 219 tests using 1 worker
+
+  ✓    1 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.txt → text reaches the server (695ms)
+  ✓    2 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.csv → text reaches the server (18ms)
+  ✓    3 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.tsv → text reaches the server (7ms)
+  ✓    4 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.md → text reaches the server (7ms)
+  ✓    5 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.json → text reaches the server (9ms)
+  ✓    6 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.jsonl → text reaches the server (7ms)
+  ✓    7 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.xml → text reaches the server (9ms)
+  ✓    8 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.html → text reaches the server (7ms)
+  ✓    9 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.htm → text reaches the server (7ms)
+  ✓   10 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.yaml → text reaches the server (7ms)
+  ✓   11 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.yml → text reaches the server (6ms)
+  ✓   12 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.toml → text reaches the server (10ms)
+  ✓   13 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.ini → text reaches the server (12ms)
+  ✓   14 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.log → text reaches the server (13ms)
+  ✓   15 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.py → text reaches the server (9ms)
+  ✓   16 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.js → text reaches the server (10ms)
+  ✓   17 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.jsx → text reaches the server (11ms)
+  ✓   18 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.ts → text reaches the server (8ms)
+  ✓   19 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.tsx → text reaches the server (10ms)
+  ✓   20 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.java → text reaches the server (6ms)
+  ✓   21 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.c → text reaches the server (6ms)
+  ✓   22 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.cpp → text reaches the server (8ms)
+  ✓   23 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.h → text reaches the server (7ms)
+  ✓   24 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.hpp → text reaches the server (8ms)
+  ✓   25 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.cs → text reaches the server (6ms)
+  ✓   26 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.go → text reaches the server (6ms)
+  ✓   27 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.rs → text reaches the server (7ms)
+  ✓   28 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.php → text reaches the server (6ms)
+  ✓   29 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.rb → text reaches the server (8ms)
+  ✓   30 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.swift → text reaches the server (6ms)
+  ✓   31 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.kt → text reaches the server (7ms)
+  ✓   32 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.kts → text reaches the server (6ms)
+  ✓   33 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.scala → text reaches the server (6ms)
+  ✓   34 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.sh → text reaches the server (8ms)
+  ✓   35 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.bash → text reaches the server (6ms)
+  ✓   36 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.zsh → text reaches the server (7ms)
+  ✓   37 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.ps1 → text reaches the server (8ms)
+  ✓   38 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.bat → text reaches the server (6ms)
+  ✓   39 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.cmd → text reaches the server (6ms)
+  ✓   40 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.sql → text reaches the server (6ms)
+  ✓   41 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.r → text reaches the server (7ms)
+  ✓   42 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.m → text reaches the server (7ms)
+  ✓   43 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.tex → text reaches the server (6ms)
+  ✓   44 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.bib → text reaches the server (6ms)
+  ✓   45 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.diff → text reaches the server (6ms)
+  ✓   46 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.patch → text reaches the server (8ms)
+  ✓   47 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.env → text reaches the server (6ms)
+  ✓   48 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.conf → text reaches the server (6ms)
+  ✓   49 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.cfg → text reaches the server (9ms)
+  ✓   50 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.properties → text reaches the server (6ms)
+  ✓   51 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.graphql → text reaches the server (6ms)
+  ✓   52 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.gql → text reaches the server (7ms)
+  ✓   53 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.proto → text reaches the server (6ms)
+  ✓   54 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture.Dockerfile → text reaches the server (6ms)
+  ✓   55 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture.Makefile → text reaches the server (6ms)
+  ✓   56 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.tf → text reaches the server (6ms)
+  ✓   57 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.hcl → text reaches the server (6ms)
+  ✓   58 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.vue → text reaches the server (6ms)
+  ✓   59 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.svelte → text reaches the server (6ms)
+  ✓   60 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-txt.astro → text reaches the server (6ms)
+  ✓   61 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.svg → text reaches the server (6ms)
+  ✓   62 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-doc.rtf → text reaches the server (7ms)
+  ✓   63 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-notebook.ipynb → text reaches the server (6ms)
+  ✓   64 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-doc.pdf → text reaches the server (244ms)
+  ✓   65 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-doc.docx → text reaches the server (19ms)
+  ✓   66 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-sheet.xlsx → text reaches the server (15ms)
+  ✓   67 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-sheet.xlsm → text reaches the server (13ms)
+  ✓   68 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-slides.pptx → text reaches the server (15ms)
+  ✓   69 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-office.odt → text reaches the server (13ms)
+  ✓   70 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-office.ods → text reaches the server (14ms)
+  ✓   71 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-office.odp → text reaches the server (13ms)
+  ✓   72 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-book.epub → text reaches the server (13ms)
+  ✓   73 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-legacy.doc → text reaches the server (7ms)
+  ✓   74 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-legacy.xls → text reaches the server (9ms)
+  ✓   75 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-legacy.ppt → text reaches the server (9ms)
+  ✓   76 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-data.mat → text reaches the server (7ms)
+  ✓   77 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-archive.zip → text reaches the server (7ms)
+  ✓   78 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-archive.tar → text reaches the server (6ms)
+  ✓   79 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-notes.gz → text reaches the server (6ms)
+  ✓   80 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-archive.tgz → text reaches the server (6ms)
+  ✓   81 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-notes.txt.bz2 → text reaches the server (36ms)
+  ✓   82 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-archive.tar.xz → text reaches the server (15ms)
+  ✓   83 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-archive.7z → text reaches the server (15ms)
+  ✓   84 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.png → text reaches the server (90ms)
+  ✓   85 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.jpg → text reaches the server (41ms)
+  ✓   86 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.jpeg → text reaches the server (38ms)
+  ✓   87 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.gif → text reaches the server (33ms)
+  ✓   88 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.bmp → text reaches the server (50ms)
+  ✓   89 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.webp → text reaches the server (40ms)
+  ✓   90 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.tif → text reaches the server (44ms)
+  ✓   91 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.tiff → text reaches the server (34ms)
+  ✓   92 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.avif → text reaches the server (56ms)
+  ✓   93 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-image.ico → text reaches the server (33ms)
+  ✓   94 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-audio.wav → text reaches the server (2.6s)
+  ✓   95 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-audio.mp3 → text reaches the server (1.7s)
+  ✓   96 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-audio.m4a → text reaches the server (1.6s)
+  ✓   97 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-audio.aac → text reaches the server (1.6s)
+  ✓   98 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-audio.ogg → text reaches the server (1.7s)
+  ✓   99 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-audio.flac → text reaches the server (1.6s)
+  ✓  100 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-video.mp4 → text reaches the server (178ms)
+  ✓  101 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-video.mov → text reaches the server (168ms)
+  ✓  102 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-video.mkv → text reaches the server (162ms)
+  ✓  103 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-video.webm → text reaches the server (141ms)
+  ✓  104 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-video.3gp → text reaches the server (97ms)
+  ✓  105 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-video.mpeg → text reaches the server (121ms)
+  ✓  106 [chromium-visible] › tests\file-reading.spec.ts:133:9 › extraction API › fixture-video.mpg → text reaches the server (114ms)
+  fixture-txt.txt            Thought for <1s View reasoning YES READABLE-MARKER-TXT-7QX9 Copy
+  ✓  107 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.txt → the reply contains its own marker (9.5s)
+  fixture-txt.csv            Thought for 1s View reasoning YES READABLE-MARKER-CSV-7QX9 Copy
+  ✓  108 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.csv → the reply contains its own marker (9.2s)
+  fixture-txt.tsv            Thought for <1s View reasoning YES READABLE-MARKER-TSV-7QX9 Copy
+  ✓  109 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.tsv → the reply contains its own marker (8.1s)
+  fixture-txt.md             Thought for <1s View reasoning YES READABLE-MARKER-MD-7QX9 Copy
+  ✓  110 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.md → the reply contains its own marker (8.1s)
+  fixture-txt.json           Thought for <1s View reasoning YES READABLE-MARKER-JSON-7QX9 Copy
+  ✓  111 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.json → the reply contains its own marker (7.8s)
+  fixture-txt.jsonl          Thought for <1s View reasoning YES READABLE-MARKER-JSONL-7QX9 Copy
+  ✓  112 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.jsonl → the reply contains its own marker (8.0s)
+  fixture-txt.xml            Thought for <1s View reasoning YES READABLE-MARKER-XML-7QX9 Copy
+  ✓  113 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.xml → the reply contains its own marker (7.6s)
+  fixture-txt.html           Thought for 1s View reasoning YES READABLE-MARKER-HTML-7QX9 Copy
+  ✓  114 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.html → the reply contains its own marker (8.0s)
+  fixture-txt.htm            Thought for <1s View reasoning YES READABLE-MARKER-HTM-7QX9 Copy
+  ✓  115 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.htm → the reply contains its own marker (7.9s)
+  fixture-txt.yaml           Thought for <1s View reasoning YES READABLE-MARKER-YAML-7QX9 Copy
+  ✓  116 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.yaml → the reply contains its own marker (7.9s)
+  fixture-txt.yml            Thought for 1s View reasoning YES READABLE-MARKER-YML-7QX9 Copy
+  ✓  117 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.yml → the reply contains its own marker (8.3s)
+  fixture-txt.toml           Thought for <1s View reasoning YES READABLE-MARKER-TOML-7QX9 Copy
+  ✓  118 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.toml → the reply contains its own marker (7.8s)
+  fixture-txt.ini            Thought for <1s View reasoning YES READABLE-MARKER-INI-7QX9 Copy
+  ✓  119 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.ini → the reply contains its own marker (7.9s)
+  fixture-txt.log            Thought for <1s View reasoning YES READABLE-MARKER-LOG-7QX9 Copy
+  ✓  120 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.log → the reply contains its own marker (7.7s)
+  fixture-txt.py             Thought for <1s View reasoning YES READABLE-MARKER-PY-7QX9 Copy
+  ✓  121 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.py → the reply contains its own marker (7.8s)
+  fixture-txt.js             Thought for 1s View reasoning YES READABLE-MARKER-JS-7QX9 Copy
+  ✓  122 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.js → the reply contains its own marker (8.4s)
+  fixture-txt.jsx            Thought for <1s View reasoning YES READABLE-MARKER-JSX-7QX9 Copy
+  ✓  123 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.jsx → the reply contains its own marker (7.7s)
+  fixture-txt.ts             Thought for 1s View reasoning YES READABLE-MARKER-TS-7QX9 Copy
+  ✓  124 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.ts → the reply contains its own marker (8.7s)
+  fixture-txt.tsx            Thought for <1s View reasoning YES READABLE-MARKER-TSX-7QX9 Copy
+  ✓  125 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.tsx → the reply contains its own marker (8.0s)
+  fixture-txt.java           Thought for 1s View reasoning YES READABLE-MARKER-JAVA-7QX9 Copy
+  ✓  126 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.java → the reply contains its own marker (8.8s)
+  fixture-txt.c              Thought for <1s View reasoning YES READABLE-MARKER-C-7QX9 Copy
+  ✓  127 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.c → the reply contains its own marker (7.4s)
+  fixture-txt.cpp            Thought for <1s View reasoning YES READABLE-MARKER-CPP-7QX9 Copy
+  ✓  128 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.cpp → the reply contains its own marker (7.5s)
+  fixture-txt.h              Thought for <1s View reasoning YES READABLE-MARKER-H-7QX9 Copy
+  ✓  129 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.h → the reply contains its own marker (7.4s)
+  fixture-txt.hpp            Thought for 3s View reasoning YES READABLE-MARKER-HPP-7QX9 Copy
+  ✓  130 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.hpp → the reply contains its own marker (11.1s)
+  fixture-txt.cs             Thought for <1s View reasoning YES READABLE-MARKER-CS-7QX9 Copy
+  ✓  131 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.cs → the reply contains its own marker (7.9s)
+  fixture-txt.go             Thought for 1s View reasoning YES READABLE-MARKER-GO-7QX9 Copy
+  ✓  132 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.go → the reply contains its own marker (7.9s)
+  fixture-txt.rs             Thought for <1s View reasoning YES READABLE-MARKER-RS-7QX9 Copy
+  ✓  133 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.rs → the reply contains its own marker (8.0s)
+  fixture-txt.php            Thought for 2s View reasoning YES READABLE-MARKER-PHP-7QX9 Copy
+  ✓  134 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.php → the reply contains its own marker (9.9s)
+  fixture-txt.rb             Thought for <1s View reasoning YES READABLE-MARKER-RB-7QX9 Copy
+  ✓  135 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.rb → the reply contains its own marker (7.6s)
+  fixture-txt.swift          Thought for 1s View reasoning YES READABLE-MARKER-SWIFT-7QX9 Copy
+  ✓  136 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.swift → the reply contains its own marker (9.0s)
+  fixture-txt.kt             Thought for <1s View reasoning YES READABLE-MARKER-KT-7QX9 Copy
+  ✓  137 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.kt → the reply contains its own marker (7.4s)
+  fixture-txt.kts            Thought for <1s View reasoning YES READABLE-MARKER-KTS-7QX9 Copy
+  ✓  138 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.kts → the reply contains its own marker (8.2s)
+  fixture-txt.scala          Thought for <1s View reasoning YES READABLE-MARKER-SCALA-7QX9 Copy
+  ✓  139 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.scala → the reply contains its own marker (7.6s)
+  fixture-txt.sh             Thought for 1s View reasoning YES READABLE-MARKER-SH-7QX9 Copy
+  ✓  140 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.sh → the reply contains its own marker (8.9s)
+  fixture-txt.bash           Thought for <1s View reasoning YES READABLE-MARKER-BASH-7QX9 Copy
+  ✓  141 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.bash → the reply contains its own marker (7.7s)
+  fixture-txt.zsh            Thought for 2s View reasoning YES READABLE-MARKER-ZSH-7QX9 Copy
+  ✓  142 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.zsh → the reply contains its own marker (9.6s)
+  fixture-txt.ps1            Thought for 2s View reasoning YES READABLE-MARKER-PS1-7QX9 Copy
+  ✓  143 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.ps1 → the reply contains its own marker (9.8s)
+  fixture-txt.bat            Thought for 2s View reasoning YES READABLE-MARKER-BAT-7QX9 Copy
+  ✓  144 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.bat → the reply contains its own marker (9.8s)
+  fixture-txt.cmd            Thought for 1s View reasoning YES READABLE-MARKER-CMD-7QX9 Copy
+  ✓  145 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.cmd → the reply contains its own marker (9.2s)
+  fixture-txt.sql            Thought for <1s View reasoning YES READABLE-MARKER-SQL-7QX9 Copy
+  ✓  146 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.sql → the reply contains its own marker (7.6s)
+  fixture-txt.r              (retry) Thought for 5s View reasoning YES READABLE-MARKER-R-7QX9 Copy
+  ✓  147 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.r → the reply contains its own marker (2.8m)
+  fixture-txt.m              Thought for <1s View reasoning YES READABLE-MARKER-M-7QX9 Copy
+  ✓  148 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.m → the reply contains its own marker (8.2s)
+  fixture-txt.tex            Thought for <1s View reasoning YES READABLE-MARKER-TEX-7QX9 Copy
+  ✓  149 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.tex → the reply contains its own marker (7.4s)
+  fixture-txt.bib            Thought for <1s View reasoning YES READABLE-MARKER-BIB-7QX9 Copy
+  ✓  150 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.bib → the reply contains its own marker (8.2s)
+  fixture-txt.diff           Thought for <1s View reasoning YES READABLE-MARKER-DIFF-7QX9 Copy
+  ✓  151 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.diff → the reply contains its own marker (6.9s)
+  fixture-txt.patch          Thought for 1s View reasoning YES READABLE-MARKER-PATCH-7QX9 Copy
+  ✓  152 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.patch → the reply contains its own marker (8.2s)
+  fixture-txt.env            Thought for 2s View reasoning YES READABLE-MARKER-ENV-7QX9 Copy
+  ✓  153 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.env → the reply contains its own marker (9.1s)
+  fixture-txt.conf           Thought for 1s View reasoning YES READABLE-MARKER-CONF-7QX9 Copy
+  ✓  154 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.conf → the reply contains its own marker (8.5s)
+  fixture-txt.cfg            Thought for 4s View reasoning YES READABLE-MARKER-CFG-7QX9 Copy
+  ✓  155 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.cfg → the reply contains its own marker (11.4s)
+  fixture-txt.properties     Thought for <1s View reasoning YES READABLE-MARKER-PROPERTIES-7QX9 Copy
+  ✓  156 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.properties → the reply contains its own marker (7.7s)
+  fixture-txt.graphql        Thought for <1s View reasoning YES READABLE-MARKER-GRAPHQL-7QX9 Copy
+  ✓  157 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.graphql → the reply contains its own marker (7.6s)
+  fixture-txt.gql            Thought for 1s View reasoning YES READABLE-MARKER-GQL-7QX9 Copy
+  ✓  158 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.gql → the reply contains its own marker (2.1m)
+  fixture-txt.proto          Thought for <1s View reasoning YES READABLE-MARKER-PROTO-7QX9 Copy
+  ✓  159 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.proto → the reply contains its own marker (2.4m)
+  ✘  160 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Dockerfile → the reply contains its own marker (5.1m)
+  ✘  161 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Makefile → the reply contains its own marker (0ms)
+  ✘  162 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.tf → the reply contains its own marker (0ms)
+  ✘  163 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.hcl → the reply contains its own marker (0ms)
+  ✘  164 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.vue → the reply contains its own marker (0ms)
+  ✘  165 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.svelte → the reply contains its own marker (0ms)
+  ✘  166 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.astro → the reply contains its own marker (0ms)
+  ✘  167 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.svg → the reply contains its own marker (0ms)
+  ✘  168 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.rtf → the reply contains its own marker (0ms)
+  ✘  169 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notebook.ipynb → the reply contains its own marker (0ms)
+  ✘  170 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.pdf → the reply contains its own marker (0ms)
+  ✘  171 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.docx → the reply contains its own marker (0ms)
+  ✘  172 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsx → the reply contains its own marker (0ms)
+  ✘  173 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsm → the reply contains its own marker (0ms)
+  ✘  174 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-slides.pptx → the reply contains its own marker (0ms)
+  ✘  175 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odt → the reply contains its own marker (0ms)
+  ✘  176 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.ods → the reply contains its own marker (0ms)
+  ✘  177 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odp → the reply contains its own marker (0ms)
+  ✘  178 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-book.epub → the reply contains its own marker (0ms)
+  ✘  179 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.doc → the reply contains its own marker (0ms)
+  ✘  180 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.xls → the reply contains its own marker (0ms)
+  ✘  181 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.ppt → the reply contains its own marker (0ms)
+  ✘  182 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-data.mat → the reply contains its own marker (0ms)
+  ✘  183 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.zip → the reply contains its own marker (0ms)
+  ✘  184 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar → the reply contains its own marker (0ms)
+  ✘  185 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.gz → the reply contains its own marker (0ms)
+  ✘  186 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tgz → the reply contains its own marker (0ms)
+  ✘  187 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.txt.bz2 → the reply contains its own marker (0ms)
+  ✘  188 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar.xz → the reply contains its own marker (0ms)
+  ✘  189 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.7z → the reply contains its own marker (0ms)
+  ✘  190 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.png → the reply contains its own marker (0ms)
+  ✘  191 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpg → the reply contains its own marker (0ms)
+  ✘  192 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpeg → the reply contains its own marker (0ms)
+  ✘  193 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.gif → the reply contains its own marker (0ms)
+  ✘  194 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.bmp → the reply contains its own marker (0ms)
+  ✘  195 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.webp → the reply contains its own marker (0ms)
+  ✘  196 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tif → the reply contains its own marker (0ms)
+  ✘  197 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tiff → the reply contains its own marker (0ms)
+  ✘  198 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.avif → the reply contains its own marker (0ms)
+  ✘  199 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.ico → the reply contains its own marker (0ms)
+  ✘  200 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.wav → the reply contains its own marker (0ms)
+  ✘  201 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.mp3 → the reply contains its own marker (0ms)
+  ✘  202 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.m4a → the reply contains its own marker (0ms)
+  ✘  203 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.aac → the reply contains its own marker (0ms)
+  ✘  204 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.ogg → the reply contains its own marker (0ms)
+  ✘  205 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.flac → the reply contains its own marker (0ms)
+  ✘  206 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mp4 → the reply contains its own marker (0ms)
+  ✘  207 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mov → the reply contains its own marker (0ms)
+  ✘  208 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mkv → the reply contains its own marker (0ms)
+  ✘  209 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.webm → the reply contains its own marker (0ms)
+  ✘  210 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.3gp → the reply contains its own marker (0ms)
+  ✘  211 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpeg → the reply contains its own marker (0ms)
+  ✘  212 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpg → the reply contains its own marker (0ms)
+  ✘  213 [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-archive.rar — no .rar writer exists anywhere (proprietary); the unrar reader ships in the app but cannot be exercised by a generated file (0ms)
+  ✘  214 [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-image.heic — the bundled ffmpeg build has no HEIF encoder and no HEIF demuxer; the app still tries it via ffmpeg and reports the failure (0ms)
+  ✘  215 [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-image.heif — same as .heic — no encoder/demuxer in the bundled ffmpeg build (0ms)
+  ✘  216 [chromium-visible] › tests\long-doc-retrieval.spec.ts:73:7 › long document knowledge index › extraction API: oversized text is indexed, not truncated (0ms)
+  ✘  217 [chromium-visible] › tests\long-doc-retrieval.spec.ts:99:7 › long document knowledge index › extraction API: without an att id the classic cap path is untouched (0ms)
+  ✘  218 [chromium-visible] › tests\long-doc-retrieval.spec.ts:112:7 › long document knowledge index › the model answers from the deep marker, then again next turn (0ms)
+  ✘  219 [chromium-visible] › tests\pdf-egress.spec.ts:72:5 › finding 7: exporting an html artifact as PDF cannot phone home from the render (0ms)
+
+
+  1) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Dockerfile → the reply contains its own marker 
+
+    Error: the assistant never finished answering
+
+      122 |     await new Promise(r => setTimeout(r, 300));
+      123 |   }
+    > 124 |   throw new Error("the assistant never finished answering");
+          |         ^
+      125 | }
+      126 |
+      127 | test.describe("extraction API", () => {
+        at sendWithAttachment (D:\Projects\WebUI\WebUI\tests\file-reading.spec.ts:124:9)
+        at D:\Projects\WebUI\WebUI\tests\file-reading.spec.ts:187:19
+
+    Error Context: test-results\file-reading-the-model-rea-2a32e-ply-contains-its-own-marker-chromium-visible\error-context.md
+
+  2) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Makefile → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  3) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.tf → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  4) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.hcl → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  5) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.vue → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  6) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.svelte → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  7) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.astro → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  8) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.svg → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  9) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.rtf → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  10) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notebook.ipynb → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  11) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.pdf → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  12) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.docx → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  13) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsx → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  14) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsm → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  15) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-slides.pptx → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  16) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odt → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  17) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.ods → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  18) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odp → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  19) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-book.epub → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  20) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.doc → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  21) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.xls → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  22) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.ppt → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  23) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-data.mat → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  24) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.zip → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  25) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  26) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.gz → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  27) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tgz → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  28) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.txt.bz2 → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  29) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar.xz → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  30) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.7z → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  31) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.png → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  32) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpg → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  33) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpeg → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  34) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.gif → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  35) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.bmp → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  36) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.webp → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  37) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tif → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  38) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tiff → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  39) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.avif → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  40) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.ico → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  41) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.wav → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  42) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.mp3 → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  43) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.m4a → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  44) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.aac → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  45) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.ogg → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  46) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.flac → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  47) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mp4 → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  48) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mov → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  49) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mkv → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  50) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.webm → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  51) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.3gp → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  52) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpeg → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  53) [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpg → the reply contains its own marker 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  54) [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-archive.rar — no .rar writer exists anywhere (proprietary); the unrar reader ships in the app but cannot be exercised by a generated file 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  55) [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-image.heic — the bundled ffmpeg build has no HEIF encoder and no HEIF demuxer; the app still tries it via ffmpeg and reports the failure 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  56) [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-image.heif — same as .heic — no encoder/demuxer in the bundled ffmpeg build 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  57) [chromium-visible] › tests\long-doc-retrieval.spec.ts:73:7 › long document knowledge index › extraction API: oversized text is indexed, not truncated 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  58) [chromium-visible] › tests\long-doc-retrieval.spec.ts:99:7 › long document knowledge index › extraction API: without an att id the classic cap path is untouched 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  59) [chromium-visible] › tests\long-doc-retrieval.spec.ts:112:7 › long document knowledge index › the model answers from the deep marker, then again next turn 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  60) [chromium-visible] › tests\pdf-egress.spec.ts:72:5 › finding 7: exporting an html artifact as PDF cannot phone home from the render 
+
+    Error: worker process exited unexpectedly (code=3221225794, signal=null)
+
+  60 failed
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Dockerfile → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Makefile → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.tf → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.hcl → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.vue → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.svelte → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.astro → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.svg → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.rtf → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notebook.ipynb → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.pdf → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.docx → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsx → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsm → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-slides.pptx → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odt → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.ods → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odp → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-book.epub → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.doc → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.xls → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.ppt → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-data.mat → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.zip → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.gz → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tgz → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.txt.bz2 → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar.xz → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.7z → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.png → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpg → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpeg → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.gif → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.bmp → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.webp → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tif → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tiff → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.avif → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.ico → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.wav → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.mp3 → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.m4a → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.aac → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.ogg → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.flac → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mp4 → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mov → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mkv → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.webm → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.3gp → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpeg → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpg → the reply contains its own marker 
+    [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-archive.rar — no .rar writer exists anywhere (proprietary); the unrar reader ships in the app but cannot be exercised by a generated file 
+    [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-image.heic — the bundled ffmpeg build has no HEIF encoder and no HEIF demuxer; the app still tries it via ffmpeg and reports the failure 
+    [chromium-visible] › tests\file-reading.spec.ts:208:9 › formats that cannot be tested › skipped: fixture-image.heif — same as .heic — no encoder/demuxer in the bundled ffmpeg build 
+    [chromium-visible] › tests\long-doc-retrieval.spec.ts:73:7 › long document knowledge index › extraction API: oversized text is indexed, not truncated 
+    [chromium-visible] › tests\long-doc-retrieval.spec.ts:99:7 › long document knowledge index › extraction API: without an att id the classic cap path is untouched 
+    [chromium-visible] › tests\long-doc-retrieval.spec.ts:112:7 › long document knowledge index › the model answers from the deep marker, then again next turn 
+    [chromium-visible] › tests\pdf-egress.spec.ts:72:5 › finding 7: exporting an html artifact as PDF cannot phone home from the render 
+  159 passed (19.5m)

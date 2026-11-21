@@ -1,0 +1,39 @@
+{
+  "key_version": "f76-gap-1",
+  "created": "2026-11-21",
+  "note": "authored ground truth; frozen BEFORE any F76 engine or model ran against this clip",
+  "clip": "gap-marker.mp4",
+  "sha256": "b6c366a0777001934b17b3bb1706b5c2006937e43e4f1d375f5aeb43ffbb0fe0",
+  "durationSec": 6,
+  "marker": "GAP-MARKER-9F3K",
+  "zones": [
+    {
+      "start": 0,
+      "end": 2,
+      "has_marker": true,
+      "card": "marker on black"
+    },
+    {
+      "start": 2,
+      "end": 3.5,
+      "has_marker": false,
+      "card": "plain text on grey (no marker)"
+    },
+    {
+      "start": 3.5,
+      "end": 6,
+      "has_marker": true,
+      "card": "marker on black"
+    }
+  ],
+  "sampled_instants": [
+    1.2,
+    4.2
+  ],
+  "sampling_law": "videoFramesFromPath samples 20% and 70% of duration; both instants carry the marker; zone 2.0-3.5 s does not",
+  "ground_truth": {
+    "marker_at_sampled_instants": true,
+    "marker_visible_throughout": false,
+    "correct_claim": "the marker is visible at the known moments; what happens between them cannot be known from these moments alone"
+  }
+}

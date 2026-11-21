@@ -1,6 +1,6 @@
 {
   "v1_frame_ocr": {
-    "seconds": 0.98,
+    "seconds": 1.02,
     "state": "ready",
     "reason": "",
     "detail": "",
@@ -119,7 +119,7 @@
     "detail": "the container carries no video stream, so there is no frame to read (audio streams: selected)"
   },
   "v3_asr_tail": {
-    "seconds": 1.63,
+    "seconds": 1.93,
     "state": "ready",
     "payload_state": "transcribed",
     "model": "Systran/faster-whisper-base",
@@ -186,17 +186,17 @@
   },
   "resources": {
     "owned_child_peak_working_set_mib": 361.0,
-    "owned_child_peak_commit_mib": 1225.0,
-    "samples": 10,
+    "owned_child_peak_commit_mib": 1236.0,
+    "samples": 11,
     "gpu_compute_apps_before": [
       {
-        "pid": 9632,
+        "pid": 27980,
         "used_memory": "[N/A]"
       }
     ],
     "gpu_compute_apps_after": [
       {
-        "pid": 9632,
+        "pid": 27980,
         "used_memory": "[N/A]"
       }
     ],

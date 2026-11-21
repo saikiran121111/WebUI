@@ -122,6 +122,40 @@ function fmtClock(sec: number): string {
   return `${h > 0 ? h + ":" : ""}${mm}:${String(r).padStart(2, "0")}`;
 }
 
+/**
+ * F76 sampling law (universal, kept identical to the record-side "point
+ * evidence" law the timeline layer states for frame OCR): delivered images are
+ * isolated instants, so nothing in the record speaks for the time BETWEEN
+ * them. Without this line the model fills unexamined spans - it read a marker
+ * correctly at the two sampled moments and then claimed it was visible
+ * "throughout" the clip (and, across the very stretch between the two
+ * moments, unchanged). Both video delivery shapes must carry it verbatim.
+ */
+const VIDEO_MOMENTS_LAW =
+  " The images are isolated moments: the record holds no evidence about the time between, before or after them. " +
+  "Never claim that something is visible throughout a video, always or never shown, or unchanged across any " +
+  "stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say " +
+  "the rest cannot be confirmed.";
+
+/**
+ * F76 numeric-fidelity law (universal delivery contract, kept byte-identical
+ * to the rules() base in lib/server/attachindex/turn.ts ⇔ ruke-attach
+ * turn.rs): extraction delivers printed figures verbatim, so re-grouping or
+ * scale errors like the live one (4,18,25,000 rendered as ₹418,250,000 /
+ * ₹41.825 crore — a 10x restatement defect at the ANSWER stage) are the
+ * model's doing. The law requires digit-exact quoting and a verified
+ * conversion for any restatement; it names no currency, unit or value. The final
+ * sentence is incident-driven: twice live, the model verified its primary
+ * restatement carefully and then slipped an unverified 10x figure into an
+ * offhand "for reference" aside — asides restate too.
+ */
+const NUMERIC_FIDELITY_LAW =
+  "When quoting a figure from the material, keep its exact digits and digit grouping. When restating " +
+  "a figure in different units or a different grouping convention, state the exact conversion being " +
+  "applied and verify the restated figure has the same value; never give two versions of one figure " +
+  "that have different values. This applies to every restated version anywhere in the answer, " +
+  "including brief asides.";
+
 /** One attachment rendered into whatever the model can actually perceive. */
 export function attachmentParts(att: Attachment): any[] {
   const label = `Attached file: ${att.name}`;
@@ -146,7 +180,7 @@ export function attachmentParts(att: Attachment): any[] {
               `images below are moments from it, and its spoken content is part of the record. Speak of the video ` +
               `as a whole — never claim to have watched it ` +
               `yourself, never mention frames, sampled images, keyframes, an audio track or transcription, and ` +
-              `never attribute content to a particular frame.`
+              `never attribute content to a particular frame.` + VIDEO_MOMENTS_LAW
             : ""),
       },
     ];
@@ -204,7 +238,7 @@ export function attachmentParts(att: Attachment): any[] {
             `Never claim to have watched it yourself; never mention frames, sampled images, keyframes, an audio ` +
             `track, transcription or speech recognition, and never attribute content to "the first frame" or ` +
             `"this frame" — the visuals and the speech belong to the video as one whole. Give video timestamps ` +
-            `only when the user asks for them or when a time reference genuinely helps the answer.`,
+            `only when the user asks for them or when a time reference genuinely helps the answer.` + VIDEO_MOMENTS_LAW,
         },
       ];
       // I18a: each moment is anchored to its video timestamp (see above).
@@ -258,7 +292,8 @@ export function attachmentParts(att: Attachment): any[] {
       if (!att.text) return [{ type: "text", text: `${label} — no readable text was found` }];
       const body =
         `${label}\n[file content begins]\n${att.text}\n[file content ends]` +
-        (att.truncated ? "\n[the file was truncated]" : "");
+        (att.truncated ? "\n[the file was truncated]" : "") +
+        `\n${NUMERIC_FIDELITY_LAW}`;
       return [{ type: "text", text: body }];
     }
   }

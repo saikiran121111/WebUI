@@ -1,0 +1,22 @@
+asset_ok=True detail=D:\Projects\WebUI\WebUI\.data\models\Xenova\all-MiniLM-L6-v2\onnx\model.onnx verified against sha256:759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e
+cross_encoder_now_pinned=True detail=D:\Projects\WebUI\WebUI\.data\models\Xenova\ms-marco-MiniLM-L-6-v2\onnx\model.onnx verified against sha256:c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870
+lexical_bm25_first='On Tuesday, 99 crates arrived at the depot.' numeric_ok=True
+dense_numeric_first='On Tuesday, 61 crates arrived at the depot.'
+model=Xenova/all-MiniLM-L6-v2 revision=sha256:759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e provider=onnxruntime-cpu
+dim=384 pooling=mean normalization=l2
+onnx=D:\Projects\WebUI\WebUI\.data\models\Xenova\all-MiniLM-L6-v2\onnx\model.onnx
+backend_info={'path': 'D:\\Projects\\WebUI\\WebUI\\.data\\models\\Xenova\\all-MiniLM-L6-v2\\onnx\\model.onnx', 'digest': '759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e', 'load_error': '', 'loaded': True, 'providers': ['CPUExecutionProvider']}
+elapsed_s=0.27 for 9 texts
+peak_rss_mib=164.5
+margins=[0.5325, 0.5176, 0.2062]
+PASS  dimension matches declared dim
+PASS  vectors are unit-normalized
+PASS  meta is NOT the lexical baseline
+PASS  vectors are not all identical (a hashed bag would be near-degenerate here)
+PASS  paraphrase pair outranks the unrelated pair in all 3 triplets
+FAIL  numeric-fact question ranks the correct-number candidate first
+PASS  rerank reports the neural bi-encoder mode it used
+FAIL  rerank puts the 99-crate candidate first
+PASS  an unpinned rerank mode is refused
+SCOPE: n=3 hand-made triplets; this proves the adapter executes and carries meaning, NOT benchmark-level retrieval quality.
+RESULT: failed checks=7/9

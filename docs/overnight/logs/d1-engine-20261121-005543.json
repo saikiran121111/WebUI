@@ -1,0 +1,134 @@
+{
+  "level": "ENGINE-LEVEL (scores persisted engine output or a transcript; NOT the attended delivery-level pass d1_ocr_acceptance_probe.py)",
+  "key_version": "d1-ocr-1",
+  "mode": "engine_scoring",
+  "run_at": "2026-11-21T00:55:43",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails"
+  },
+  "fixtures_supplied": [
+    "d1_scanned.pdf"
+  ],
+  "fixtures": [
+    {
+      "fixture": "d1_mixed.pdf",
+      "state": "not_evaluable",
+      "partial": true,
+      "attended_passes_that_visit_it": [
+        "content"
+      ],
+      "note": "no engine output supplied for this fixture (an attended delivery pass is different evidence; a bounded partial run is scored not_evaluable)",
+      "checks": [],
+      "misses": []
+    },
+    {
+      "fixture": "d1_native.pdf",
+      "state": "not_evaluable",
+      "partial": true,
+      "attended_passes_that_visit_it": [
+        "content"
+      ],
+      "note": "no engine output supplied for this fixture (an attended delivery pass is different evidence; a bounded partial run is scored not_evaluable)",
+      "checks": [],
+      "misses": []
+    },
+    {
+      "fixture": "d1_rotated_scan.pdf",
+      "state": "not_evaluable",
+      "partial": true,
+      "attended_passes_that_visit_it": [
+        "content"
+      ],
+      "note": "no engine output supplied for this fixture (an attended delivery pass is different evidence; a bounded partial run is scored not_evaluable)",
+      "checks": [],
+      "misses": []
+    },
+    {
+      "fixture": "d1_scan_nolang.pdf",
+      "state": "not_evaluable",
+      "partial": true,
+      "attended_passes_that_visit_it": [
+        "no_language"
+      ],
+      "note": "no engine output supplied for this fixture (an attended delivery pass is different evidence; a bounded partial run is scored not_evaluable)",
+      "checks": [],
+      "misses": []
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "state": "fail",
+      "partial": true,
+      "attended_passes_that_visit_it": [
+        "content",
+        "fallback_crash",
+        "fallback_primary"
+      ],
+      "note": "persisted engine output",
+      "checks": [
+        {
+          "check": "page1_phrase_in_units",
+          "ok": true,
+          "detail": "got: Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "page1_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.15 (reader 'tesseract v5.5.3.20260724'; the attribution check scores that separately)"
+        },
+        {
+          "check": "ocr_ran",
+          "ok": true,
+          "detail": "read units: [1]"
+        },
+        {
+          "check": "coverage_read_honest",
+          "ok": false,
+          "detail": "declared read 0; the real states support 1 read page(s) [1]; anything else would count an unresolved unit as read"
+        },
+        {
+          "check": "coverage_unresolved_honest",
+          "ok": true,
+          "detail": "declared unresolved [] vs computed []"
+        },
+        {
+          "check": "coverage_requested_honest",
+          "ok": true,
+          "detail": "declared requested 1 vs request.units [1]"
+        },
+        {
+          "check": "no_fabricated_content",
+          "ok": true,
+          "detail": "page 1: Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "engines_used_agree_units",
+          "ok": false,
+          "detail": "declared engines_used [] vs per-unit readers ['tesseract v5.5.3.20260724']"
+        },
+        {
+          "check": "every_ocr_unit_names_its_engine",
+          "ok": true,
+          "detail": "read units without a real engine name: []"
+        },
+        {
+          "check": "fallback_fidelity_note_reduced",
+          "ok": true,
+          "detail": "fallback ran; fidelity note: Tesseract recovery does NOT claim equivalent table, formula or layout fidelity; the affected pages are labelled with the engine that read them"
+        }
+      ],
+      "misses": [
+        "coverage_read_honest",
+        "engines_used_agree_units"
+      ]
+    }
+  ],
+  "states": {
+    "pass": 0,
+    "fail": 1,
+    "not_evaluable": 4
+  },
+  "note": "a pass here scores what the engines ACTUALLY produced and claimed; a not_evaluable fixture means the scorer never saw a complete real engine run for it, and is never counted as acceptance. Primary OCR acceptance additionally requires output from a real PaddleOCR run."
+}

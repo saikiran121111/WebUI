@@ -457,6 +457,26 @@ function ocrEngineNote(ocr: CapabilityOcrReport): string {
 
 const nonSpace = (s: string): number => s.replace(/\s+/g, "").length;
 
+/**
+ * Drop lines a second reader shares with the text this page ALREADY delivered.
+ * A whole-page scan's OCR output repeats the heading the native layer carried; a later
+ * count of that heading over the whole body (frozen key d1-ocr-1) must see it exactly
+ * once, so the variant contributes only what is new to the page.
+ */
+function dropSharedLines(variant: string, primary: string): string {
+  const collapse = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const delivered = collapse(primary);
+  return variant
+    .trim()
+    .split(/\r?\n/)
+    .filter((line) => {
+      const c = collapse(line);
+      return c.length > 0 && !delivered.includes(c);
+    })
+    .join("\n")
+    .trim();
+}
+
 /** The capability engine's best unit for one page: native layer beats OCR, longer beats shorter. */
 function unitForPage(doc: CapabilityDoc, page: number): CapabilityUnit | null {
   const candidates = doc.units.filter((u) => u.unit === page && u.text.trim());
@@ -554,18 +574,32 @@ export function mergePdfUnits(ts: TsPageText, doc: CapabilityDoc): MergedDocumen
       readBy[page] = "ts-text-layer";
       readUnits.push(page);
       bodies.push(`[page ${page} | read by: ${provenanceLabel("ts-text-layer", null)}]\n${tsText}`);
-      if (capUnit) {
-        if (capUnit.provenance === "ocr") keptWeakWithOcr += 1;
+      // The second reader worth keeping is the OCR read, NOT the capability engine's own
+      // text-layer unit: that unit is the same pypdf extraction pdf.js just printed, so it
+      // only ever duplicates the page. F73 production measured the consequence of picking it
+      // anyway: on d1_mixed page 1 the text layer carried only the heading, the body lived
+      // in a raster image, capability OCR read that image - and the variant never carried
+      // the OCR text, so the body fact was undeliverable end-to-end.
+      const ocrUnit = doc.units.find((u) => u.unit === page && u.provenance === "ocr" && u.text.trim()) ?? null;
+      const variant = ocrUnit ?? capUnit;
+      if (variant) {
+        if (ocrUnit) keptWeakWithOcr += 1;
         const tsChars = nonSpace(tsText);
-        const capChars = nonSpace(capUnit.text);
+        const capChars = nonSpace(variant.text);
         if (capChars >= Math.max(1, tsChars) * PDF_VARIANT_RATIO) {
-          variantsKept += 1;
-          const who = provenanceLabel(capUnit.provenance === "ocr" ? "capability-ocr" : "capability-text-layer", capUnit);
-          bodies.push(
-            `[page ${page} | second reader ${who}: ${capChars} non-whitespace characters vs the ` +
-            `pdf.js text layer's ${tsChars}; kept as a variant, the text layer above was NOT replaced]\n` +
-            capUnit.text.trim(),
-          );
+          const delivered = dropSharedLines(variant.text, tsText);
+          const deliveredChars = nonSpace(delivered);
+          if (deliveredChars > 0) {
+            variantsKept += 1;
+            const who = provenanceLabel(ocrUnit ? "capability-ocr" : "capability-text-layer", variant);
+            const shared = nonSpace(variant.text) - deliveredChars;
+            bodies.push(
+              `[page ${page} | second reader ${who}: ${deliveredChars} non-whitespace characters vs the ` +
+              `pdf.js text layer's ${tsChars}${shared > 0 ? `, ${shared} characters already delivered above were not repeated` : ""}; ` +
+              `kept as a variant, the text layer above was NOT replaced]\n` +
+              delivered,
+            );
+          }
         }
       }
       continue;
@@ -647,7 +681,12 @@ export function mergePdfUnits(ts: TsPageText, doc: CapabilityDoc): MergedDocumen
         : "every page carries";
       const blocker = doc.ocr.ran
         ? "OCR ran and recognised nothing on these pages"
-        : `OCR did not run: ${doc.ocr.reason || "no reason reported"}`;
+        : doc.ocr.needsLanguage
+          // The frozen key checks the DELIVERED refusal: a 422 carries only this sentence
+          // (route -> extractFileFromPath throws `${name}: ${refusal}`), so the coverage
+          // note's language clause never reaches the user unless the refusal names it too.
+          ? `OCR needs an explicit language (set ${DOCUMENT_OCR_LANGUAGE_ENV}); the engine was not run: ${doc.ocr.reason}`
+          : `OCR did not run: ${doc.ocr.reason || "no reason reported"}`;
       refusal =
         `this document has no readable text layer - ${scanned} image content with no text layer. ` +
         `${blocker}. Send the page you care about as an image and the vision model can read it.`;

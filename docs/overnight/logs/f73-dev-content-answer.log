@@ -1,0 +1,71 @@
+npm notice run webui-chat@0.2.0 dev
+npm notice run node scripts/dev-supervisor.mjs
+[dev-supervisor] python: project venv reused (offline start, python 3.12.15)
+[dev-supervisor] Building Rust backend (cargo build)...
+   Compiling ruke-core v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-core)
+warning: function `resolve_with` is never used
+   --> crates\ruke-core\src\settings.rs:256:4
+    |
+256 | fn resolve_with(
+    |    ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling ruke-decision v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-decision)
+   Compiling ruke-attach v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-attach)
+warning: `ruke-core` (lib) generated 1 warning
+   Compiling ruke-server v0.1.0 (D:\Projects\WebUI\WebUI\rust-backend\crates\ruke-server)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.61s
+[dev-supervisor] Rust backend build OK.
+ruke-ml commit ceiling enforced: 5000000000 bytes via windows-job-object (ruke-runtime)
+ruke-ml supervisor ready on 127.0.0.1:52853 pid=16184
+01:27:32 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[dev-supervisor] Python supervisor ready on 127.0.0.1:52853 (pid 22168, state ready, heavy imports at startup: 0, idle TTL 120s).
+[dev-supervisor] starting ruke-server rust-backend\target\debug\ruke-server.exe (pid 12912) on 127.0.0.1:3101...
+[2m2026-11-20T19:57:33.267671Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m shared-endpoint admission is lease-aware (handoff windows are refused, not woken) [3mlease[0m[2m=[0mD:\Projects\WebUI\WebUI\.ai-coordination\llm-handoff.lock [3mwait_ms[0m[2m=[0m2000
+[2m2026-11-20T19:57:33.273179Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m attachment query-embedder configured (Node ONNX loopback RPC)
+[2m2026-11-20T19:57:33.273248Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m web-research bridge configured (Next-owned TS search via loopback RPC)
+[2m2026-11-20T19:57:33.280429Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m capability backend rendezvous resolved (python supervisor; status on GET /api/ruke/ml-status) [3mendpoint[0m[2m=[0mhttp://127.0.0.1:52853 [3msource[0m[2m=[0m"discovery" [3msupervisor_pid[0m[2m=[0mSome(16184)
+[2m2026-11-20T19:57:33.281282Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m ruke-server listening (health + isolated /api/chat) — Next :3000 remains authoritative [3maddr[0m[2m=[0m127.0.0.1:3101 [3mroot[0m[2m=[0mD:\Projects\WebUI\WebUI
+[dev-supervisor] Rust backend ready.
+[dev-supervisor] starting next dev (pid 23252) on 127.0.0.1:3000...
+[dev-supervisor] Next.js ready (listening).
+[dev-supervisor] Ready
+  UI:      http://localhost:3000
+  Backend: http://127.0.0.1:3101
+  proxy delegation ON · bridge secret armed
+Press Ctrl+C to stop RUKE.
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+ ✓ Compiled /instrumentation in 516ms (154 modules)
+ ✓ Ready in 5.2s
+ ○ Compiling / ...
+ ✓ Compiled / in 8.4s (7899 modules)
+ GET / 200 in 62ms
+ ○ Compiling /api/files/extract ...
+ ✓ Compiled /api/files/extract in 660ms (4011 modules)
+01:27:50 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=d1_native.pdf&att=att_d1content01 200 in 1031ms
+01:27:59 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=d1_scanned.pdf&att=att_d1content02 200 in 8563ms
+01:28:05 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=d1_mixed.pdf&att=att_d1content03 200 in 6544ms
+01:28:12 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=d1_rotated_scan.pdf&att=att_d1content04 200 in 6517ms
+01:28:21 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=d1_scanned.pdf&att=f73-answer-e28ad9a0b675 200 in 8174ms
+ ○ Compiling /api/chat ...
+ ✓ Compiled /api/chat in 692ms (4542 modules)
+[2m2026-11-20T19:58:22.678012Z[0m [32m INFO[0m [1mturn[0m[1m{[0m[3mturn_id[0m[2m=[0m0[1m}[0m[2m:[0m [2mruke_server::chat::pipeline[0m[2m:[0m turn decision [3mmode[0m[2m=[0m"standard_chat" [3mby[0m[2m=[0m"in-process-deliverable-none" [3mskill[0m[2m=[0m"" [3mskill_bytes[0m[2m=[0m1655 [3mmodel[0m[2m=[0m"default"
+ ✓ Compiled /api/internal/web-tools in 233ms (4546 modules)
+ POST /api/internal/web-tools 200 in 286ms
+[2m2026-11-20T19:58:22.965515Z[0m [32m INFO[0m [1mturn[0m[1m{[0m[3mturn_id[0m[2m=[0m0[1m}[0m[2m:[0m [2mruke_server::chat::web_loop[0m[2m:[0m web tool loop start [3mmodel[0m[2m=[0m"default" [3mdepth[0m[2m=[0mstandard [3msession[0m[2m=[0m"ws-d1bbhbch"
+[2m2026-11-20T19:58:33.456662Z[0m [33m WARN[0m [1mturn[0m[1m{[0m[3mturn_id[0m[2m=[0m0[1m}[0m[2m:[0m [2mruke_server::chat::web_loop[0m[2m:[0m web answer diagnosis flagged; released through the integrity audit (server telemetry only — never shown to the human, never sent to the model) [3mround[0m[2m=[0m1 [3munresolved[0m[2m=[0m[] [3munsupported[0m[2m=[0m["It ordered the defendant to pay **₹4,18,25,000** (written in the document as \"4,18,25,000 rupees\", i.e.", "₹4.18 crore in Indian digit grouping) **within ninety days**, with interest at **6% per annum**."] [3mclaims_research[0m[2m=[0mfalse
+[2m2026-11-20T19:58:33.456797Z[0m [32m INFO[0m [1mturn[0m[1m{[0m[3mturn_id[0m[2m=[0m0[1m}[0m[2m:[0m [2mruke_server::chat::web_loop[0m[2m:[0m web tool loop complete [3mround[0m[2m=[0m1 [3mfinish[0m[2m=[0m"stop" [3mms[0m[2m=[0m10491
+ POST /api/internal/web-tools 200 in 4ms
+ POST /api/chat 200 in 11829ms

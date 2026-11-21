@@ -1,0 +1,50 @@
+{
+  "ok": false,
+  "key_version": "f76-numeric-1",
+  "case": "A_d1_crore",
+  "law_mirror": false,
+  "delivered_body": "Attached file: d1_scanned.pdf\n[file content begins]\n[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (en-US): 6/6 page(s) recognised (en-US), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language en-US from declared by the document (/Lang)]\n\n[page 1 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nSection 4.2 Ground Water\nThe aquifer beneath the basin yields\n1.4 million cubic metres per month\nDownstream salinity rose to 3.1 ppt\nat the Kandla gauge in March 2019,\nwhich the committee attributed to\n\n[page 2 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nmeasured across eleven observation wells.\nExtraction permits were capped at 62%\nof the recharge estimate for 2019.\nreduced dry-season flow rather than\ntidal intrusion alone.\n\n[page 3 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nStation Flow m3/s Turbidity NTU\nKandla 18.4 12.7\nGandhi Dham 44.0 3.9\nAranjes 12.6 51.2\n\n[page 4 | read by: tesseract v5.5.3.20260724 OCR (eng)]\ndef recharge(precip_mm, area_km2):\nrunoff = precip_mm * 0.18 * area_km2\nreturn round(runoff * 1000, 1) # m3\nprint(recharge(740, 12.5))\n\n[page 5 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nQ=Wxbxsqrt(2gh)\nT =25degC, pH =7.4, EC =0.84 dS/m\nAppendix note: the borehole log for well BH-07 was transcribed from a field notebook.\n\n[page 6 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nChapter eleven records that the arbitration award of 14 November 2021 ordered\nthe defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6%\nper annum.\n[file content ends]",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**Amount in the document (Indian grouping):** 4,18,25,000 rupees — page 6\n\n**Restated in the crore system:** ₹4,18,25,000 = **4.1825 crore rupees** (₹4.1825 cr, i.e. 4 crore 18 lakh 25 thousand)\n\n**Restated with international grouping:** **INR 41,825,000** (forty-one million eight hundred twenty-five thousand rupees)\n\nBoth spellings are the identical figure: 4 × 10⁷ + 1 × 10⁶ + 8 × 10⁵ + 2 × 10³ + 5 × 10² = 41,825,000. The other numbers on the earlier pages (1.4 million m³, 3.1 ppt, 62%, 18.4/44.0/12.6 m³/s, 12.7/3.9/51.2 NTU, 740 mm, 12.5 km², 25 °C, pH 7.4, 0.84 dS/m) are volumes, concentrations and physical parameters, not monetary amounts, so page 6 is the only place a rupee figure appears.\n\nCaveat worth flagging: this is OCR output from a scan (the appendix note on page 5 says the borehole log came from a hand-written field notebook), so if the grouping digits matter legally, verify against the original scan — the crore/lakh comma pattern is one of the things OCR can misread."
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=995"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"4.1825 crore\""
+    },
+    {
+      "name": "restatement_present_g2",
+      "ok": true,
+      "detail": "found \"41,825,000\""
+    },
+    {
+      "name": "page_attributed",
+      "ok": true,
+      "detail": "key names page 6"
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": false,
+      "detail": "figure(s) with values outside the accepted set: 6 = 6 | 4.1825 = 4.1825 | 4 crore = 40000000 | 18 lakh = 1800000 | 25 thousand = 25000 | 1.4 million = 1400000"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "10 in-scope figure(s) audited"
+    }
+  ]
+}

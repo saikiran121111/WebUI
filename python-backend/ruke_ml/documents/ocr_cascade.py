@@ -282,6 +282,27 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
             log("ocr", f"the OCR result could NOT be persisted: {info.get('detail', '')}")
         return info
 
+    def _account(saved: dict[str, Any], device_hint: str) -> dict[str, Any]:
+        """The ONE operation account, written by whichever path actually did the work.
+
+        Both lifecycles — the windowed `_operation` and the outer path where the primary attempt
+        was skipped before any operation ran (pipeline unavailable, policy off, or simply no
+        primary runtime on this machine) — must report the same numbers about identical work.
+        F73 measured the drift: a skipped-primary run persisted its recovered unit but left the
+        caller reading persisted_path "" / units_persisted 0, because only `_operation` wrote
+        this account.
+        """
+        return {"peak": _operation_peak(sampler, primary_stats),
+                "persisted_path": str(saved.get("path", "")),
+                "units_persisted": int(saved.get("units_persisted", 0) or 0),
+                "device_used": str(primary_stats.get("device_used") or device_hint),
+                "device_echo": primary_stats.get("device_echo", {}),
+                "pages": len(by_page),
+                "recognised": sum(1 for p in by_page.values() if p.state == "recognised"),
+                "unresolved": [u for u in want
+                               if u in by_page
+                               and by_page[u].state not in ("recognised", "empty")]}
+
     def _operation(device: str, *, inside_window: bool = False) -> dict[str, Any]:
         """The one operation a resource window wraps: primary, recovery, durable write.
 
@@ -308,16 +329,7 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
         finally:
             sampler.stop()
         saved = _persist()
-        out = {"peak": _operation_peak(sampler, primary_stats),
-               "persisted_path": str(saved.get("path", "")),
-               "units_persisted": int(saved.get("units_persisted", 0) or 0),
-               "device_used": str(primary_stats.get("device_used") or device),
-               "device_echo": primary_stats.get("device_echo", {}),
-               "pages": len(by_page),
-               "recognised": sum(1 for p in by_page.values() if p.state == "recognised"),
-               "unresolved": [u for u in want
-                              if u in by_page
-                              and by_page[u].state not in ("recognised", "empty")]}
+        out = _account(saved, device)
         # Recorded whether or not a lease was needed, so the caller that DOES own the window (the
         # acceptance CLI) reports the same evidence as the path that takes one here. Without this
         # the two lifecycles would report different numbers about identical work.
@@ -410,14 +422,29 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
         # The primary never ran inside a window: the pipeline is unavailable, admission refused
         # it, the handoff was not granted, or the plan placed it on no device. The primary worker
         # is still released, because its adapter closes it in its own finally block, so recovery
-        # runs here with nothing heavy resident and no lease to hold.
-        _recover()
+        # runs here with nothing heavy resident and no lease to hold. The sampler starts here too:
+        # the recovery engine really ran, so its peak gets measured rather than left UNKNOWN —
+        # F73 measured this path reporting zero usable samples for real recovery work.
+        sampler.start()
+        try:
+            _recover()
+        finally:
+            sampler.stop()
     # A run that only reused persisted units has no new engine evidence to add, and rewriting the
     # record with THIS run's near-empty peaks would destroy the measurement the engines actually
     # produced. It writes again only if this run really did engine work.
     resumed_only = bool(resumed) and not (casc.get("fallback") or {}).get("attempted")
     if not casc.get("persisted") and not resumed_only:
         _persist()
+    if not casc.get("operation"):
+        # The primary attempt was skipped before any operation ran, yet this path still did
+        # real work (recovery, and the durable write above) or genuinely reused a persisted
+        # record. Write the SAME account `_operation` writes, or its caller reports a blank
+        # run for work that actually happened. An empty device_used is the honest answer
+        # when no engine ran at all (a pure resumed run): nothing executed on any device.
+        casc["operation"] = _account(
+            casc.get("persisted") or {},
+            "cpu" if (casc.get("fallback") or {}).get("attempted") else "")
 
     ordered = [by_page[u] for u in want if u in by_page]
     for u in want:
@@ -577,6 +604,13 @@ def _write_result(pdf_path: str, want: list[int], *, language: str, dpi: int,
     keyed = _result_key(pdf_path, want, language=language, dpi=dpi, rotations=rotations)
     unresolved = [u for u in want
                   if u not in pages or pages[u].state not in ("recognised", "empty")]
+    # The record's own coverage and engines are derived HERE, from the units this write is about,
+    # not read back off `casc`. `casc["engines_used"]`/`["units_read"]` are only computed at the
+    # very end of run(), long after _persist has written this record — F73's frozen D1 scorer
+    # caught every durable record declaring coverage.read 0 and engines_used [] while storing
+    # units a real engine had recognised. A record must describe itself truthfully.
+    read = sum(1 for u in want if u in pages and pages[u].state in ("recognised", "empty"))
+    engines_used = sorted({p.engine for p in pages.values() if p.engine and p.engine != "none"})
     if not keyed.get("ok"):
         return {"ok": False, "path": "", "units_persisted": 0, "units_unresolved": unresolved,
                 "reusable_when_resuming": 0, "detail": str(keyed.get("detail", ""))}
@@ -590,7 +624,7 @@ def _write_result(pdf_path: str, want: list[int], *, language: str, dpi: int,
         "source": keyed["identity"],
         "request": keyed["request"],
         "pipeline": {"primary_engine": PRIMARY,
-                     "engines_used": list(casc.get("engines_used") or []),
+                     "engines_used": engines_used,
                      "policy": casc.get("policy") or {},
                      "device_plan": casc.get("device_plan") or {},
                      "handoff": casc.get("handoff") or {},
@@ -600,7 +634,7 @@ def _write_result(pdf_path: str, want: list[int], *, language: str, dpi: int,
         "peaks": casc.get("peaks") or {},
         "units": [pages[u].to_dict() for u in sorted(pages)],
         "coverage": {"requested": len(want),
-                     "read": int(casc.get("units_read") or 0),
+                     "read": read,
                      "unresolved": unresolved,
                      "complete": not unresolved},
         "limitations": {

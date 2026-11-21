@@ -1,0 +1,86 @@
+{
+  "ok": true,
+  "key_version": "d1-ocr-1",
+  "att_id": "f73-answer-e28ad9a0b675",
+  "late": {
+    "page": "6",
+    "contains": "4,18,25,000"
+  },
+  "extract": {
+    "chunkCount": 0,
+    "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]",
+    "pages": 6,
+    "truncated": false,
+    "text_chars": 1759
+  },
+  "chat": {
+    "stages": [
+      {
+        "stage": "decision_done",
+        "mode": "standard_chat",
+        "ms": 135
+      },
+      {
+        "stage": "skill",
+        "ms": 0
+      }
+    ],
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "date": "Fri, 20 Nov 2026 19:58:22 GMT",
+      "keep-alive": "timeout=5",
+      "transfer-encoding": "chunked",
+      "vary": "RSC, Next-Router-State-Tree, Next-Router-Prefetch",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "standard_chat"
+    },
+    "answer": "The award appears on **page 6** of the scan (in the passage beginning \"Chapter eleven records that…\").\n\nIt ordered the defendant to pay **₹4,18,25,000** (written in the document as \"4,18,25,000 rupees\", i.e. ₹4.18 crore in Indian digit grouping) **within ninety days**, with interest at **6% per annum**.\n\nOne caveat: page 6 has no embedded text layer — this wording comes from OCR (Tesseract), so the figures are as machine-read rather than guaranteed character-perfect against the original print."
+  },
+  "checks": [
+    {
+      "name": "extract_delivered_text",
+      "ok": true,
+      "detail": "chars=1759 indexed=undefined chunks=0"
+    },
+    {
+      "name": "late_fact_reached_the_body",
+      "ok": true,
+      "detail": "key fact \"4,18,25,000\" is the delivered body"
+    },
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "doneFrames=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=498"
+    },
+    {
+      "name": "late_fact_delivered",
+      "ok": true,
+      "detail": "exact amount \"4,18,25,000\" (frozen key)"
+    },
+    {
+      "name": "deadline_delivered",
+      "ok": true,
+      "detail": "payment period stated"
+    },
+    {
+      "name": "page_attributed",
+      "ok": true,
+      "detail": "key names page 6 as the late evidence"
+    },
+    {
+      "name": "no_repeat_loop",
+      "ok": true,
+      "detail": "phrase repeated 0x in one answer"
+    }
+  ]
+}

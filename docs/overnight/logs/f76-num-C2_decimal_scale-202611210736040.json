@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "key_version": "f76-numeric-8",
+  "case": "C2_decimal_scale",
+  "law_mirror": true,
+  "delivered_body": "Attached file: lab-record.txt\n[file content begins]\nLab record, line 2.\nSample mass: 0.0045 mg.\nReagent mass: 125 mg.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values. This applies to every restated version anywhere in the answer, including brief asides.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**4.5 µg**\n\nThe record states the sample mass as 0.0045 mg. Converting: 1 mg = 1000 µg, so 0.0045 mg × 1000 = 4.5 µg — same value, just restated in micrograms.\n\n(For reference, the reagent mass of 125 mg converts to 125,000 µg under the same factor.)"
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=250"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"4.5 µg\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": true,
+      "detail": "6 in-scope figure(s) all equal an accepted value"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "6 in-scope figure(s) audited"
+    }
+  ]
+}

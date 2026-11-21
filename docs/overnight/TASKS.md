@@ -2139,3 +2139,293 @@ overnight scope.
   live / rerank live env run - STATE blocker section, last, in order).
 - Changed files: `docs/overnight/FINAL-REPORT.md`, `docs/overnight/STATE.md`, this note. Scratch: none -
   next free g60 still unused.
+
+## F73 - 2026-11-21 (~00:40-01:30): OCR record-honesty + fixture-honesty repairs; D1 recovery quality MEASURED at engine level
+- Readiness + one bounded content pass (`logs/f73-ocr-readiness-1.log`, `logs/f73-ocr-content-1.log`):
+  RAM 7,062/65,299 MiB free/total; commit 77,729/100,115; VRAM 9,483/12,288 used (2,633 free); primary
+  `ready:true blockers:[]` (paddleocr-cpu pinned runtime, snapshots present); the pass died as a
+  TYPE pre-spawn `resource_limit`: provisional est 3,300 MiB -> charged 5,190,451,200 B + 1,024 MiB
+  margin = 6,264,193,024 B needed vs the normal window's 5,000,000,000 B ceiling. Free RAM admitted it;
+  the COMMIT-CEILING POLICY refused it. A provisional estimate can never fit the normal ceiling, so the
+  primary's first page needs the exclusive (post-unload) window = ATTENDED (the endpoint serves this
+  session). Hazard recorded: production auto-handoff (`RUKE_LLM_AUTOMATIC_HANDOFF`, default TRUE) would
+  have unloaded Strata - every live pass this run sets `RUKE_OCR_ALLOW_UNLOAD=0` +
+  `RUKE_LLM_AUTOMATIC_HANDOFF=0`.
+- Engine 1-page matrix (`logs/f73-ocr-engine-4pass.log`): content 0, fallback_primary 0,
+  fallback_crash 0; **no_language exit 2 = pre-existing runner/CLI gap** (PS 5.1 drops the empty
+  `--language` arg; CLI default is "eng") - NOT an engine failure. Honest engine behavior verified by
+  direct invocation with a real empty string: typed `unsupported_language` refusal, never a silent
+  English default (`logs/f73-nolang-direct.*`). The env-NAMING promise (`RUKE_DOCUMENT_OCR_LANGUAGE`)
+  lives in the TS layer (`lib/server/extract/document-capability.ts`) - it is a PRODUCTION-level
+  acceptance, engine-level stays N/A until the live tree pass. TASKS:915 gap stays open.
+- **FIX 1 - operation-accounting drift** (`ocr_cascade.py`): the outer recovery+persist path never
+  wrote `casc["operation"]`, so the CLI reported `persisted_path ""` / `units_persisted 0` for a run
+  whose unit really WAS persisted (the two lifecycles drifted, contra the promise at the pre-existing
+  comment). One shared `_account()` now written by BOTH paths; outer path also samples around
+  `_recover()`. Regression test first RED then green.
+- **FIX 2 - persist-before-attribution** (`ocr_cascade.py::_write_result`): EVERY durable record
+  declared `coverage.read 0` and `engines_used []` because run() computes `units_read`/`engines_used`
+  AFTER `_persist()`, while the payload read them off `casc`. Per-unit engine attribution was always
+  correct. Fix derives the record's own read+engines from the units the write is ABOUT (mirrors the
+  existing local `unresolved` computation). Live proof: regenerated record now declares `read:1`,
+  engines `['tesseract v5.5.3.20260724']`. RED fidelity assertions added to the same test, green.
+  `tests.test_ocr_fallback` + `tests.test_ocr_resource_window`: **44/44 OK**.
+- Frozen scorer (`d1_engine_scoring_probe.py`, NOTHING in it weakened): self-check 17 controls 0 broken
+  (`logs/f73-d1scorer-selfcheck.log`); first real-record score exposed FIX 2 ("declared read 0...");
+  after FIX 2 a bounded 1-page run scores `not_evaluable` (honestly partial by design - key lists all
+  6 pages); full 6-page run then exposed a real fixture defect:
+- **FIX 3 - fixture generator truncation** (`docs/overnight/fixtures/d1/ocr_docs.py`): `text_stream`
+  never wrapped; the 152-char `LATE_FACT` at 10 pt overflowed the letter page, so `d1_scanned.pdf`
+  page-6's 200-dpi RASTER physically ended mid-sentence at "rupees with" (ink rows 51-70 of 1651).
+  The frozen key demands text the image never contained - no honest engine could pass it. Added `_wrap`
+  (pessimistic Helvetica estimate) inside `text_stream`; PAGE_TEXTS and the ANSWER KEY untouched -
+  regenerated fixtures verify `answer-key.json` byte-identical (git shows it unmodified), page 6 now
+  reads the complete fact verbatim. Native/mixed text-LAYER extraction unaffected; rotated unchanged.
+- Engine-level D1 QUALITY at frozen thresholds (full 6-page recovery run, scorer 20/22,
+  `logs/f73-d1scorer-regen6.log`): pages 1,2,3,4,6 PASS (WER 0.000 <= 0.15 fallback, phrase
+  containment, coverage honesty, engine attribution); **page 5 (equation+small line) FAILS
+  `page5_phrase_in_units` + `page5_wer<=limit` (WER 0.471)** - Tesseract fuses word boundaries on the
+  formula line at 200 dpi ("Q=Wxbxsqrt(2gh)"); 300 dpi does not change it. Genuine recovery-engine
+  limit; the formula page is exactly what primary PaddleOCR-VL targets, and THAT first page needs the
+  attended exclusive window (see above). Fault matrix re-run green on regenerated fixtures
+  (`logs/f73-engine-regen-{unavailable,crash}.log`, exit 0, page 1 recognised each).
+- Changed files: `python-backend/ruke_ml/documents/ocr_cascade.py`, `python-backend/tests/test_ocr_fallback.py`,
+  `docs/overnight/fixtures/d1/ocr_docs.py`, regenerated `docs/overnight/fixtures/d1/pdfs/*.pdf`
+  (answer-key.json unchanged). Scratch: none - next free g60.
+
+### Next action (single, exact)
+Production-level live pass: start the dev tree with `RUKE_OCR_ALLOW_UNLOAD=0 RUKE_LLM_AUTOMATIC_HANDOFF=0`
+(the auto-handoff hazard), then `python-backend/.venv/Scripts/python.exe docs/overnight/probes/
+d1_ocr_acceptance_probe.py --pass {content,fallback_primary,fallback_crash,no_language} --base
+http://localhost:3000`, then the one streamed page-grounded answer for a scanned-page fact; afterwards
+correct FINAL-REPORT's stale ffmpeg/ffprobe blocker row (f53 video probe re-run) and the 4 gate suites.
+
+## F74 - production boot #1 outcome, three root-cause fixes, gates reconciled
+
+### Production boot #1 (F73, `.data/tmp/g60.ps1`, tag `content-answer`)
+- Headline ANSWER PASS stands: scanned upload -> real OCR -> one streamed answer with the exact late fact
+  ("4,18,25,000", "within ninety days"), page-6 attribution, honest OCR caveat, single terminal
+  (`logs/f73-answer-content-answer.log` / `.json`, exit 0). Integrity-audit WARN telemetry flagged the
+  model's "₹4.18 crore" numeric gloss but the turn released by design (telemetry-only, answer text
+  carried the verbatim figure) - recorded, no action.
+- Content pass 4 misses (`logs/d1-http-content-answer-content.json`): d1_native 8/8; d1_scanned 14/16
+  (page-5 WER 0.471 > 0.15 - honest recovery-engine miss, primary PaddleOCR-VL target, unchanged);
+  d1_mixed 7/8 (page-1 recognised fact absent); d1_rotated 4/5 (upside-down garbage). Memory baseline
+  avail 3097 MiB min 2969; worker peaks UNKNOWN (worker-side sampling not wired in this path).
+- Safety proof: `RUKE_OCR_ALLOW_UNLOAD=0` + `RUKE_LLM_AUTOMATIC_HANDOFF=0` on boot; handoff journal
+  absent after the run (no lifecycle window opened); 12 owned pids stopped by the child walk.
+- **Runner gap recorded (open, unrecorded until now):** `run-ocr-acceptance.ps1 -StartDev` never sets
+  `RUKE_OCR_FAULT` / `RUKE_OCR_PRIMARY` / language per production pass - the production fault passes
+  would run VACUOUSLY through the authoritative runner. Worked around with g60-style per-pass boots
+  (fresh `RUKE_OCR_RESULT_DIR` per boot so production does real engine work, never record replay).
+
+### The three root causes (all RED-first regression tests, frozen keys/thresholds UNTOUCHED)
+1. **Rotation applied twice** (`ruke_ml/documents/ocr_tesseract.py::render_page_png`): pypdfium2 treats
+   `render(rotation=)` as ADDITIVE on top of the page's own /Rotate (docstring, 5.6.0). Callers pass the
+   declared /Rotate, so a /Rotate 90 page was turned twice (total 180°) and the engine delivered
+   upside-down garbage - while the CLI, which passes no rotations, read the same page correctly
+   (g61 discriminator proved the ladder). Fix: subtract the intrinsic rotation when a caller requests
+   one; no request = pdfium's own view (always-correct CLI behavior). Signature and `info["rotation"]`
+   (requested) unchanged, keeping the TS rotation note honest. Regression:
+   `tests/test_ocr_fallback.py::DeclaredRotationIsAppliedOnce` (dims equal; at rotations={1:90} the
+   engine reads "measured across eleven observation wells.").
+2. **Heading-only text layer killed OCR eligibility** (`ruke_ml/documents/pdf.py`): a >= MIN_GLYPHS page
+   over a raster body (d1_mixed p1) was marked fully read; the imagery was never offered to OCR, so an
+   image-only fact was undeliverable end-to-end. Fix: such pages are recorded read AND stay
+   OCR-eligible (two-flag honesty, mirroring the weak-layer branch; image_count == -1 inventory failure
+   stays put). Regression: `tests/test_retrieval_documents.py::PdfReading` fixture test asserts p1 in
+   BOTH units_succeeded and units_needing_ocr.
+3. **TS second-reader never carried the OCR body** (`lib/server/extract/document-capability.ts`): on a
+   kept-weak page the variant search picked the capability engine's own TEXT-LAYER unit - the same pypdf
+   layer pdf.js had just printed - so the OCR read was dropped. Fix: prefer the page's `provenance ==
+   "ocr"` unit; `dropSharedLines` removes lines already delivered above before the variant note.
+   Regression: new vitest case (body delivered, heading exactly once, keptWeakWithOcr note kept,
+   near-miss = OCR run that repeats the heading).
+
+### Gate reconciliation
+- vitest full: **2536 passed / 24 skipped** (199 files; +1 = the new merge case). Green.
+- Python: the honest gate form is `discover -s tests -t .` -> **Ran 536 OK** (+4 new tests vs the
+  recorded 532). `discover -s tests` WITHOUT `-t .` reports one loader error - PRE-EXISTING
+  (`tests/test_handoff_devices.py:28` relative import exists in HEAD; discovery without the repo-root
+  top-level can't import it as a package member). Not a regression; use `-t .`.
+- Cargo 739 / tsc: unchanged since F71 (TS changed since - re-run due with the final gates).
+- Focused: test_ocr_fallback + test_retrieval_documents 46/46; test_handoff_devices 65 OK standalone;
+  capability vitest file 50/50.
+
+### Next action (single, exact)
+Production re-run on the fixed tree via `.data/tmp/g61.ps1` (g60 pattern; per-pass boot, safety
+switches always on, fresh `RUKE_OCR_RESULT_DIR`, lease guard, owned-pid stop walk, journal guard):
+four boots scoring the FOUR d1 passes against the UNCHANGED frozen key (expect d1_native 8/8,
+d1_mixed 8/8, d1_rotated 5/5, d1_scanned 14/16 with page-5 an honest miss) + one answer re-proof on
+the content boot; then the video probe re-run and FINAL-REPORT ffmpeg row correction.
+
+## F75 - 2026-11-21 (later in run): harness root cause, no_language PRODUCTION PASS (4/4), three more fixes, safety incident recorded
+
+### Harness root cause found - f74e/f74f 0/4 was a scalar-string bug (and it retroactively invalidates two labels)
+- `.data/tmp/g60.ps1` / `g61.ps1`: `$acts = $Actions.Split(",") | ForEach-Object { $_.Trim() }` binds a SCALAR
+  string when `-Actions` has one action; `$acts[0]` on a string is its first CHARACTER, so `switch ($lead)`
+  never matched and the per-pass env was never applied on single-action boots. Consequences, measured:
+  (a) f74e/f74f (`no_language`) booted with the baseline `RUKE_DOCUMENT_OCR_LANGUAGE=eng` still set - the
+  branch was never exercised (0/4 was honest about the tree, wrong about the pass);
+  (b) f74c/f74d (`fallback_primary`/`fallback_crash`, single-action boots) ran at baseline `FAULT='' PRIMARY=''`
+  (relabel below).
+- Fixed with `@(...)` in both scripts (comment records the lesson). Proof is each boot's own printed
+  `tree env:` line: no_language boots now show `RUKE_DOCUMENT_OCR_LANGUAGE=''` (f74g onward).
+- **Correction to the F74 record:** "g60/g61-style per-pass boots close that [runner fault-env] gap" was
+  only true AFTER this fix. The gap itself REMAINS OPEN in the authoritative `run-ocr-acceptance.ps1
+  -StartDev` (it never sets `RUKE_OCR_FAULT`/`RUKE_OCR_PRIMARY`/language per pass). Fix the runner before
+  using it for fault passes.
+
+### Frozen no_language case: RED f74e/f74f (0/4) -> f74g (2/4) -> GREEN f74h (4/4) in production
+- f74g (fixed harness, honest tree): `http 422 in 0.88s`, 2/4 - `ocr_did_not_run` and
+  `ocr_not_run_without_language` ok; `needs_language_stated` + `needs_language_names_env` MISS.
+  Root cause was a real DELIVERY gap, not the harness: a 422 carries ONLY `{error}`
+  (`app/api/files/extract/route.ts:102-109` catch; msg = `${name}: ${merged.refusal}`, thrown at
+  `lib/server/extract/index.ts:445/512`). The coverageNote's needsLanguage clause exists but can never
+  reach the user. Fixed at the product refusal build (`mergePdfUnits` needsLanguage arm in
+  `lib/server/extract/document-capability.ts`: "OCR needs an explicit language (set
+  RUKE_DOCUMENT_OCR_LANGUAGE); the engine was not run: {reason}"). The probe was NOT touched; the key's
+  phrases now land in the delivered text itself.
+- New vitest delivery pin (`__tests__/server/extract-document-capability.test.ts`, "the scanned refusal
+  itself names the language switch: a 422 delivers ONLY the refusal"): all three phrases + no "OCR read"
+  in delivered text. File now 51/51 green.
+- f74h (g61 `-Actions no_language -Tag f74h`, foreground boot):
+  `d1_scan_nolang.pdf: http 422 in 0.96s, 4/4 checks ok`; pass exit 0; 12 owned pids stopped;
+  handoff journal absent. Evidence: `logs/f74-dev-f74h.log`, `logs/d1-http-f74h-no_language.json`.
+
+### The DECLARED-language path was silently fake - two more root causes, fixed RED-first
+- `python-backend/tests/test_ocr_fallback.py::UndeclaredLanguageIsATypedRefusal` (pre-existing) declared
+  half failed `ran=False`, `language_source=""`: nothing on the declared fixtures actually declared a language.
+- Fix 1 (fixture honesty, `docs/overnight/fixtures/d1/ocr_docs.py::compose_pdf`): `/Lang(en-US)` was written
+  on the `/Pages` object. `/Lang` is a DOCUMENT-level Catalog entry (ISO 32000-1 s14.3.1); spec readers never
+  see a /Pages entry. Now written on the Catalog (obj 1). The f74g honest refusal is what proved the
+  declaration invisible.
+- Fix 2 (reader honesty, `python-backend/ruke_ml/documents/pdf.py::load_pdf`): the reader never read the
+  Catalog /Lang at all (`reader.metadata` covers /Info only). Now `declared_lang` is captured from
+  `reader.trailer["/Root"].get_object().get("/Lang")` INSIDE the open-file `with` (pypdf resolves indirect
+  objects lazily; reading after the `with` raises "seek of closed file" - the first attempt inside
+  `_safe_metadata`, which runs after close, failed exactly that way; A/B proved it), then merged via
+  `meta["metadata"].setdefault("/Lang", ...)`. `_ocr_language` then reports the declared language named as
+  "declared by the document (/Lang)".
+- Fixtures regenerated (`python-backend/.venv/Scripts/python.exe docs/overnight/fixtures/d1/ocr_docs.py`):
+  **answer-key.json byte-identical** (sha256 `2a82713e...c156b6e`, key version `d1-ocr-1`, thresholds
+  unchanged). PDF bytes changed (text content unchanged): spec readers now see `/Lang: en-US` on
+  d1_scanned/mixed/rotated, none anywhere on d1_scan_nolang. Consequence: f74b's content scores sit on
+  pre-regeneration bytes - content/fallback passes must be re-scored (f74i below).
+- The pin test now FORCES `RUKE_OCR_ALLOW_UNLOAD=0` + `RUKE_LLM_AUTOMATIC_HANDOFF=0` (setUp/tearDown) -
+  see the incident below; a test must never touch the endpoint serving the coding session.
+  Now 2/2 OK (~2.8s): undeclared -> typed refusal, engine never ran, reason contains "never defaulted to
+  English"; declared -> ran=True, language `en-US` (tesseract base-tag ISO map -> eng data), source names /Lang.
+
+### SAFETY INCIDENT (recorded honestly, aftermath clean)
+- An ad-hoc declared-language discriminator ran an in-process `runner.dispatch` for d1_scanned WITHOUT the
+  two safety switches. The cascade executed the REAL lifecycle: requested the exclusive handoff ->
+  unloaded the main model (free 5637 MiB < 5974 needed; provisional peak 3300 charged at 4950 + 1024 margin;
+  GPU disabled) -> processed on CPU -> launched the PaddleOCR-VL primary (`python-backend\.venv-ocr`), which
+  died (code 3221225477, kernel job peak commit 7812 MiB vs 6675 MiB ceiling) -> resource_limit -> tesseract
+  recovery for all 6 units -> restored the main model -> released the lease. It acquired its own lease and
+  unloaded/restored the coding endpoint MID-TURN - a violation of "never... unload or restart the coding
+  model during a turn". Self-inflicted and self-restored; the session survived. Verified after: no
+  `.ai-coordination/llm-handoff.lock`, no `.data/python/handoff-journal.json`. Rule going forward: any
+  in-process dispatch in this area (tests included) forces both switches; the pin test now enforces it.
+- Facts learned: the full handoff lifecycle works end-to-end in the production tree (first time observed at
+  that depth); PaddleOCR-VL IS launchable in the venv-ocr path but does not fit the ceiling with the main
+  model resident (7812 peak vs 6675 ceiling) - the first genuine primary page still requires the attended
+  exclusive window; primary page count remains ZERO.
+
+### Relabels and standing evidence corrections (honesty pass on THIS run's records)
+- `d1-http-f74c-fallback_primary.json` / `d1-http-f74d-fallback_crash.json`: the scores STAND but describe
+  PRIMARY-ABSENT RECOVERY (tesseract took every unit; per-unit engine reporting and unresolved-unit
+  honesty satisfied the key's fallback_expectation). They did NOT exercise crash injection or a
+  not-registered primary id (the $lead bug kept the env at baseline). Additionally: under the unattended
+  safety switches the primary is never admitted, so `RUKE_OCR_FAULT=crash` cannot inject at all
+  (injection requires a registered primary producing results) - TRUE crash injection stays attended with
+  the primary. `RUKE_OCR_PRIMARY=not-registered` IS a key-sanctioned fallback trigger and can be
+  re-run unattended (f74j).
+- ANSWER PASS (f73, streamed page-6 "4,18,25,000" answer) stands but predates the fixture regeneration and
+  the TS/python fixes - re-prove on the f74i boot via the `answer` action (f73_scanned_answer_probe.mjs).
+
+### Gates this segment
+- Capability vitest file 51/51; pin tests 2/2; answer-key hash unchanged. tsc is twice-DUE (TS touched),
+  full vitest/cargo/python-suite re-runs land at final validation (expect py >= 538).
+
+### Next action (single, exact)
+g61 boot `-Actions content,answer -Tag f74i` (foreground, 600000 ms): re-score the REGENERATED fixtures
+against the UNCHANGED key (expect d1_native 8/8, d1_scanned 14/16 with page-5 WER 0.471 the same honest
+engine miss, d1_mixed 8/8, d1_rotated 5/5) plus the answer re-proof on regenerated bytes. Then
+`-Actions fallback_primary,fallback_crash -Tag f74j` labeled as measured (expect primary-absent recovery
+for both under the switches; the not-registered trigger is the key-sanctioned one). Then the full python
+gate `python-backend/.venv/Scripts/python.exe -m unittest discover -s tests -t .`.
+
+### F75 addendum - f74i boot executed (content + answer on the REGENERATED fixtures)
+`g61 -Actions content,answer -Tag f74i`: d1_native 8/8 (0.77s); d1_scanned 14/16 (8.46s) - the two misses
+are the SAME honest engine miss as f74b (page-5 phrase + WER 0.471 against the frozen limit); d1_mixed 8/8
+(7.0s); d1_rotated 5/5 (6.6s). Content pass exit 1 = those 2 misses (correct protective exit, key untouched).
+**ANSWER PASS re-proved on current source + regenerated bytes**: one streamed answer (1074 chars,
+finish=stop, doneFrames=1), exact "4,18,25,000" + ninety days + 6%, page 6 attributed, honest OCR caveat,
+no repeat loop (`logs/f74-answer-f74i.json`). coverageNote truth: 6/6 pages by OCR, per-engine
+{tesseract v5.5.3.20260724: 6}, language eng from requested env. Tree env printed by the boot itself
+(both switches on); journal absent after; 12 owned pids stopped. Evidence `logs/f74-dev-f74i.log`,
+`logs/d1-http-f74i-content.json`. Next action unchanged: f74j fallback boot.
+
+### F75 addendum - f74j fallback boot, full python gate, tsc, f53 video re-run, FINAL-REPORT row corrected
+- f74j (`-Actions fallback_primary,fallback_crash -Tag f74j`): the boot's OWN tree-env line shows
+  `RUKE_OCR_PRIMARY='not-registered'` - the @() fix now applies the per-lead env on multi-action boots.
+  d1_scanned 15/17 BOTH passes - the 2 misses are the same page-5 honest miss, now scored against the
+  FALLBACK limit 0.15 (the key's fallback threshold; content pass scores the same WER 0.471 against 0.10 -
+  both fail, key untouched). All fallback-specific checks (per-unit engine reporting, unresolved units
+  stay unresolved, reduced-fidelity note) PASS. NOTE (harness limitation, recorded honestly): g61 applies
+  the per-LEAD env once per boot; the second action's env (`FAULT=crash`) was NOT applied on that pass,
+  and the second pass likely re-scored durable records from the first (same tree + same RESULT_DIR).
+  So f74j-evidence = key-sanctioned `not-registered` trigger proven in production; crash injection
+  remains UNPROVEN (needs an admitted primary = attended) and per-fault passes need single-action boots.
+  Evidence: `logs/f74-dev-f74j.log`, `logs/d1-http-f74j-fallback_primary.json`,
+  `logs/d1-http-f74j-fallback_crash.json`; journal absent; 12 owned pids stopped.
+- Full python gate: `discover -s tests -t .` -> **Ran 539 OK, exit 0** (was 536 at F74; +3 this run).
+  Log `.data/tmp/py-gate-f75.log`.
+- tsc (twice-due): `npx tsc --noEmit -p .` -> **exit 0, zero errors**. Log `.data/tmp/tsc-f75.log`.
+- f53 video probe re-run on current tree: `python-backend/.venv/Scripts/python.exe -I
+  docs/overnight/probes/f53_video_evidence_probe.py` -> fixture built via PROJECT-LOCAL ffmpeg (resolved
+  by `models.binaries.path_for`), frame-OCR + evidence checks through the real WorkerPool ->
+  **F53 VIDEO EVIDENCE: all checks passed**, exit 0 (`logs/f75-f53-video-rerun.log`,
+  `logs/f53-video-evidence.json`; v1: planned 5 / decoded 4 / recognised 3 / glyph-free 1 / unresolved
+  [61.0 out_of_range] - honest accounting, requested presentation times stated).
+- FINAL-REPORT section E row 6 CORRECTED: the `ffmpeg_not_installed` blocker row was stale (contradicted
+  section B's own runtime rows); now records ffmpeg/ffprobe project-local resolution + the green f53
+  re-run. What remains open there is ONLY the human-labelled-real-video precondition of the frozen
+  temporal gate.
+- NEXT ACTION: retrieval numeric-fact failure investigation (workstream 3), then final gates
+  (full vitest + cargo), then the exclusive Playwright final loop.
+
+### F75 addendum - retrieval numeric-fact on UNSEEN examples: production-request evidence (workstream 3 item CLOSED)
+
+The brief asks for "a production request showing the selected engine, candidates and scores ... on unseen examples" for the known numeric-fact failures. Delivered as ONE new characterization test in __tests__/server/attach-rerank-live-route.test.ts (env-gated RUKE_LIVE_RERANK=1; the frozen kept-failure test and all probes untouched).
+
+- UNSEEN pair authored at F75 (Ridgemont station rainfall 2019: truth 1,180 mm listed AFTER wrong 940 mm; two topical distractors). One lesson authored into the fixture comment: an earlier draft varied year position + wording alongside the number - a CONFOUND that made the engine appear to arbitrate on phrasing. Corrected to ONE template with only the number varying.
+- Direct full-precision measurement on the pinned asset (python-backend venv, same nn_rerank code path, both candidate orders): scores 0.9999769738683837 vs 0.9999739897403304 - margin 2.98e-06, identical floats regardless of candidate order. The ordering inside the pair carries no information (the frozen crates pair ranks the WRONG number first on the same engine). The exact-tie reading from 4-decimal rounding (and the candidate-order tie-break claim drawn from it) was WRONG and is corrected here - honest chain: first measurement -> swap experiment -> misread -> confound found -> corrected pair -> full-precision measurement -> corrected assertions.
+- Live run: `node .data/tmp/g58.mjs` (scoped topology: fresh supervisor + ruke-server :3101, no :8080/next/bridge contact, own-tree teardown DONE exit=0). 6/6 tests passed (5 F66 + 1 new). Production-route evidence line: engine=neural_cross_encoder_minilm order=[3,1,0,2] scores=[1.0000,1.0000,0.9576,0.3610] tie_margin=0.000003. Supervisor log (f66-supervisor-1.log): 7x POST /job 200 + 1x 552 (the 552 = the typed-refusal case's non-ready state). Tree peak working set 207 MiB / commit 161 MiB. Logs: .data/tmp/g58-f75b-run.log (first run, documented the confound's failure), .data/tmp/g58-f75c-run.log (green).
+- What the test now asserts (contract, not convenience): pinned engine runs through the route; ALL candidates scored and returned (score-both); both conflicting numbers SURVIVE into the delivered evidence set (keep-both - the conflict is surfaced to the answer stage, never resolved by dropping a candidate); pair margin <= 0.01 with a STOP message on flip (same registry/DECISION-OWNERSHIP/FINAL-REPORT update law as the frozen kept failure); distractors rank below the numeric pair (the engine CAN arbitrate topics); order+scores reproduce on warm repeat. NO rank order asserted inside the pair (noise at 3e-06).
+- Registry unchanged: numeric_fact_case_fixed stays False. g04/g05 reruns this segment: dense 7/9 (61 first), cross-encoder 9/10 with cross_encoder_rank=2 biencoder_rank=2 lexical_rank=2 (logs f75-g04-rerun.log / f75-g05-rerun.log). Embeds stay the honest half: no production caller (D-046 owner decision, F66).
+- Unattended vitest runs SKIP the whole file (now 6 skipped tests from it; baseline skipped count moves 24 -> 25 in the next full run).
+
+### F75b addendum - standing gates re-run on the post-retrieval tree, all green
+- tsc --noEmit exit 0 (.data/tmp/tsc-f75c.log, after the final unseen-pair test edits).
+- Full vitest: 2,537 passed / 25 skipped / 0 failed, exit 0 (.data/tmp/vitest-f75-full.log). vs F71
+  baseline 2,536/24: +1 passed = the F75 extract 422-delivery pin case; +1 skipped = the live-route
+  file now carries 6 env-gated tests instead of 5. Nothing else moved.
+- cargo test: 739 passed / 0 failed, exit 0 (.data/tmp/cargo-f75.log) - exactly the F71 count.
+- python discover -s tests -t .: 539 OK (.data/tmp/py-gate-f75.log, earlier this segment; no python
+  source changed since).
+
+### F75c addendum - exclusive Playwright final loop (scoped): every affected user-facing journey green
+
+Lock protocol honored: created .ai-coordination/playwright.lock (launcher_pid=75, note=f75-scoped-final-loop), removed at teardown; owned dev (detached cmd.exe tree, root PID 23200, log docs/overnight/logs/f75-pw-dev.log) and owned fixture server (:3210, node tests/fixtures/browser/server.mjs, PID 26516). Teardown (g67 owned-stop walk): ports 3000/3101/3210 DOWN, repo-path chromium count 0, lock removed, dev supervisor exited its own tree cleanly.
+
+Results (logs in docs/overnight/logs):
+- Batch A chat-stream + decision-routing + search-gate + greeting: 8/9, then the single flake (search-gate "live-fact" GPU-price journey) PASSED on targeted rerun (f75-pw-A.log, f75-pw-A2.log). Cause of the one failure was EXTERNAL: google 429 "sorry" anti-bot wall + circuit breaker + ddg/reddit zero-result rounds, and a 141 s round-2 read_page stall (dev log turn_id=10 diagnosis). No product change. Secondary observation (recorded, NOT proven regression): during the 141 s stall the main area showed no in-flight assistant bubble - consistent with the attended chat-continuation/reload-reattach proof, worth an attended look.
+- file-reading.spec.ts: ALL 215 listed entries now green on this tree - the 157 the first batch completed before the cutoff (f75-pw-B.log, includes every layer-1 /api/files/extract marker check) plus targeted reruns: C1 21/21 (pdf/docx/pptx/odt/ods/odp/epub/rtf/ipynb/legacy.doc/xls/ppt/mat/archives zip tar gz tgz xz 7z Dockerfile Makefile), C2 25/25 (all 12 image types incl svg; 6 audio containers - wav transcription 41 s; 7 video containers mp4 mov mkv webm 3gp mpeg mpg), C3 9/9 (txt.gql/proto/tf/hcl/vue/svelte/astro + fixture-sheet.xlsx + .xlsm - the workstream-3 sheet-ref cases), and "formats that cannot be tested" notes 3/3. Logs f75-pw-C1/C2/C3.log.
+- long-doc-retrieval 3/3 + pdf-egress 1/1 green (f75-pw-B2.log, f75-pw-B3.log). pdf-egress initially failed ONLY because my scoped loop had not started the :3210 fixture server (the scripts/run-browser-e2e-exclusive.ps1 launcher provides it; my scoped loop must too) - ECONNREFUSED 127.0.0.1:3210, harness prerequisite, not product. With the fixture up: green in 5.8 s.
+- regression_modalities: honest SKIP (requires scripts/e2e-llm-proxy.mjs; prerequisite respected, unchanged from F71).
+- HAZARD LEARNED (recorded as law for future loops): a foreground bash call killed at the 600 s cap (exit 143) can leave the playwright tree RUNNING - the orphan batch B wrote its own full summary ("159 passed / 60 failed, 19.5 m") into f75-pw-B.log AFTER the wrapper died. All 60 failures are kill artifacts, not product: "worker process exited unexpectedly (code=3221225794 = 0xC0000002)" cascading from the exact test in flight at the kill ("the assistant never finished answering"). Verified timeline via log mtimes (orphan finished 04:41:57; my g65 chromium sweep ran ~04:43 - i.e. it killed 28 genuine post-completion leaks, NOT live tests). Every one of the 60 was rerun green. Rule: before sweeping "orphans" after an exit-143 kill, check the log mtime / a still-growing file / process start times first.
+
+Final loop scoreboard: chat-streaming/routing/greeting 9/9, file-reading 215/215, long-doc 3/3, pdf-egress 1/1 - zero product failures in this slice.

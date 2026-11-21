@@ -1,0 +1,51 @@
+[00:48:05] processing: device=cpu est_peak_mib=3300
+[00:48:05] ocr: primary engine failed as a whole run: resource_limit
+[00:48:05] ocr: Tesseract recovery for 1 unit(s): resource_limit: refusing to spawn: the normal window can offer a commit ceiling of 5000000000 B (4768 MiB), under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak) | next step: the demand declared for this pipeline does not fit the resource window it ran in: open the coordinated exclusive window (drain inference, release the main model, re-check admission) or run the recovery engine; report this as a resource limit rather than an engine fault, and do NOT raise the hard maximum, drop a page, or re-prepare assets that are already valid
+[00:48:05] releasing_worker: worker resources released by the adapter
+[00:48:05] ready: lease released
+{
+  "ok": true,
+  "reason": "",
+  "final_status": "ok",
+  "device": "cpu",
+  "freed_physical_mib": null,
+  "work": {
+    "peak": {
+      "working_set_mib": null,
+      "commit_mib": null,
+      "measured": false,
+      "components": {
+        "primary_worker_child": {
+          "working_set_mib": null,
+          "commit_mib": null,
+          "samples": 0,
+          "measured": false,
+          "definition": "",
+          "device_used": "",
+          "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+        },
+        "owned_tree": {
+          "working_set_mib": null,
+          "commit_mib": null,
+          "samples": 0,
+          "usable_samples": 0,
+          "measured": false,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 27424,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge",
+          "note": "no usable sample was taken during this stage, so the peak is UNKNOWN and is reported as unknown rather than as zero"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\0be0ec6df185cb4ec5c465f7305fe1da6314151ad070e44fb00348bf55e82e5b.json",
+    "units_persisted": 0,
+    "device_used": "cpu",
+    "device_echo": {},
+    "pages": 0,
+    "recognised": 0,
+    "unresolved": []
+  },
+  "out": "docs/overnight/logs/f73-nolang-direct.json"
+}

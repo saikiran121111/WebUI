@@ -1,0 +1,59 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test file-reading --grep the model reads the file.*(fixture-image\.|fixture-audio\.|fixture-video\.|bz2) --reporter=list
+
+Running 25 tests using 1 worker
+
+  fixture-image.svg          Thought for <1s View reasoning YES READABLE-MARKER-SVG-7QX9 Copy
+  ✓   1 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.svg → the reply contains its own marker (8.0s)
+  fixture-notes.txt.bz2      Thought for 2s View reasoning YES READABLE-MARKER-BZ2-7QX9 Copy
+  ✓   2 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.txt.bz2 → the reply contains its own marker (9.6s)
+  fixture-image.png          Thought for <1s View reasoning YES READABLE-MARKER-PNG-7QX9 WebUI image attachment fixture
+  ✓   3 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.png → the reply contains its own marker (12.8s)
+  fixture-image.jpg          Thought for <1s View reasoning YES READABLE-MARKER-JPG-7QX9 WebUI image attachment fixture
+  ✓   4 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpg → the reply contains its own marker (8.5s)
+  fixture-image.jpeg         Thought for <1s View reasoning YES READABLE-MARKER-JPEG-7QX9 WebUI image attachment fixtur
+  ✓   5 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.jpeg → the reply contains its own marker (8.2s)
+  fixture-image.gif          Thought for <1s View reasoning YES READABLE-MARKER-GIF-7QX9 WebUI image attachment fixture
+  ✓   6 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.gif → the reply contains its own marker (8.1s)
+  fixture-image.bmp          Thought for <1s View reasoning YES READABLE-MARKER-BMP-7QX9 WebUI image attachment fixture
+  ✓   7 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.bmp → the reply contains its own marker (9.0s)
+  fixture-image.webp         Thought for <1s View reasoning YES READABLE-MARKER-WEBP-7QX9 WebUI image attachment fixtur
+  ✓   8 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.webp → the reply contains its own marker (8.2s)
+  fixture-image.tif          Thought for <1s View reasoning YES READABLE-MARKER-TIF-7QX9 WebUI image attachment fixture
+  ✓   9 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tif → the reply contains its own marker (9.1s)
+  fixture-image.tiff         Thought for 13s View reasoning YES READABLE-MARKER-TIFF-7QX9 WebUI image attachment fixtur
+  ✓  10 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.tiff → the reply contains its own marker (21.6s)
+  fixture-image.avif         Thought for <1s View reasoning YES READABLE-MARKER-AVIF-7QX9 WebUI image attachment fixtur
+  ✓  11 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.avif → the reply contains its own marker (8.2s)
+  fixture-image.ico          Thought for 1s View reasoning YES READABLE MARKER-ICO 7QX9 Copy
+  ✓  12 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-image.ico → the reply contains its own marker (8.8s)
+  fixture-audio.wav          Thought for 1s View reasoning YES Zephyr Copy
+  ✓  13 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.wav → the reply contains its own marker (41.2s)
+  fixture-audio.mp3          Thought for 1s View reasoning YES Zephyr Copy
+  ✓  14 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.mp3 → the reply contains its own marker (13.5s)
+  fixture-audio.m4a          Thought for 4s View reasoning YES Zephyr Copy
+  ✓  15 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.m4a → the reply contains its own marker (13.2s)
+  fixture-audio.aac          Thought for 3s View reasoning YES Zephyr Copy
+  ✓  16 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.aac → the reply contains its own marker (12.2s)
+  fixture-audio.ogg          Thought for 3s View reasoning YES Zephyr Copy
+  ✓  17 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.ogg → the reply contains its own marker (12.8s)
+  fixture-audio.flac         Thought for 5s View reasoning YES Zephyr Copy
+  ✓  18 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-audio.flac → the reply contains its own marker (14.6s)
+  fixture-video.mp4          Thought for 1s View reasoning YES READABLE-MARKER-MP4-7QX9 Copy
+  ✓  19 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mp4 → the reply contains its own marker (15.8s)
+  fixture-video.mov          Thought for <1s View reasoning YES READABLE-MARKER-MOV-7QX9 Copy
+  ✓  20 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mov → the reply contains its own marker (11.2s)
+  fixture-video.mkv          Thought for 1s View reasoning YES READABLE-MARKER-MKV-7QX9 Copy
+  ✓  21 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mkv → the reply contains its own marker (11.6s)
+  fixture-video.webm         Thought for 3s View reasoning YES READABLE-MARKER-WEBM-7QX9 Copy
+  ✓  22 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.webm → the reply contains its own marker (13.8s)
+  fixture-video.3gp          Thought for 1s View reasoning YES READABLE-MARKER-3GP-7QX9 Copy
+  ✓  23 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.3gp → the reply contains its own marker (10.9s)
+  fixture-video.mpeg         Thought for 1s View reasoning YES READABLE-MARKER-MPEG-7QX9 Copy
+  ✓  24 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpeg → the reply contains its own marker (11.9s)
+  fixture-video.mpg          Thought for 5s View reasoning YES READABLE-MARKER-MPG-7QX9 Copy
+  ✓  25 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-video.mpg → the reply contains its own marker (16.3s)
+
+  Slow test file: [chromium-visible] › tests\file-reading.spec.ts (5.3m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  25 passed (5.3m)

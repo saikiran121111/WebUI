@@ -1,0 +1,13 @@
+d1_mixed.pdf: not_evaluable (0/0 checks ok)
+d1_native.pdf: not_evaluable (0/0 checks ok)
+d1_rotated_scan.pdf: not_evaluable (0/0 checks ok)
+d1_scan_nolang.pdf: not_evaluable (0/0 checks ok)
+d1_scanned.pdf: not_evaluable (10/10 checks ok)
+{
+  "states": {
+    "pass": 0,
+    "fail": 0,
+    "not_evaluable": 5
+  },
+  "out": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\d1-engine-20261121-010330.json"
+}

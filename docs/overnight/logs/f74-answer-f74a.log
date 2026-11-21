@@ -1,0 +1,26 @@
+ok   extract_delivered_text - chars=1759 indexed=undefined chunks=0
+ok   late_fact_reached_the_body - key fact "4,18,25,000" is the delivered body
+extract coverageNote: "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]"
+
+stages seen: [{"stage":"decision_done","mode":"standard_chat","ms":140},{"stage":"skill","ms":0}]
+finish_reason=stop doneFrames=1 ruke_error=none
+answer (939 chars):
+GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+**Page 6** of the scan is the only place the award appears.
+
+What it records (the wording, as OCR'd): *"Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."*
+
+- **Amount:** 4,18,25,000 rupees GÇö i.e. Gé¦4,18,25,000 in Indian digit grouping (four crore, eighteen lakh, twenty-five thousand; Gé¦41,825,000 in international grouping).
+- **Period:** within **ninety days**.
+- **Also attached:** interest at **6% per annum**.
+
+Two caveats worth noting: the scan does not reproduce the award itself GÇö page 6 is a narrative reference to it ("Chapter eleven records thatGÇª"), so the figure is a reported one rather than the operative award text. And the rest of the six-page scan is unrelated hydrology material (groundwater/salinity data, a flow table, a Python snippet, a weir formula), so this page is the sole source for the figure.
+GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+ok   single_stream_terminal - doneFrames=1 finish=stop error=none
+ok   answer_not_empty - chars=939
+ok   late_fact_delivered - exact amount "4,18,25,000" (frozen key)
+ok   deadline_delivered - payment period stated
+ok   page_attributed - key names page 6 as the late evidence
+ok   no_repeat_loop - phrase repeated 1x in one answer
+
+ANSWER PASS - evidence docs\overnight\logs\f74-answer-f74a.json

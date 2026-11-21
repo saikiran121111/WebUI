@@ -1,0 +1,57 @@
+[01:05:31] processing: device=cpu est_peak_mib=3300
+[01:05:31] ocr: primary engine failed as a whole run: resource_limit
+[01:05:31] ocr: Tesseract recovery for 6 unit(s): resource_limit: refusing to spawn: the normal window can offer a commit ceiling of 5000000000 B (4768 MiB), under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak) | next step: the demand declared for this pipeline does not fit the resource window it ran in: open the coordinated exclusive window (drain inference, release the main model, re-check admission) or run the recovery engine; report this as a resource limit rather than an engine fault, and do NOT raise the hard maximum, drop a page, or re-prepare assets that are already valid
+[01:05:31] ocr: page 1 at 200 dpi
+[01:05:32] ocr: page 2 at 200 dpi
+[01:05:32] ocr: page 3 at 200 dpi
+[01:05:32] ocr: page 4 at 200 dpi
+[01:05:33] ocr: page 5 at 200 dpi
+[01:05:33] ocr: page 6 at 200 dpi
+[01:05:33] releasing_worker: worker resources released by the adapter
+[01:05:33] ready: lease released
+{
+  "ok": true,
+  "reason": "",
+  "final_status": "ok",
+  "device": "cpu",
+  "freed_physical_mib": null,
+  "work": {
+    "peak": {
+      "working_set_mib": 122,
+      "commit_mib": 93,
+      "measured": true,
+      "components": {
+        "primary_worker_child": {
+          "working_set_mib": null,
+          "commit_mib": null,
+          "samples": 0,
+          "measured": false,
+          "definition": "",
+          "device_used": "",
+          "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+        },
+        "owned_tree": {
+          "working_set_mib": 122,
+          "commit_mib": 93,
+          "samples": 4,
+          "usable_samples": 4,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 25740,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\553f8e5ff635fe9203e92745b67593ac798090132d79bfd3e177b69152c17726.json",
+    "units_persisted": 6,
+    "device_used": "cpu",
+    "device_echo": {},
+    "pages": 6,
+    "recognised": 6,
+    "unresolved": []
+  },
+  "out": "docs/overnight/logs/f73-engine-full6b.json"
+}

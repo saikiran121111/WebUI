@@ -1176,9 +1176,16 @@ full run. No test was disabled, deleted or weakened.
 5. **Fence-selection live proof** (does the catalogue make prose-where-fence-fits emit a catalogue fence) -
    live-model run; until it passes, `detectDeliverableIntent` + `search-gate.ts` phrase rules stay live as
    designed. **Clear:** one live-model-selection pass in the attended window.
-6. **Frozen video temporal gate** - no validated ffmpeg on host (`ffmpeg_not_installed` typed refusal
-   executed and logged) AND needs a human-labelled real video; the synthetic clip measures clocks only.
-   **Clear:** validated ffmpeg copy or `RUKE_FFMPEG` + human-labelled clip.
+6. **Frozen video temporal gate** - CORRECTED 2026-11-21 (F75): the `ffmpeg_not_installed` blocker is
+   OBSOLETE. ffmpeg/ffprobe resolve project-locally through `ruke_ml/models/binaries.py::path_for`
+   (`node_modules\ffmpeg-static\ffmpeg.exe` 6.1.1, `@ffprobe-installer` ffprobe - rows in section above
+   already stated this; this row contradicted them). The f53 evidence probe re-ran green on the current
+   tree: synthetic clip built via project-local ffmpeg, frame-OCR + evidence checks executed through the
+   REAL worker pool, "all checks passed" (`logs/f75-f53-video-rerun.log`, `logs/f53-video-evidence.json`;
+   honest scope note preserved: frame OCR reads visible text only, the synthetic clip measures decode
+   clocks/timestamp parsing/cut scheduling, not semantic event understanding). What REMAINS open here is
+   only the frozen gate's other precondition: a human-labelled real video.
+   **Clear:** human-labelled clip (the ffmpeg precondition is cleared).
 7. **Diarization** - `license_acceptance_required` refused by design at both entry points; the refusal IS
    the tested behaviour. **Clear:** human accepts pyannote terms, sets `HF_TOKEN`.
 8. **GPU support** - stays **unverified** while the pinned stack is CPU-only (mandate law); no action on
@@ -1194,3 +1201,258 @@ the full-suite gate itself exposed the two stale-premise files - the suite doing
 One blocked cleanup: an empty scratch file `D:\overnight-placeholder-check` (a mistyped redirect in this
 segment) could NOT be deleted - `rm` is blocked by the current permission policy - flagged here for the
 user's sweep; it is empty and harmless.
+
+# F72 - F75c (2026-11-21 ~01:10 -> ~05:05) - OCR measured at engine AND production level; six root-cause fixes; the same answer re-proved on regenerated fixtures; final gates + exclusive Playwright loop green
+
+Detail lives in TASKS.md F73/F74/F75 (+addenda, F75b, F75c); this is the state table. Nothing in the frozen
+acceptance matrix (answer-key `d1-ocr-1`, sha256 `2a82713e...156b6e`, thresholds, scorer, probes) was weakened
+anywhere in this range - page-5 stays a recorded miss, the numeric-fact pair stays a kept characterization.
+
+## A. Implemented and fixed (every one RED-first, frozen contracts untouched)
+1. OCR operation-accounting drift - the CLI reported `persisted_path ""` for a run whose unit WAS persisted
+   (`ocr_cascade.py`; one shared `_account()` on both lifecycles).
+2. Persist-before-attribution - every durable record declared `coverage.read 0` / `engines_used []`; records now
+   derive read + engines from the units the write is about. Live proof: `read:1`, engines
+   `['tesseract v5.5.3.20260724']`.
+3. Fixture honesty - `d1_scanned` page-6 raster physically ended MID-SENTENCE at "rupees with" (a 152-char
+   LATE_FACT was never wrapped); the key demanded text the image never contained. `_wrap` added to the generator;
+   PAGE_TEXTS and the ANSWER KEY untouched; regenerated fixtures verify the key BYTE-IDENTICAL.
+4. Rotation applied twice - pypdfium2 `render(rotation=)` is ADDITIVE over the page's own /Rotate; /Rotate 90
+   pages came out 180 degrees (upside-down garbage in production, correct via CLI - the discriminator that found
+   it). Fixed in `ocr_tesseract.render_page_png`; signature and the honest `info["rotation"]` unchanged.
+5. Heading-only text layer killed OCR eligibility - d1_mixed p1 (heading + raster body) was marked fully read and
+   the imagery never reached OCR. Such pages are now recorded read AND stay OCR-eligible (two-flag honesty).
+6. TS second-reader dropped the OCR body - the variant search re-printed pdf.js's own text layer. Now prefers the
+   `provenance == "ocr"` unit and drops already-delivered lines.
+7. 422 DELIVERY gap - a refusal carries ONLY `{error}`, so the needsLanguage clause could never reach a user. The
+   product refusal itself now names the switch ("OCR needs an explicit language (set RUKE_DOCUMENT_OCR_LANGUAGE)
+   ..."); a vitest delivery pin was added; the frozen no_language case went 0/4 -> 2/4 -> 4/4 IN PRODUCTION (f74h).
+8. The declared-language path was silently fake on BOTH sides: fixtures wrote `/Lang` on /Pages (a Catalog entry
+   per ISO 32000-1 s14.3.1 - spec readers never see it), and `pdf.py` never read the Catalog /Lang at all (must be
+   read INSIDE the open-file `with` - pypdf lazy indirection). Both fixed; the declared path now reports language
+   `en-US` named "declared by the document (/Lang)".
+9. Harness scalar-string bug (`g60/g61`: `.Split | ForEach` on a scalar yields characters, so single-action boots
+   never applied per-pass env) - fixed with `@(...)`; the honest consequence (f74e/f74f vacuous, f74c/f74d
+   mislabeled as crash/primary injection) is recorded as RELABELS, not buried.
+10. Retrieval numeric-fact UNSEEN pair (new env-gated characterization test): two candidates identical except the
+    number score 0.9999770 vs 0.9999740 on the pinned engine (margin 2.98e-06) - ordering inside the pair is
+    noise, so the route's contract is SCORE-BOTH + KEEP-BOTH (the conflict is surfaced to the answer stage, never
+    dropped). The authoring confound (the first draft varied wording too) and the corrected 4-decimal misread are
+    documented in-test.
+11. FINAL-REPORT ffmpeg/ffprobe blocker row corrected (it was stale and contradicted section B); the f53 re-run
+    proves the correction.
+12. Safety: the language pin test now FORCES `RUKE_OCR_ALLOW_UNLOAD=0` + `RUKE_LLM_AUTOMATIC_HANDOFF=0`. An
+    ad-hoc unguarded dispatch unloaded/restored the coding endpoint mid-turn (recorded incident; self-restored;
+    aftermath clean - no lock, no journal left).
+
+## B. Exercised through production (executed; artifacts in docs/overnight/logs)
+- D1 four passes, production HTTP path, REGENERATED fixtures, UNCHANGED key (f74i): d1_native 8/8, d1_scanned
+  14/16 (both misses = the same honest page-5 equation-line miss, WER 0.471 vs the frozen 0.10), d1_mixed 8/8,
+  d1_rotated 5/5. The engine-level scorer 20/22 with its self-check 17/17 controls unbroken.
+- ANSWER PASS re-proved on current source + regenerated bytes (f74i answer boot): scanned upload -> real OCR
+  (6/6 pages, per-engine {tesseract v5.5.3.20260724: 6}) -> ONE streamed answer (finish=stop, single terminal)
+  with the exact late fact "4,18,25,000" + "within ninety days" + page-6 attribution + an honest OCR caveat.
+- no_language refusal 4/4 in production (422 in 0.96 s naming the switch); f74j key-sanctioned `not-registered`
+  primary trigger 15/17 on BOTH fallback passes (same page-5 miss vs the fallback 0.15 limit; per-unit engine
+  reporting + unresolved-stay-unresolved + the reduced-fidelity note all PASS).
+- Video evidence probe on the current tree: the fixture was built through PROJECT-LOCAL ffmpeg
+  (`models.binaries.path_for`), frame-OCR + evidence checks ran through the real WorkerPool, all checks passed;
+  honest accounting (planned 5 / decoded 4 / recognised 3 / glyph-free 1 / unresolved [61.0 out_of_range]).
+- Retrieval production route: 6/6 live tests through the scoped g58 topology (turn.ts composition -> Rust
+  `POST /api/ruke/ml/job` -> supervisor -> the pinned MiniLM worker; pinned id/revision/provider + CPU verified;
+  supervisor 7x POST /job 200 + 1x 552 for the typed refusal; peak 207 MiB WS / 161 MiB commit).
+- The FULL handoff lifecycle was observed end-to-end exactly once (the recorded incident): acquire lease ->
+  unload main model -> launch primary -> resource_limit -> tesseract recovery for all 6 units -> RESTORE main
+  model -> release. It works; it must only ever run in an attended exclusive window.
+
+## C. Final standing gates on the final tree (run once, F75b)
+tsc --noEmit exit 0; full vitest 2,537 passed / 25 skipped / 196 files exit 0; cargo 739 passed; python
+`discover -s tests -t .` 539 OK. (+1/+1 vs the F71 baseline = the F75 delivery-pin case and the env-gated live
+route file.)
+
+## D. Exclusive Playwright final loop (scoped, F75c - lock created/held/removed by this run; teardown DONE: ports 3000/3101/3210 down, zero repo-path chromium)
+- chat-stream + decision-routing + search-gate + greeting: 9/9 (one search-gate live-fact flake = an EXTERNAL
+  google 429 wall + a 141 s read_page stall; green on targeted rerun; no product change).
+- file-reading: 215/215 green - every layer-1 extraction check AND every layer-2 model turn, all fixture families
+  including pdf/docx/pptx/odf/epub/rtf/ipynb/legacy .doc/.xls/.ppt/mat/archives/12 image types/6 audio containers
+  (wav transcription 41 s)/7 video containers/xlsx+xlsm.
+- long-doc-retrieval 3/3; pdf-egress 1/1 (the egress-fixture server on :3210 is a launcher prerequisite - this
+  scoped loop initially missed it; with it up, green in 5.8 s).
+- regression_modalities: honest skip (needs scripts/e2e-llm-proxy.mjs; the prerequisite was respected).
+- Harness law recorded: an exit-143 foreground kill can leave the playwright tree RUNNING - the orphan wrote its
+  own full summary AFTER the wrapper died; all 60 apparent failures were worker kill-cascade artifacts
+  (0xC0000002) and every one of them was rerun green; mtime forensics confirmed my browser sweep postdated the
+  orphan's completion.
+
+## E. BLOCKED / still awaiting a live run - observed reason + smallest clearing action
+1. First genuine PaddleOCR-VL primary page. Observed: the launch dies at kernel-job peak commit 7,812 MiB vs the
+   6,675 MiB ceiling WITH the main model resident (incident); pre-spawn, the provisional 3,300 MiB estimate
+   charges 5,190 MiB + 1,024 margin = 6.26 GB vs the normal 5.0 GB ceiling - the normal window can NEVER admit
+   it. Smallest action: an attended exclusive window (coding endpoint idle):
+   `run-ocr-acceptance.ps1 -StartDev -Pass content -AllowUnload -ConfirmUnload` - AFTER fixing E4, since that
+   runner currently boots fault passes vacuously.
+2. TRUE crash injection (`RUKE_OCR_FAULT=crash`). Observed: injection requires an admitted registered primary
+   producing results; under the unattended safety switches the primary is never admitted, so there is nothing to
+   crash. Smallest action: the same attended window as E1.
+3. Real-video frozen gate. Observed: the pipeline is production-real (f53 green, project-local ffmpeg); the
+   frozen temporal gate's precondition is a HUMAN-LABELLED real upload. Smallest action: the user supplies one
+   real video with human-checked early/middle/late timestamps plus one speech-only and one frame-only fact; run
+   the f53-form probe against it.
+4. `run-ocr-acceptance.ps1 -StartDev` fault-env gap (open). Observed: it never sets `RUKE_OCR_FAULT` /
+   `RUKE_OCR_PRIMARY` / language per pass, so fault passes through the authoritative runner run VACUOUSLY (proved
+   by the f74e/f74f relabel). Smallest action: port the g61 `@(...)` per-lead env application into the runner;
+   single-action boots.
+5. Browser-level scanned-page journey. Observed: the scanned answer is proven at production HTTP+stream level
+   (f74i probe), and the browser file-upload journey is green for native-text pdf; the scanned-OCR journey IN the
+   browser was not part of the final loop (it needs an OCR-enabled dev boot + the D1 upload in the UI). Smallest
+   action: one Playwright journey folding the f73_scanned_answer_probe flow into the real upload UI, in a window
+   that boots dev with the safety switches.
+6. Reload/reattach + in-flight-bubble observation. During the 141 s external stall the main area showed no
+   in-flight assistant bubble (the snapshot had the step header, only the user paragraph in main). Consistent with
+   the attended chat-continuation proof; NOT established as a regression. Smallest action: one attended look at
+   that state (long-stall turn + reload).
+7. Fresh-clone portability + offline startup: NOT RUN this segment (a multi-hour dependency rebuild past the
+   >5 h wrap-up rule; partial artifacts exist from earlier segments). Exact commands for the next window:
+   robocopy the source (exclude node_modules, .next, .data, rust-backend/target, python-backend/.venv*) to a
+   DIFFERENT path; in the copy: `npm ci`; create the python-backend venv from the pinned requirements only (no
+   weights/caches copied); `cargo build` in rust-backend; `npm run dev`; smoke chat + one upload + one
+   attach-index turn; offline startup = the same `npm run dev` with networking disabled (partial truth already
+   observed: the dev supervisor tolerates a dead python supervisor - the "chat continues" line in the dev log -
+   and capability endpoints report typed not_installed).
+8. Embedders: no production caller (D-046 owner decision, reconfirmed F66/F75) - stays the honest half.
+9. regression_modalities live-modality suite needs `node scripts/e2e-llm-proxy.mjs` running; the next loop starts
+   it first or keeps the honest skip.
+
+Run-hygiene flags for the user's sweep: root debris `a.txt`, `lock-out.txt`, `mcp-out/`,
+`D:\overnight-placeholder-check` (the rm policy blocked deletion; empty), plus .data/tmp scratch (g5x/g58/g60-
+g67, f74-prod-*, pin-discrim*, f75-flist.txt, the f72-f75c report section file itself), test-results/, and three
+historical "RTX 5090 Price in India" chats created by search tests. The regenerated D1 fixture bytes
+(docs/overnight/fixtures/d1/pdfs/*.pdf + ocr_docs.py) MUST be included in the user's eventual commit sweep - the
+answer key they verify is byte-identical. The ghidra MCP server is ECONNREFUSED (a connection failure, not
+unconfigured) - no work this run depended on it. No commits were made; the working tree carries all changes
+uncommitted per the mandate.
+
+## F. The five brief questions (current answer)
+1. Can I upload a scanned PDF today and get a correct page-grounded answer? YES at production level: f74i proved
+   scanned upload -> real OCR -> one streamed answer with the exact late fact, page-6 attribution and an honest
+   caveat, on current source and regenerated fixtures; the frozen matrix scores 14/16 with the equation page an
+   honest recorded miss (the primary engine's own target). Quality today comes from the tesseract RECOVERY engine
+   (the primary is still blocked, E1); the same journey inside the browser UI awaits one scoped run (E5).
+2. Can I upload a real video today and get a correct timestamp-grounded answer? PIPELINE YES, frozen acceptance
+   PARTIAL: decode/sample/OCR/timestamp evidence runs production-real through project-local ffmpeg + WorkerPool
+   (f53 green on this tree, honest accounting); the frozen gate additionally needs the user's human-labelled real
+   upload (E3).
+3. Which capabilities now run through Python in production? documents.parse (pypdf per-page outcomes + the OCR
+   cascade, tesseract live; declared/undeclared language contracts live), retrieval rerank (D-058 default ON, the
+   production route live-executed incl. refusal semantics), media decode/sample/transcribe (ffmpeg/ffprobe
+   project-local; audio transcription green), resource admission + worker lifecycle (supervisor, commit ceilings).
+   NOT Python: the artifact writers stay TS (a recorded deviation); embedders have no production caller; the
+   PaddleOCR-VL primary is registered but only admitted in exclusive windows.
+4. Which checks still fail or await a live run? Nothing fails on the final tree offline (gates + loops green).
+   Awaiting live: E1 primary first page, E2 crash injection, E3 human-labelled video, E5 the browser scanned
+   journey, E6 the stall/reattach observation, E7 fresh-clone portability + full offline startup. Watch-list: the
+   search-gate external wall flaked once (green on rerun).
+5. For every remaining blocker, what was observed and what is the smallest clearing action? Section E rows 1-9,
+   each with its observed evidence and the single smallest action.
+
+# F76 (2026-11-21 ~09:00 -> ~14:15 Asia/Calcutta) - takeover validation+repair run: two live-UI defects fixed and acceptance-closed, migration + failure handling re-proved, four gates + 227/0 exclusive Playwright on the final tree
+
+## Verdict (everyday use first)
+- **PDF numbers (the user's defect): usable; defect class closed at delivery-contract level; residual model
+  slip-rate honestly measured.** Upload a grouped-figure PDF and ask for a restatement: extraction was already
+  verbatim-exact; the 10x restatement defect lived at the ANSWER stage. The universal numeric-fidelity law shipped
+  on all three delivery surfaces; the frozen 6-case probe suite scored **6/6 twice consecutively** (closure pair),
+  and a brand-new held-out UI fixture (`9,34,72,150`, in no prior fixture, answer key or prompt) passed the real
+  chat UI first-try. Honest residual: law-on model compliance is **51/54 case samples** across nine live runs -
+  3 genuine defects kept failing instead of being papered over; for value-critical documents a quick human check
+  of the restated line is still the safe practice.
+- **PDF reading generally (scanned/native, page-grounded answers): YES** (F72-F75c production-level proof stands;
+  F76 re-ran the extraction paths on the final tree: 109/109 extraction/skip rows; the native-text fixture read
+  verbatim through the live extract route).
+- **Video (the user's defect): closed.** The unfounded "visible throughout" claim was a DELIVERY-CONTRACT gap
+  (two sampled instants, no gap statement); VIDEO_MOMENTS_LAW shipped on all surfaces; the gap-clip probe flipped
+  from 2x-repro to 3-consecutive-correct + control-run PASS (no over-correction); the 7 video UI journeys are
+  green in the final Playwright stage. Long-course retrieval journeys green (3/3, deep marker pinned both turns).
+- **No commits** were made; everything rides the uncommitted `local` tree per the mandate.
+
+## Defect 1 - PDF figure restated 10x (user saw 4,18,25,000 as 418,250,000 / "41.825 crore")
+- **Repro:** the d1 document through the real UI / probe (cases A/B), reproduced live; extraction evidence was
+  verified exact first, so the first wrong component is the model answer stage.
+- **Root cause:** no numeric-fidelity requirement in the delivery contract - `lib/chat/client.ts` (the inline-
+  attachment branch of `attachmentParts`), the `rules()` base in `lib/server/attachindex/turn.ts`, and the
+  `concat!` law block in `rust-backend/crates/ruke-attach/src/turn.rs` all lacked it; the model then re-grouped
+  and rescaled freely. The run-7 answer also proved that self-verification text alone cannot force real
+  arithmetic: "Check: 41.825 x 10^7 = 41,825,000 (checkmark)" is arithmetically FALSE - digit-run string-matching,
+  not computation.
+- **Fix (universal):** NUMERIC_FIDELITY_LAW, byte-identical on all three surfaces (scratch g74 proves equality
+  incl. the probe mirror; goldens + `rules_variant_boundaries_are_exact` pin TS<->Rust). The v2 sentence "This
+  applies to every restated version anywhere in the answer, including brief asides." was added after two
+  independent live aside incidents. No currency, unit, value or fixture string in production code or prompts.
+  Deployment note: the running :3101 binary predates the rules() text - it activates at the NEXT ruke-server
+  start (the running one was never killed).
+- **Regression:** frozen model-free answer key `docs/overnight/fixtures/f76/numeric-answer-key.json`
+  (`f76-numeric-8`) + the value-auditing scorer (v2->v8; every relaxation pinned KEEP-FAILING; selftest 16/16
+  pass + 20/20 fail) + nine live probe runs (closure pair runs 8+9 both 6/6) + the law-presence vitest pin +
+  the new UI journey `tests/numeric-fidelity-ui.spec.ts` (held-out amount, generic arithmetic audit mirroring
+  the scorer, every attempt audited standalone). Scoreboard: 4/6, 5/6, 3/6, 5/6, 4/6, 5/6, 5/6, 6/6, 6/6.
+- **Recommended hardening (NOT implemented this run):** a deterministic server-side post-answer numeric guard -
+  re-check every restated scale-word figure against the extracted evidence before delivery. Not done because it
+  touches the streaming path; the law + audits measurably reduce but cannot eliminate the measured residual.
+
+## Defect 2 - video "visible throughout 0:00-0:06" unfounded (found earlier this run; closed here by re-verification)
+- **Repro:** gap-clip fixture (marker present at BOTH sampled instants, absent mid-clip) failed live twice with
+  exactly the user's failure shape.
+- **Root cause:** delivery contract, not extraction: the two preview instants (20%/70% sampling in the ffmpeg
+  step) ride as `image_url` parts with zero gap statement on all three surfaces; the frames-only `coverageNote`
+  even invited generalizing "at a given time".
+- **Fix (universal):** `VIDEO_MOMENTS_LAW` on both client.ts video shapes + a byte-identical retrieval lead-in
+  (TS/Rust); the coverageNote invitation replaced.
+- **Regression:** law-presence vitest pin (content-neutral), re-recorded goldens + Rust replay 6/6, live loop 3x
+  ideal + control PASS, and this run's final Playwright stage: the 7 video UI journeys green (C2 chunk, 25/25).
+
+## Migration + generalization (workstreams 3-4) - executed evidence
+- Failure-handling spot-checks mapped to owning tests and RUN: **206 OK / 0 failed** across the seven owning
+  files (cancellation stays distinct from empty success; absent, unreadable and malformed stay three different
+  answers; missing engine = typed configuration problem, never a zero vector; ceiling-killed worker =
+  `resource_limit`, not engine fault; one-retry discipline; a cancelled job starts no recovery; unresolved or
+  partial units never become answers). Log `.data/tmp/f76-py-failurefamily.log`; full discover 539 OK.
+- Generalization: the opposite-intent pair (convert vs quote-only on one document) lived in all 9 runs; held-out
+  material at probe AND UI level; audits are value-arithmetic at both levels, never phrase matchers; production
+  law texts carry zero fixture strings (byte-identity + content-neutral pins). No phrase matcher was added to
+  production routing or prompts anywhere this run.
+
+## Gates + UI stage on the FINAL tree (exact rows in TEST-RESULTS.md "Session F76 rows")
+vitest 2,539 passed / 25 skipped (196+3 files, exit 0) - python discover 539 OK skipped=2 - cargo workspace
+739 passed / 0 failed - `contracts:check` OK (standard_chat sha d4f2910b833ecf05..., html_render sha
+1eee54fa63cde6c0...) - tsc exit 0 x2 - nine exclusive Playwright runs **227 passed / 0 failed** incl. both
+defect journeys; lock protocol clean, zero orphans, every :3210 fixture server started+stopped by the launcher.
+The first cargo attempt's log is a known target-dir lock-contention artifact and is quarantined from citation.
+Nothing owned by this run is left running; :3000/:3101/:8080 (pids 20220/6672/15232) untouched; PC left on per
+project instruction.
+
+## One consolidated list: what still needs the exclusive Strata window (capacity-1; the coding session lives there)
+Prerequisite code fix first (no Strata needed): the `run-ocr-acceptance.ps1` per-pass fault-env gap (F75c
+section E row 4 - port the g61 `@(...)` pattern, single-action boots).
+1. First genuine PaddleOCR-VL primary page (still ZERO ever) + the measured `est_peak_*` registry values it
+   produces + the cold-load peak measurement - one window:
+   `run-ocr-acceptance.ps1 -StartDev -Pass content -AllowUnload -ConfirmUnload`.
+2. True crash injection (`RUKE_OCR_FAULT=crash`) - needs an admitted primary; same window.
+3. Workstream 5, memory + Strata handoff lifecycle for heavy workers (BLOCKED-attended): automatic-unload
+   acceptance + post-handoff chat continuation live trace (seams traced at F64; the F75 incident proved manual
+   unload/reload, the automatic path is unimplemented).
+4. Fence-catalogue "model actually picks the right fence" live proof + the `detectDeliverableIntent` /
+   search-gate phrase-rule replacement decision (live-model selection evidence).
+5. Rerank QUALITY acceptance (mechanics already live-executed; quality acceptance was explicitly NOT claimed).
+6. If the post-answer numeric guard is later implemented: its live end-to-end proof rides this window too.
+Nearby attended items that do NOT need the Strata swap (kept from F72-F75c section E): human-labelled real video
+for the frozen temporal gate (E3); the browser scanned-OCR journey with an OCR-enabled boot (E5); the
+reload/reattach in-flight-bubble look during a long stall (E6); fresh-clone portability + offline startup (E7,
+multi-hour); `regression_modalities` with `scripts/e2e-llm-proxy.mjs` up (E9); embedder quality half-metrics
+still have no production caller (E8).
+
+## What this F76 report does not claim
+No OCR-quality claim for the primary engine (still zero pages). No claim that numeric fidelity is guaranteed -
+it is a shipped delivery law with measured 51/54 live compliance, pinned audits and a named guard
+recommendation. No invented percentages: every fraction above is an exact executed count. No claim that any
+attended item passed. The F75c "9 chat tests" figure was a different tree's count - the current tree has 6;
+only current-tree numbers are claimed here.

@@ -922,3 +922,40 @@ exist; the frozen key `d1-ocr-1` is in place and untouched), the bounded exclusi
 "8/8/0/0" figure is stale from F15/F16), the browser stage behind the shared Playwright lock, and every live-model
 routing check. Each of the first group needs the attended window because the only route to green for
 `documents.ocr` unloads the model this coding session runs on.
+
+# Session F76 rows (2026-11-21, unattended takeover — PDF/video reliability; uncommitted tree on `local` @ 5d34b90)
+
+All F76 evidence lives in STATE.md's F76 addenda + `docs/overnight/logs/f76-*` + `.data/tmp/f76-*`; this block is
+the consolidated executed-commands ledger for the run.
+
+## Defect probes (exclusive Strata, foreground, RUKE_LLM_AUTOMATIC_HANDOFF=0 RUKE_OCR_ALLOW_UNLOAD=0)
+| Row | Command | Result | Evidence |
+|---|---|---|---|
+| defect 2 gap-clip pre-fix repro (2x) + post-fix loop (4x) + control | `docs/overnight/probes/f76_video_gap_probe.mjs` family | unfounded-span claim reproduced 2x -> after VIDEO_MOMENTS_LAW: 3 consecutive ideal answers + control PASS (no over-correction) | `logs/f76-video-gap-prefix-1/2.json`, `logs/f76-video-gap-post-2/3/4.json`, `logs/f76-video-control-1.json` |
+| defect 1 law-on scoreboard (runs 1-9, scorer v8) | `RUKE_F76_LAW=1 … node docs/overnight/probes/f76_numeric_fidelity_probe.mjs` | 4/6, 5/6, 3/6, 5/6, 4/6, 5/6, 5/6, **6/6, 6/6** — closure pair = runs 8+9 (0733114 / 0736040) | `logs/f76-num-*-202611210519027…0736040.json` (54 law-on case logs); offline re-scores `.data/tmp/f76-rescore-44.txt` |
+| scorer selftest at v8 | probe `--selftest` | 16/16 pass PASS + 20/20 fail FAIL (every v2->v8 relaxation pinned KEEP-FAILING) | printed lines in the run logs |
+
+## Static gates — final tree, captured exit codes
+| Gate | Command | Result | Log |
+|---|---|---|---|
+| vitest | `npx vitest run` | **196 files passed + 3 skipped; 2,539 tests passed / 25 skipped**, 66.5 s, exit 0 | `.data/tmp/f76-vitest-final.log` |
+| python | `(cd python-backend && .venv/Scripts/python.exe -m unittest discover -s tests -t .)` | **539 OK (skipped=2)**, 58.3 s, exit 0 | `.data/tmp/f76-py-final.log` |
+| cargo | `cargo test --workspace --manifest-path rust-backend/Cargo.toml` (isolated `CARGO_TARGET_DIR=.data/tmp/f76-cargo-target`, single invocation) | **739 passed / 0 failed** summed over all `test result:` lines | `.data/tmp/f76-cargo-ws-full.log` (first attempt `f76-cargo-ws.txt` = lock-contention artifact, never cite) |
+| contracts | `npm run contracts:check` | exit 0; standard_chat sha `d4f2910b833ecf05…` 1309 B | `.data/tmp/f76-contracts-final.log` |
+| types | `npx tsc --noEmit -p tsconfig.json --incremental false` | exit 0 before AND after the new spec | `.data/tmp/f76-tsc.log`, `.data/tmp/f76-tsc-newspec.log` |
+| workstream-3 failure families (targeted) | `python -m unittest tests.test_frame_ocr tests.test_handoff_devices tests.test_ocr_resource_window tests.test_asr_vad tests.test_supervisor_workers tests.test_retrieval_documents tests.test_memory_kinds -v` | **206 OK / 0 failed**, 35.7 s, exit 0 (cancellation / unreadable-corrupt / missing-engine / worker-death / retry / never-successful-partial pins all present) | `.data/tmp/f76-py-failurefamily.log` |
+| law byte-identity (model-free) | `node .data/tmp/g74.mjs` | probe==client exact; TS segment==Rust segment exact; rules forms == law + trailing space | STATE defect-1 addendum |
+
+## Exclusive Playwright stage (final tree) — `scripts/run-browser-e2e-exclusive.ps1 -AppWaitSeconds 300`, nine runs, **227 passed / 0 failed**
+| Selector | Result | Log (`.data/tmp/`) |
+|---|---|---|
+| `tests/numeric-fidelity-ui.spec.ts` (NEW held-out defect-1 UI journey) | 2 passed 24.4 s first-try | `f76-pw-num2.log` |
+| `chat-stream.spec.ts, decision-routing.spec.ts, greeting.spec.ts` | 6 passed 1.0 m | `f76-pw-chat.log` |
+| file-reading `-g` doc/office group | 21 passed 2.8 m | `f76-pw-C1.log` |
+| file-reading `-g` image/audio/video group (7 video UI journeys = defect 2) | 25 passed 4.8 m | `f76-pw-C2.log` |
+| file-reading `-g` gql/proto/sheet group | 9 passed 1.2 m | `f76-pw-C3.log` |
+| file-reading `-g` txt-ext batch 1 (`\b`-bounded) | 26 passed 3.4 m | `f76-pw-M1.log` |
+| file-reading `-g` txt-ext batch 2 (`\b`-bounded) | 25 passed 3.2 m | `f76-pw-M2.log` |
+| file-reading `-g` `text reaches the server\|skipped:` | 109 passed 25.0 s | `f76-pw-EX.log` |
+| `long-doc-retrieval.spec.ts, pdf-egress.spec.ts` | 4 passed 39.4 s (Verdanthill-42 deep marker both turns) | `f76-pw-LD.log` |
+Total live model turns through the UI: 106/106 (21+25+9+26+25) + 6 chat; extraction API/skip rows 109/109; long-doc 3 + egress 1. Lock protocol: acquired/released every run by the launcher, fixture :3210 owned start+stop, post-stage sweep — no `*.lock`, no :3210 listener. PITFALL recorded: `-TestFiles` rides Playwright's file REGEX — backslashes mangle (`\n` -> newline, "No tests found", `f76-pw-num1.log`); use forward slashes.

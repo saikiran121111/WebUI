@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "key_version": "f76-numeric-1",
+  "case": "C1_grouping",
+  "law_mirror": false,
+  "delivered_body": "Attached file: quarterly-ops.txt\n[file content begins]\nQuarterly operations report, section 4.\nRevenue this quarter: ₹12,34,567.\nCosts this quarter: ₹8,00,120.\n[file content ends]",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "Revenue this quarter: **₹1,234,567** (one million, two hundred thirty-four thousand, five hundred sixty-seven).\n\nSame amount as ₹12,34,567 — only the comma placement changes: the Indian system groups as 12 | 34 | 567 (lakh grouping), while the international system groups every three digits from the right."
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=306"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"1,234,567\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": true,
+      "detail": "2 in-scope figure(s) all equal an accepted value"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "2 in-scope figure(s) audited"
+    }
+  ]
+}

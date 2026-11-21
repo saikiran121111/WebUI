@@ -1,0 +1,102 @@
+
+==============================================================================
+PRECONDITIONS - host resources (measured)
+==============================================================================
+RAM free/total MiB   : 7062 / 65299
+commit used/total MiB: 77729 / 100115
+VRAM (nvidia-smi)    :
+NVIDIA GeForce RTX 3060, 12288 MiB, 9483 MiB, 2633 MiB
+
+==============================================================================
+PRECONDITIONS - OCR readiness (no model is loaded to answer this)
+==============================================================================
+primary engine   : paddleocr-vl-1.6  ready=True
+primary blockers : 
+runtime          : D:\Projects\WebUI\WebUI\python-backend\.venv-ocr\Scripts\python.exe (interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe)
+pinned pins      : opencv-contrib-python=4.10.0.84, paddleocr=3.6.0, paddlepaddle=3.2.1, paddlex=3.6.1, protobuf=7.36.2
+asset snapshots  : PaddlePaddle/PaddleOCR-VL-1.6 present=True; PaddlePaddle/PP-DocLayoutV3 present=True
+declared peaks   : ram 3300 MiB (provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak); vram 6000 MiB (provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet))
+recovery engine  : available - languages eng,osd
+rasterizer       : pypdfium2 5.6.0
+policy           : primary=paddleocr-vl-1.6 allow_gpu=False allow_unload=True
+readiness exit    : 0 (non-zero = the PRIMARY engine cannot run here)
+
+==============================================================================
+PRECONDITIONS - shared coordination state
+==============================================================================
+LEASE  : none
+JOURNAL: none
+HEALTH : http://127.0.0.1:8080/health -> 200
+HEALTH : http://127.0.0.1:3101/api/ruke/health -> UNREACHABLE (Unable to connect to the remote server)
+
+Without -AllowUnload the primary pass is admitted only if OCR fits alongside the
+resident main model. If it does not, the run must end as a typed resource-limit
+result - that is a legitimate acceptance outcome, not a crash.
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe -m ruke_ml.handoff --pdf D:\Projects\WebUI\WebUI\docs\overnight\fixtures\d1\pdfs\d1_scanned.pdf --language eng --dpi 200 --lease-owner d1-content --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-engine-content-20261120-191401.json --max-free-mib 1024 --pages 1
+env    : RUKE_OCR_FAULT='' RUKE_DOCUMENT_OCR_LANGUAGE='eng' RUKE_OCR_ALLOW_UNLOAD=''
+  | [00:44:04] processing: device=cpu est_peak_mib=3300
+  | [00:44:04] ocr: primary engine failed as a whole run: resource_limit
+  | [00:44:04] ocr: Tesseract recovery for 1 unit(s): resource_limit: refusing to spawn: the normal window can offer a commit ceiling of 5000000000 B (4768 MiB), under the 6264193024 B this worker needs (5190451200 B charged demand + 1024 MiB margin; demand basis: provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak) | next step: the demand declared for this pipeline does not fit the resource window it ran in: open the coordinated exclusive window (drain inference, release the main model, re-check admission) or run the recovery engine; report this as a resource limit rather than an engine fault, and do NOT raise the hard maximum, drop a page, or re-prepare assets that are already valid
+  | [00:44:04] ocr: page 1 at 200 dpi
+  | [00:44:04] releasing_worker: worker resources released by the adapter
+  | [00:44:04] ready: lease released
+  | {
+  |   "ok": true,
+  |   "reason": "",
+  |   "final_status": "ok",
+  |   "device": "cpu",
+  |   "freed_physical_mib": null,
+  |   "work": {
+  |     "peak": {
+  |       "working_set_mib": null,
+  |       "commit_mib": null,
+  |       "measured": false,
+  |       "components": {
+  |         "primary_worker_child": {
+  |           "working_set_mib": null,
+  |           "commit_mib": null,
+  |           "samples": 0,
+  |           "measured": false,
+  |           "definition": "",
+  |           "device_used": "",
+  |           "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+  |         },
+  |         "owned_tree": {
+  |           "working_set_mib": null,
+  |           "commit_mib": null,
+  |           "samples": 0,
+  |           "usable_samples": 0,
+  |           "measured": false,
+  |           "label": "documents.ocr",
+  |           "stage": "total",
+  |           "sampled_pids": 21604,
+  |           "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge",
+  |           "note": "no usable sample was taken during this stage, so the peak is UNKNOWN and is reported as unknown rather than as zero"
+  |         }
+  |       },
+  |       "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+  |     },
+  |     "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\3ed30d295250337860504504a0611187d6741cf8b68553f102c82a762bc247e0.json",
+  |     "units_persisted": 1,
+  |     "device_used": "cpu",
+  |     "device_echo": {},
+  |     "pages": 1,
+  |     "recognised": 1,
+  |     "unresolved": []
+  |   },
+  |   "out": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\d1-engine-content-20261120-191401.json"
+  | }
+engine pass content: exit 0; evidence D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-engine-content-20261120-191401.json
+
+command: D:\Projects\WebUI\WebUI\python-backend\.venv\Scripts\python.exe D:\Projects\WebUI\WebUI\docs\overnight\probes\d1_ocr_acceptance_probe.py --pass content --base http://localhost:3000 --out D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-http-content-20261120-191401.json
+WARNING: no tree answering http://localhost:3000 - production pass 'content' recorded as code 3 (precondition_not_met).
+ Start 'npm run dev' or re-run with -StartDev.
+
+==============================================================================
+SUMMARY (exit codes; 0 = the answer key passed, non-zero = a recorded miss or refusal)
+==============================================================================
+engine:content                   0
+production:content               3
+
+Engine evidence is NOT production-path evidence. Both are needed before OCR is GREEN.

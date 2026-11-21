@@ -108,6 +108,15 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
                 raise ExtractionRejected(
                     "encrypted PDF: owner/user password required before any page can be read") from exc
             raise ExtractionRejected(f"page tree unreadable: {type(exc).__name__}: {exc}") from exc
+        # /Lang is a document-level entry on the Catalog (ISO 32000-1 s14.3.1), not in the /Info
+        # dictionary reader.metadata covers. pypdf resolves indirect objects lazily, so this must
+        # happen WHILE the handle is open - touching the Catalog after the `with` closes the file
+        # raises "seek of closed file". The declared-language contract (_ocr_language) reads it
+        # from meta["metadata"]["/Lang"].
+        try:
+            declared_lang = str(reader.trailer["/Root"].get_object().get("/Lang") or "")[:200]
+        except Exception:                                 # noqa: BLE001 - absence is not an error
+            declared_lang = ""
         if total <= 0:
             raise ExtractionRejected("the page tree is empty")
         if total > max_pages:
@@ -150,6 +159,15 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
                 blocks.append(Block(stripped, "page_text", source_id, source_hash,
                                     {"page": index, "rotation": rotation,
                                      "extraction": "pypdf-plain"}))
+                if image_count > 0:
+                    # F73 production (frozen fixture d1_mixed p1): the text layer carried
+                    # only the heading while the page body was a raster image. A usable
+                    # layer marked the page fully read and the imagery was never offered to
+                    # OCR, so an image-only fact was undeliverable end-to-end. The page is
+                    # recorded read AND stays OCR-eligible - the same two-flag honesty the
+                    # weak-layer branch below uses. image_count == -1 means the inventory
+                    # itself failed: unknown is not evidence of imagery, so it stays put.
+                    needs_ocr.append(index)
             elif stripped:
                 # Something is there but too little to be a text layer: the page is
                 # recorded as BOTH extracted and OCR-eligible instead of being called good.
@@ -186,6 +204,8 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
         "needs_ocr": sorted(needs_ocr),
         "metadata": _safe_metadata(pypdf, reader),
     }
+    if declared_lang:
+        meta["metadata"].setdefault("/Lang", declared_lang)
     return Document(source_id, source_hash, "pdf", blocks, cov, meta)
 
 

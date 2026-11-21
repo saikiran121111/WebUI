@@ -1,0 +1,59 @@
+{
+  "ok": true,
+  "key_version": "f76-control-1",
+  "clip": "fixture-video.mp4",
+  "att_id": "att_badde9f9fea4ec28",
+  "extract": {
+    "category": "video",
+    "durationSec": 6,
+    "indexed": false,
+    "coverageNote": null,
+    "frames": [
+      {
+        "at": 1.2,
+        "bytes": 38614
+      },
+      {
+        "at": 4.2,
+        "bytes": 39146
+      }
+    ]
+  },
+  "delivered_coverage_lines": [
+    "This video contains a short text marker somewhere in it. Report exactly what the marker says, and state whether it is visible for the whole video or only at certain times.",
+    "Attached file: fixture-video.mp4 — you are given its complete saved record. The images below are moments from it.\nDescribe the video from this record: what happens, what appears on screen, what is said. Never claim to have watched it yourself; never mention frames, sampled images, keyframes, an audio track, transcription or speech recognition, and never attribute content to \"the first frame\" or \"this frame\" — the visuals and the speech belong to the video as one whole. Give video timestamps only when the user asks for them or when a time reference genuinely helps the answer. The images are isolated moments: the record holds no evidence about the time between, before or after them. Never claim that something is visible throughout a video, always or never shown, or unchanged across any stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say the rest cannot be confirmed."
+  ],
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "The marker reads exactly: **READABLE-MARKER-MP4-7QX9** — white, uppercase, hyphenated text sitting inside a black rectangular band across the middle of an otherwise plain dark grey/black screen, with nothing else on screen.\n\nOn duration: it is legible at both moments the record covers, around 0:01 and 0:04 of the 6-second clip. Whether it is on screen for the entire clip — including the opening second, the stretch between 0:01 and 0:04, and the closing second — can't be confirmed from this record, since those moments carry no evidence. So the safe statement is that the marker is present at 0:01 and at 0:04, and nothing in the record shows it changing or disappearing between those two points; anything outside them is unverified.\n\nThere's no indication of any narration or dialogue accompanying it — the video is essentially a static title card of that marker text against a dark background for the moments covered."
+  },
+  "checks": [
+    {
+      "name": "frames_are_the_two_sampled_instants",
+      "ok": true,
+      "detail": "at=[1.2, 4.2] expected~=[1.2, 4.2]"
+    },
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 error=none"
+    },
+    {
+      "name": "marker_read",
+      "ok": true,
+      "detail": "authored text \"READABLE-MARKER-MP4-7QX9\" reported"
+    },
+    {
+      "name": "no_unfounded_span_claim",
+      "ok": true,
+      "detail": "span claims qualified in-sentence=1"
+    },
+    {
+      "name": "no_invented_absence_claim",
+      "ok": true,
+      "detail": "no unfounded absence claim"
+    }
+  ]
+}

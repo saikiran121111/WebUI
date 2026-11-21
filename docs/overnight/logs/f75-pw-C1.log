@@ -1,0 +1,49 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test file-reading --grep the model reads the file.*(fixture-doc\.|docx|pptx|office\.|epub|rtf|notebook|legacy|data\.mat|archive|notes\.gz|Dockerfile|Makefile) --reporter=list
+
+Running 21 tests using 1 worker
+
+  fixture.Dockerfile         Thought for <1s View reasoning YES READABLE-MARKER-DOCKERFILE-7QX9 Copy
+  ✓   1 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Dockerfile → the reply contains its own marker (8.6s)
+  fixture.Makefile           Thought for 1s View reasoning YES READABLE-MARKER-MAKEFILE-7QX9 Copy
+  ✓   2 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture.Makefile → the reply contains its own marker (8.5s)
+  fixture-doc.rtf            Thought for 1s View reasoning YES READABLE-MARKER-RTF-7QX9 Copy
+  ✓   3 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.rtf → the reply contains its own marker (8.8s)
+  fixture-notebook.ipynb     Thought for 2s View reasoning YES READABLE-MARKER-IPYNB-7QX9 Copy
+  ✓   4 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notebook.ipynb → the reply contains its own marker (9.6s)
+  fixture-doc.pdf            Thought for <1s View reasoning YES READABLE-MARKER-PDF-7QX9 Copy
+  ✓   5 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.pdf → the reply contains its own marker (7.9s)
+  fixture-doc.docx           Thought for 1s View reasoning YES READABLE-MARKER-DOCX-7QX9 Copy
+  ✓   6 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-doc.docx → the reply contains its own marker (8.7s)
+  fixture-slides.pptx        Thought for <1s View reasoning YES READABLE-MARKER-PPTX-7QX9 Copy
+  ✓   7 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-slides.pptx → the reply contains its own marker (7.2s)
+  fixture-office.odt         Thought for 1s View reasoning YES READABLE-MARKER-ODT-7QX9 Copy
+  ✓   8 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odt → the reply contains its own marker (8.8s)
+  fixture-office.ods         Thought for <1s View reasoning YES READABLE-MARKER-ODS-7QX9 Copy
+  ✓   9 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.ods → the reply contains its own marker (7.6s)
+  fixture-office.odp         Thought for 1s View reasoning YES READABLE-MARKER-ODP-7QX9 Copy
+  ✓  10 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-office.odp → the reply contains its own marker (9.1s)
+  fixture-book.epub          Thought for <1s View reasoning YES READABLE-MARKER-EPUB-7QX9 Copy
+  ✓  11 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-book.epub → the reply contains its own marker (7.6s)
+  fixture-legacy.doc         Thought for 1s View reasoning YES READABLE-MARKER-DOC-7QX9 Copy
+  ✓  12 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.doc → the reply contains its own marker (9.8s)
+  fixture-legacy.xls         Thought for <1s View reasoning YES READABLE-MARKER-XLS-7QX9 Copy
+  ✓  13 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.xls → the reply contains its own marker (8.9s)
+  fixture-legacy.ppt         Thought for 1s View reasoning YES READABLE-MARKER-PPT-7QX9 Copy
+  ✓  14 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-legacy.ppt → the reply contains its own marker (9.4s)
+  fixture-data.mat           Thought for 2s View reasoning YES READABLE-MARKER-MAT-7QX9 Copy
+  ✓  15 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-data.mat → the reply contains its own marker (10.5s)
+  fixture-archive.zip        Thought for <1s View reasoning YES READABLE-MARKER-ZIP-7QX9 Copy
+  ✓  16 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.zip → the reply contains its own marker (7.6s)
+  fixture-archive.tar        Thought for <1s View reasoning YES READABLE-MARKER-TAR-7QX9 Copy
+  ✓  17 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar → the reply contains its own marker (7.9s)
+  fixture-notes.gz           Thought for <1s View reasoning YES READABLE-MARKER-GZ-7QX9 Copy
+  ✓  18 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-notes.gz → the reply contains its own marker (7.1s)
+  fixture-archive.tgz        Thought for 1s View reasoning YES READABLE-MARKER-TGZ-7QX9 Copy
+  ✓  19 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tgz → the reply contains its own marker (8.8s)
+  fixture-archive.tar.xz     Thought for <1s View reasoning YES READABLE-MARKER-XZ-7QX9 Copy
+  ✓  20 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.tar.xz → the reply contains its own marker (7.5s)
+  fixture-archive.7z         Thought for 3s View reasoning YES READABLE-MARKER-7Z-7QX9 Copy
+  ✓  21 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-archive.7z → the reply contains its own marker (10.5s)
+
+  21 passed (3.0m)

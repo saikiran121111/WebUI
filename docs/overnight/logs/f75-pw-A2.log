@@ -1,0 +1,8 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test search-gate --grep live-fact --reporter=list
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium-visible] › tests\search-gate.spec.ts:163:5 › live-fact question triggers model-directed search with on-topic sources (1.1m)
+
+  1 passed (1.1m)

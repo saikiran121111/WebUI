@@ -131,6 +131,13 @@ function rules(ref: AttachmentRef): string {
     "Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. " +
     "If the question concerns a time range or section NOT present below, state that you cannot see that part of the " +
     "content clearly enough to answer it — do not guess, and do not explain how the content was processed. " +
+    // F76 numeric-fidelity law ⇔ ruke-attach rules() base; rides EVERY
+    // indexed category (figures live in documents, slides and speech alike).
+    "When quoting a figure from the material, keep its exact digits and digit grouping. When restating " +
+    "a figure in different units or a different grouping convention, state the exact conversion being " +
+    "applied and verify the restated figure has the same value; never give two versions of one figure " +
+    "that have different values. This applies to every restated version anywhere in the answer, " +
+    "including brief asides. " +
     (isVideo
       ? "This video's complete saved record is kept locally and you are shown the parts of it that matter to this " +
         "question — its visuals and its speech are one thing: speak of what " +
@@ -450,8 +457,17 @@ export async function buildAttachmentTurn(
       parts.push({
         type: "text",
         text:
+          // F76 (2026-11-21): the sampling law. Two delivered instants say nothing
+          // about the time BETWEEN them, and without this line the model fills that
+          // gap ("visible throughout the clip"). Byte-identical to FRAME_LEAD_IN in
+          // ruke-attach/src/turn.rs (the attachment goldens replay these bytes) and
+          // to VIDEO_MOMENTS_LAW in lib/chat/client.ts.
           "Moments from the attached video nearest to the discussed time range — they come from the video's saved " +
-          "record; describe them as things that happen in the video, never as frames:",
+          "record; describe them as things that happen in the video, never as frames:" +
+          " The images are isolated moments: the record holds no evidence about the time between, before or after them. " +
+          "Never claim that something is visible throughout a video, always or never shown, or unchanged across any " +
+          "stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say " +
+          "the rest cannot be confirmed.",
       });
       for (const img of images) parts.push({ type: "image_url", image_url: { url: img.url } });
       msg.content = parts;

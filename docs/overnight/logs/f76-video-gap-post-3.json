@@ -1,0 +1,56 @@
+{
+  "ok": false,
+  "key_version": "f76-gap-1",
+  "clip": "gap-marker.mp4",
+  "att_id": "att_bad5c307b0748aaa",
+  "extract": {
+    "category": "video",
+    "durationSec": 6,
+    "indexed": true,
+    "coverageNote": "Video \"gap-marker.mp4\" (6s): it has no audio track (ffprobe found 0 audio streams). Its visual content WAS read: keyframes were sampled at 1 moment(s) across its timeline, each carrying its video timestamp, so questions about what is ON SCREEN at one of those moments can be answered from them; what happens between, before or after the sampled moments was never examined and cannot be claimed. Questions about what is SPOKEN cannot.",
+    "frames": [
+      {
+        "at": 1.2,
+        "bytes": 15102
+      },
+      {
+        "at": 4.2,
+        "bytes": 14810
+      }
+    ]
+  },
+  "delivered_coverage_lines": [
+    "This video contains a short text marker somewhere in it. Report exactly what the marker says, and state whether it is visible for the whole video or only at certain times.",
+    "Attached file: gap-marker.mp4 — this video is long, so its complete content is kept in a local knowledge index (nothing was discarded). You are shown its structural map and its opening; passages relevant to each question are supplied as timestamped evidence when needed. This video's complete saved record is kept whole in the index; you are shown parts of it: the images below are moments from it, and its spoken content is part of the record. Speak of the video as a whole — never claim to have watched it yourself, never mention frames, sampled images, keyframes, an audio track or transcription, and never attribute content to a particular frame. The images are isolated moments: the record holds no evidence about the time between, before or after them. Never claim that something is visible throughout a video, always or never shown, or unchanged across any stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say the rest cannot be confirmed.",
+    "Moments from the video:",
+    "Opening of the content:\n[content begins]\nVideo \"gap-marker.mp4\" (6s): it has no audio track (ffprobe found 0 audio streams). Its visual content WAS read: keyframes were sampled at 1 moment(s) across its timeline, each carrying its video timestamp, so questions about what is ON SCREEN at one of those moments can be answered from them; what happens between, before or after the sampled moments was never examined and cannot be claimed. Questions about what is SPOKEN cannot.\n[content continues — the remainder is indexed, not shown]"
+  ],
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "The marker reads **GAP-MARKER-9F3K** — light text set on a plain dark background, roughly centred.\n\nAs for how long it stays up: it is legible at 0:01 and again at 0:04, so it is definitely present at those two points in the 6-second video. What I can't confirm is whether it runs the full length — the record holds only those two moments and nothing about the stretch before, between or after them (0:00, roughly 0:02–0:03, and 0:05 to the end). So the honest answer is: visible at 0:01 and 0:04, and I can't say whether it appears or disappears anywhere in between."
+  },
+  "checks": [
+    {
+      "name": "frames_are_the_two_sampled_instants",
+      "ok": true,
+      "detail": "at=[1.2, 4.2] expected~=[1.2, 4.2]"
+    },
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 error=none"
+    },
+    {
+      "name": "marker_read",
+      "ok": true,
+      "detail": "authored text \"GAP-MARKER-9F3K\" reported"
+    },
+    {
+      "name": "no_unfounded_span_claim",
+      "ok": false,
+      "detail": "unqualified span claim -> \"As for how long it stays up: it is legible at 0:01 and again at 0:04, so it is definitely present at those two points in the 6-second video.\""
+    }
+  ]
+}

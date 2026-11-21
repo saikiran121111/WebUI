@@ -1,0 +1,205 @@
+{
+  "level": "ENGINE-LEVEL SELF-CHECK (scorer mechanics; NO engine ran; NOT the attended delivery-level pass)",
+  "key_version": "d1-ocr-1",
+  "mode": "self_check",
+  "run_at": "2026-11-21T00:55:33",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails"
+  },
+  "controls": [
+    {
+      "fixture": "d1_mixed.pdf",
+      "control": "positive",
+      "expect": "state pass with zero fails",
+      "state": "pass",
+      "fails": [],
+      "checks_total": 9,
+      "ok": true
+    },
+    {
+      "fixture": "d1_mixed.pdf",
+      "control": "sabotage:native_heading_re_recognised",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "mixed_heading_not_recognised"
+      ],
+      "checks_total": 9,
+      "ok": true
+    },
+    {
+      "fixture": "d1_mixed.pdf",
+      "control": "sabotage:ocr_read_a_native_only_page",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "late_evidence_page3",
+        "mixed_page3_native_only"
+      ],
+      "checks_total": 9,
+      "ok": true
+    },
+    {
+      "fixture": "d1_native.pdf",
+      "control": "positive",
+      "expect": "state pass with zero fails",
+      "state": "pass",
+      "fails": [],
+      "checks_total": 11,
+      "ok": true
+    },
+    {
+      "fixture": "d1_native.pdf",
+      "control": "sabotage:ocr_ran_on_a_native_document",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "ocr_did_not_run",
+        "engines_used_agree_units"
+      ],
+      "checks_total": 11,
+      "ok": true
+    },
+    {
+      "fixture": "d1_rotated_scan.pdf",
+      "control": "positive",
+      "expect": "state pass with zero fails",
+      "state": "pass",
+      "fails": [],
+      "checks_total": 8,
+      "ok": true
+    },
+    {
+      "fixture": "d1_rotated_scan.pdf",
+      "control": "sabotage:drop_rotation_evidence",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "rotation_evidence_recorded"
+      ],
+      "checks_total": 8,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scan_nolang.pdf",
+      "control": "positive",
+      "expect": "state pass with zero fails",
+      "state": "pass",
+      "fails": [],
+      "checks_total": 3,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scan_nolang.pdf",
+      "control": "sabotage:ocr_ran_on_a_native_document",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "no_ocr_ran_without_language"
+      ],
+      "checks_total": 3,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scan_nolang.pdf",
+      "control": "sabotage:language_refusal_without_env_name",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "needs_language_names_env"
+      ],
+      "checks_total": 3,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "control": "positive",
+      "expect": "state pass with zero fails",
+      "state": "pass",
+      "fails": [],
+      "checks_total": 22,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "control": "sabotage:drop_last_page",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "page6_unit_read",
+        "coverage_units_read",
+        "coverage_read_honest",
+        "coverage_unresolved_honest",
+        "late_evidence_page6"
+      ],
+      "checks_total": 21,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "control": "sabotage:drop_numeric_fact",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "page6_phrase_in_units",
+        "late_evidence_page6"
+      ],
+      "checks_total": 22,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "control": "sabotage:fabricate_chapter_page1",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "page1_wer<=limit",
+        "no_fabricated_content"
+      ],
+      "checks_total": 22,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "control": "sabotage:claim_unresolved_unit_read",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "page2_unit_read",
+        "coverage_units_read",
+        "coverage_read_honest",
+        "coverage_unresolved_honest"
+      ],
+      "checks_total": 21,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "control": "sabotage:swap_engine_attribution",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "primary_engine_attributed",
+        "engines_used_agree_units"
+      ],
+      "checks_total": 22,
+      "ok": true
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "control": "sabotage:swap_engine_attribution_no_fidelity_note",
+      "expect": "at least one fail",
+      "state": "fail",
+      "fails": [
+        "fallback_fidelity_note_reduced"
+      ],
+      "checks_total": 22,
+      "ok": true
+    }
+  ],
+  "broken": 0,
+  "note": "a positive control built FROM the answer key must score zero misses and every named sabotage must score at least one; that is what makes a live engine-level pass meaningful. This file is not OCR evidence and primary OCR acceptance requires output from a real engine run."
+}

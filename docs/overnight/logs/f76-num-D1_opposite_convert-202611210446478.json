@@ -1,0 +1,40 @@
+{
+  "ok": false,
+  "key_version": "f76-numeric-1",
+  "case": "D1_opposite_convert",
+  "law_mirror": false,
+  "delivered_body": "Attached file: registry-extract.txt\n[file content begins]\nRegistry extract.\nPlot price: ₹12,34,56,789.\nAnnual fee: ₹98,765.\n[file content ends]",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**₹12.3456789 crore** — exactly the same figure, since 1 crore = 1,00,00,000, so ₹12,34,56,789 ÷ 1,00,00,000 = 12.3456789.\n\nBroken down for checking: 12 crore + 34 lakh + 56 thousand 789 = ₹12,34,56,789.\n\n(The annual fee of ₹98,765 is 0.0098765 crore, if you need it in the same unit.)"
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=285"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"12.3456789 crore\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": false,
+      "detail": "figure(s) with values outside the accepted set: 1 crore = 10000000 | 1,00,00,000, = 10000000 | 12 crore = 120000000 | 34 lakh = 3400000 | 56 thousand = 56000 | 789 = 789 | 12,34,56 = 123456"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "11 in-scope figure(s) audited"
+    }
+  ]
+}

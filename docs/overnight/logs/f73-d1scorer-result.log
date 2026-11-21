@@ -1,0 +1,13 @@
+d1_mixed.pdf: not_evaluable (0/0 checks ok)
+d1_native.pdf: not_evaluable (0/0 checks ok)
+d1_rotated_scan.pdf: not_evaluable (0/0 checks ok)
+d1_scan_nolang.pdf: not_evaluable (0/0 checks ok)
+d1_scanned.pdf: fail (8/10 checks ok) misses=['coverage_read_honest', 'engines_used_agree_units']
+{
+  "states": {
+    "pass": 0,
+    "fail": 1,
+    "not_evaluable": 4
+  },
+  "out": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\d1-engine-20261121-005543.json"
+}

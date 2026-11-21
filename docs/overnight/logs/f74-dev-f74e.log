@@ -1,0 +1,49 @@
+npm notice run webui-chat@0.2.0 dev
+npm notice run node scripts/dev-supervisor.mjs
+[dev-supervisor] python: project venv reused (offline start, python 3.12.15)
+[dev-supervisor] Building Rust backend (cargo build)...
+warning: function `resolve_with` is never used
+   --> crates\ruke-core\src\settings.rs:256:4
+    |
+256 | fn resolve_with(
+    |    ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ruke-core` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+[dev-supervisor] Rust backend build OK.
+ruke-ml commit ceiling enforced: 5000000000 bytes via windows-job-object (ruke-runtime)
+ruke-ml supervisor ready on 127.0.0.1:50592 pid=22932
+02:38:47 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[dev-supervisor] Python supervisor ready on 127.0.0.1:50592 (pid 23196, state ready, heavy imports at startup: 0, idle TTL 120s).
+[dev-supervisor] starting ruke-server rust-backend\target\debug\ruke-server.exe (pid 21836) on 127.0.0.1:3101...
+[2m2026-11-20T21:08:47.946541Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m shared-endpoint admission is lease-aware (handoff windows are refused, not woken) [3mlease[0m[2m=[0mD:\Projects\WebUI\WebUI\.ai-coordination\llm-handoff.lock [3mwait_ms[0m[2m=[0m2000
+[2m2026-11-20T21:08:47.947093Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m attachment query-embedder configured (Node ONNX loopback RPC)
+[2m2026-11-20T21:08:47.947138Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m web-research bridge configured (Next-owned TS search via loopback RPC)
+[2m2026-11-20T21:08:47.953933Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m capability backend rendezvous resolved (python supervisor; status on GET /api/ruke/ml-status) [3mendpoint[0m[2m=[0mhttp://127.0.0.1:50592 [3msource[0m[2m=[0m"discovery" [3msupervisor_pid[0m[2m=[0mSome(22932)
+[2m2026-11-20T21:08:47.954653Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m ruke-server listening (health + isolated /api/chat) — Next :3000 remains authoritative [3maddr[0m[2m=[0m127.0.0.1:3101 [3mroot[0m[2m=[0mD:\Projects\WebUI\WebUI
+[dev-supervisor] Rust backend ready.
+[dev-supervisor] starting next dev (pid 26152) on 127.0.0.1:3000...
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+[dev-supervisor] Next.js ready (listening).
+[dev-supervisor] Ready
+  UI:      http://localhost:3000
+  Backend: http://127.0.0.1:3101
+  proxy delegation ON · bridge secret armed
+Press Ctrl+C to stop RUKE.
+ ○ Compiling /instrumentation ...
+ ✓ Compiled /instrumentation in 873ms (154 modules)
+ ✓ Ready in 2.4s
+ ○ Compiling / ...
+ ✓ Compiled / in 3.3s (7780 modules)
+ GET / 200 in 567ms
+ ✓ Compiled /api/files/extract in 473ms (4011 modules)
+02:39:03 127.0.0.1 "POST /job HTTP/1.1" 200 -
+ POST /api/files/extract?name=d1_scan_nolang.pdf&att=att_d1nolanguage01 200 in 9110ms

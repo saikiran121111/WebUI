@@ -1,0 +1,8 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test pdf-egress --reporter=list
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium-visible] › tests\pdf-egress.spec.ts:72:5 › finding 7: exporting an html artifact as PDF cannot phone home from the render (5.8s)
+
+  1 passed (6.2s)

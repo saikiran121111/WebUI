@@ -1,0 +1,86 @@
+{
+  "ok": true,
+  "key_version": "d1-ocr-1",
+  "att_id": "f73-answer-cd1b91730e7c",
+  "late": {
+    "page": "6",
+    "contains": "4,18,25,000"
+  },
+  "extract": {
+    "chunkCount": 0,
+    "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]",
+    "pages": 6,
+    "truncated": false,
+    "text_chars": 1759
+  },
+  "chat": {
+    "stages": [
+      {
+        "stage": "decision_done",
+        "mode": "standard_chat",
+        "ms": 140
+      },
+      {
+        "stage": "skill",
+        "ms": 0
+      }
+    ],
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "headers": {
+      "cache-control": "no-cache, no-transform",
+      "connection": "keep-alive",
+      "content-type": "text/event-stream",
+      "date": "Fri, 20 Nov 2026 20:58:12 GMT",
+      "keep-alive": "timeout=5",
+      "transfer-encoding": "chunked",
+      "vary": "RSC, Next-Router-State-Tree, Next-Router-Prefetch",
+      "x-accel-buffering": "no",
+      "x-decision-mode": "standard_chat"
+    },
+    "answer": "**Page 6** of the scan is the only place the award appears.\n\nWhat it records (the wording, as OCR'd): *\"Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum.\"*\n\n- **Amount:** 4,18,25,000 rupees — i.e. ₹4,18,25,000 in Indian digit grouping (four crore, eighteen lakh, twenty-five thousand; ₹41,825,000 in international grouping).\n- **Period:** within **ninety days**.\n- **Also attached:** interest at **6% per annum**.\n\nTwo caveats worth noting: the scan does not reproduce the award itself — page 6 is a narrative reference to it (\"Chapter eleven records that…\"), so the figure is a reported one rather than the operative award text. And the rest of the six-page scan is unrelated hydrology material (groundwater/salinity data, a flow table, a Python snippet, a weir formula), so this page is the sole source for the figure."
+  },
+  "checks": [
+    {
+      "name": "extract_delivered_text",
+      "ok": true,
+      "detail": "chars=1759 indexed=undefined chunks=0"
+    },
+    {
+      "name": "late_fact_reached_the_body",
+      "ok": true,
+      "detail": "key fact \"4,18,25,000\" is the delivered body"
+    },
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "doneFrames=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=939"
+    },
+    {
+      "name": "late_fact_delivered",
+      "ok": true,
+      "detail": "exact amount \"4,18,25,000\" (frozen key)"
+    },
+    {
+      "name": "deadline_delivered",
+      "ok": true,
+      "detail": "payment period stated"
+    },
+    {
+      "name": "page_attributed",
+      "ok": true,
+      "detail": "key names page 6 as the late evidence"
+    },
+    {
+      "name": "no_repeat_loop",
+      "ok": true,
+      "detail": "phrase repeated 1x in one answer"
+    }
+  ]
+}

@@ -95,11 +95,42 @@ def _esc(s: str) -> str:
     return s.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
 
 
+def _wrap(line: str, size: int) -> list[str]:
+    """Fit an authored line to the page box with a deliberately pessimistic width estimate.
+
+    F73 measured the defect this prevents: a single long line (the 152-character late arbitration
+    fact) ran off the right edge of the letter-size page, so the 200 dpi raster PHYSICALLY lost
+    the tail of its own answer-key sentence - no honest engine could recover it from the scan.
+    The estimate over-wraps on purpose; extraction and the answer key normalise the added line
+    breaks away, so the key stays exactly as authored.
+    """
+    if not line.strip():
+        return [line]
+    per_char = 0.62 * max(1, int(size))          # pessimistic Helvetica average
+    limit = max(20, int((612 - 2 * 56) / per_char))
+    words = line.split()
+    out: list[str] = []
+    cur = ""
+    for w in words:
+        cand = f"{cur} {w}".strip()
+        if cur and len(cand) > limit:
+            out.append(cur)
+            cur = w
+        else:
+            cur = cand
+    if cur:
+        out.append(cur)
+    return out or [line]
+
+
 def text_stream(lines: list[str], *, x: int = 56, top: int = 760, lead: int = 16,
                 size: int = 11) -> bytes:
     out = []
-    for i, line in enumerate(lines):
-        out.append(f"BT /F1 {size} Tf {x} {top - lead * i} Td ({_esc(line)}) Tj ET")
+    i = 0
+    for line in lines:
+        for piece in _wrap(line, size):
+            out.append(f"BT /F1 {size} Tf {x} {top - lead * i} Td ({_esc(piece)}) Tj ET")
+            i += 1
     return "\n".join(out).encode("latin-1", "replace")
 
 
@@ -147,9 +178,13 @@ def compose_pdf(pages: list[dict], lang: str = "en-US") -> bytes:
                           f"/Resources<</Font<</F1 3 0 R/F2 4 0 R>>{res_xobj}>>"
                           f"/Contents {content_ref} 0 R>>").encode()
     kids_s = " ".join(f"{k} 0 R" for k in kids)
-    lang_s = f"/Lang({_esc(lang)}) " if lang else ""
-    objs[1] = b"<</Type/Catalog/Pages 2 0 R>>"
-    objs[2] = (f"<</Type/Pages/Count {len(kids)}/Kids[{kids_s}]{lang_s}>>").encode()
+    # /Lang is a DOCUMENT-level entry on the Catalog (ISO 32000-1 s14.3.1), not a /Pages entry:
+    # spec-following extractors read it there and nowhere else. It previously sat on the Pages
+    # node, so the declared-language path never fired on the declared fixtures - the honest
+    # no-language refusal measured on f74g proved the declaration was invisible.
+    lang_s = f"/Lang({_esc(lang)})" if lang else ""
+    objs[1] = (f"<</Type/Catalog/Pages 2 0 R{' ' + lang_s if lang_s else ''}>>").encode()
+    objs[2] = (f"<</Type/Pages/Count {len(kids)}/Kids[{kids_s}]>>").encode()
     objs[3] = b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>"
     objs[4] = b"<</Type/Font/Subtype/Type1/BaseFont/Courier>>"
     objs[5] = (f"<</Producer(Ruke d1 fixture generator)/CreationDate"
@@ -224,8 +259,17 @@ def build() -> dict:
     (OUT / "d1_scanned.pdf").write_bytes(compose_pdf(scan_pages, lang="en-US"))
 
     # mixed: p1 keeps a native heading + its own image; p2 is image only; p3 native only.
+    # F74 measured the geometry defect this fixes: text_stream defaults to top=760, which is
+    # EXACTLY the baseline the raster's own first line ("Section 4.2 Ground Water", rasterized
+    # from native page 1 at the same top) prints on. Drawing the heading there fused the two
+    # inks into one unreadable stroke on the rendered page - the frozen key asks OCR to
+    # recognise the raster line, and the fixture itself made it physically unrecoverable
+    # (f74a content pass + f73-engine-d1_mixed.json: fused garbage where the line used to be).
+    # The heading now draws in the blank band at the foot of the page: still "carried by the
+    # text layer, not by recognition", still never duplicated, but no longer printed over ink
+    # the key requires recognition to deliver.
     mixed = [
-        {"stream": text_stream([HEADING_MIXED]), "image": rasters[0]},
+        {"stream": text_stream([HEADING_MIXED], top=56), "image": rasters[0]},
         {"stream": b"", "image": rasters[1]},
         {"stream": text_stream([LATE_FACT]), "image": None},
     ]

@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "key_version": "f76-numeric-5",
+  "case": "B_d1_exact",
+  "law_mirror": true,
+  "delivered_body": "Attached file: d1_scanned.pdf\n[file content begins]\n[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (en-US): 6/6 page(s) recognised (en-US), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language en-US from declared by the document (/Lang)]\n\n[page 1 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nSection 4.2 Ground Water\nThe aquifer beneath the basin yields\n1.4 million cubic metres per month\nDownstream salinity rose to 3.1 ppt\nat the Kandla gauge in March 2019,\nwhich the committee attributed to\n\n[page 2 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nmeasured across eleven observation wells.\nExtraction permits were capped at 62%\nof the recharge estimate for 2019.\nreduced dry-season flow rather than\ntidal intrusion alone.\n\n[page 3 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nStation Flow m3/s Turbidity NTU\nKandla 18.4 12.7\nGandhi Dham 44.0 3.9\nAranjes 12.6 51.2\n\n[page 4 | read by: tesseract v5.5.3.20260724 OCR (eng)]\ndef recharge(precip_mm, area_km2):\nrunoff = precip_mm * 0.18 * area_km2\nreturn round(runoff * 1000, 1) # m3\nprint(recharge(740, 12.5))\n\n[page 5 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nQ=Wxbxsqrt(2gh)\nT =25degC, pH =7.4, EC =0.84 dS/m\nAppendix note: the borehole log for well BH-07 was transcribed from a field notebook.\n\n[page 6 | read by: tesseract v5.5.3.20260724 OCR (eng)]\nChapter eleven records that the arbitration award of 14 November 2021 ordered\nthe defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6%\nper annum.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "The only monetary figure in the document is on page 6:\n\n> **\"4,18,25,000 rupees\"** — quoted exactly as printed, with its original digit grouping.\n\nFor reference only (not a replacement for the above): that grouping is the Indian lakh/crore convention, and the same amount written in international grouping is 41,825,000 rupees — i.e. 4,18,25,000 = 4 × 10,00,000 + 18 × 1,00,000 + 25 × 1,000 = 4,00,00,000 + 18,00,000 + 25,000 = 4,18,25,000 = 41,825,000. Same value, different grouping.\n\nOne caveat worth flagging: the PDF has no embedded text layer (0 of 6 pages), so this line comes from OCR (tesseract v5.5.3). Digits like 0/8 and 1/4 are the usual OCR confusions, so if this figure matters for a filing or payment, it's worth checking against the original scan. In context, the award reads as dated 14 November 2021, payable within ninety days, with interest at 6% per annum."
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=878"
+    },
+    {
+      "name": "verbatim_4_18_25_000",
+      "ok": true,
+      "detail": "exact printed figure \"4,18,25,000\" present"
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": true,
+      "detail": "2 in-scope figure(s) all equal an accepted value"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "2 in-scope figure(s) audited"
+    }
+  ]
+}

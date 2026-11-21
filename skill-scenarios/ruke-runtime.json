@@ -1,0 +1,9 @@
+{
+  "skillName": "ruke-runtime",
+  "sourceRepo": "",
+  "enabled": true,
+  "autoUse": false,
+  "whenToUse": "",
+  "triggerKeywords": [],
+  "blockedReason": null
+}

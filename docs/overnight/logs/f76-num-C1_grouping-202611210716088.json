@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "key_version": "f76-numeric-8",
+  "case": "C1_grouping",
+  "law_mirror": true,
+  "delivered_body": "Attached file: quarterly-ops.txt\n[file content begins]\nQuarterly operations report, section 4.\nRevenue this quarter: ₹12,34,567.\nCosts this quarter: ₹8,00,120.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**₹1,234,567**\n\n- Source figure: ₹12,34,567 (Indian/lakh grouping: 12 | 34 | 567 → \"12 lakh, 34 thousand, 567\")\n- Conversion applied: re-group the same seven digits in threes from the right — 1 | 234 | 567. No unit change, no rounding; the ₹ symbol and digit set are unchanged.\n- Value check: 12×100,000 + 34×1,000 + 567 = 1,200,000 + 34,000 + 567 = **1,234,567**, identical to 1×1,000,000 + 234×1,000 + 567. Same value, different grouping.\n\n(For context only, not part of the restatement: the costs line ₹8,00,120 would read ₹800,120 under the same re-grouping.)"
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=563"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"1,234,567\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": true,
+      "detail": "4 in-scope figure(s) all equal an accepted value"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "4 in-scope figure(s) audited"
+    }
+  ]
+}

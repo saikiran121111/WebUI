@@ -774,10 +774,15 @@ export async function extractFileFromPath(
         // without keyframes, the old frames-inline path stands unchanged.
         if (att && key && key.length > 0) {
           const keyframes: FrameEntry[] = key.map(f => ({ at: f.at, file: "frames/" + f.name }));
+          // F76 (2026-11-21): the old wording ("ON SCREEN at a given time")
+          // INVITED the model to generalize the sample to the whole timeline —
+          // the exact over-claim seen in the live UI. Same point-evidence law
+          // the timeline layer states for frame OCR, phrased for the record.
           const coverageNote =
             `Video "${name}"${durationSec > 0 ? ` (${Math.round(durationSec)}s)` : ""}: ${speechIssue ?? "its spoken content could not be read"}. ` +
             `Its visual content WAS read: keyframes were sampled at ${keyframes.length} moment(s) across its timeline, each carrying its video timestamp, ` +
-            `so questions about what is ON SCREEN at a given time can be answered from them; questions about what is SPOKEN cannot.`;
+            `so questions about what is ON SCREEN at one of those moments can be answered from them; what happens between, ` +
+            `before or after the sampled moments was never examined and cannot be claimed. Questions about what is SPOKEN cannot.`;
           const baseline = await buildBaseline();
           const indexed = await indexContent(name, category, att, coverageNote, {
             durationSec,

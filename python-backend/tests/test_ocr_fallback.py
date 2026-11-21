@@ -24,6 +24,7 @@ import threading
 import types
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -34,6 +35,8 @@ from ruke_ml.documents.ocr_tesseract import OcrPage, OcrUnavailable
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "docs" / "overnight" / "fixtures" / "d1" / "pdfs"
 SCANNED = FIXTURES / "d1_scanned.pdf"
+ROTATED = FIXTURES / "d1_rotated_scan.pdf"
+MIXED = FIXTURES / "d1_mixed.pdf"
 
 
 def _tesseract_ready() -> bool:
@@ -209,6 +212,57 @@ class WholeRunFailureStillRecovers(unittest.TestCase):
         self.assertIn("aquifer", pages[0].text.lower(),
                       "the recovered page must actually contain the fixture's own words")
         self.assertIn("simulated whole-run failure", casc["fallback"]["reason"])
+
+    def test_a_primary_skipped_at_the_readiness_gate_still_reports_its_work(self):
+        # The engine profile of a machine with NO primary runtime installed at all: the primary
+        # attempt is skipped before any operation runs, recovery and the durable write happen in
+        # the outer path, and the caller still reads the cascade's one operation account.
+        # F73 measured bug: that path never set casc["operation"], so the handoff CLI reported
+        # persisted_path "" and units_persisted 0 for a run whose recovered unit really WAS
+        # persisted — the two lifecycles drifted on the exact profile they promise to report alike.
+        if not _tesseract_ready():
+            self.skipTest("project-local Tesseract is not installed here")
+        state = _ready_state(fault="unavailable")
+        state["ready"] = False
+        state["blockers"] = ["the pinned primary runtime is not installed on this machine"]
+        with tempfile.TemporaryDirectory() as out_dir, \
+                mock.patch.object(ocr_cascade, "_primary_state", lambda: state), \
+                mock.patch.dict(os.environ, {ocr_cascade.RESULT_DIR_ENV: out_dir}):
+            pages, report = ocr_cascade.run(str(SCANNED), [1], language="en", dpi=200)
+            persisted = report["cascade"].get("persisted") or {}
+            record_path = str(persisted.get("path") or "")
+            if record_path:
+                with open(record_path, encoding="utf-8") as fh:
+                    record = json.load(fh)
+            else:
+                record = {}
+
+        casc = report["cascade"]
+        self.assertTrue(casc["fallback"].get("ran"), "the unit must still get real recovery")
+        self.assertEqual(pages[0].state, "recognised")
+        info = casc["persisted"]
+        self.assertTrue(info["ok"], info.get("detail"))
+        op = casc.get("operation")
+        self.assertIsNotNone(
+            op, "the outer recovery+persist path must write the same operation account "
+                "_operation writes; its absence makes the caller report a blank run")
+        self.assertEqual(op["persisted_path"], info["path"])
+        self.assertEqual(op["units_persisted"], 1)
+        self.assertEqual(op["pages"], 1)
+        self.assertEqual(op["recognised"], 1)
+        self.assertEqual(op["unresolved"], [])
+        self.assertEqual(op["device_used"], "cpu",
+                         "the only engine that ran here is CPU-only Tesseract")
+
+        # The record itself must not under-report what it stores. F73's frozen D1 scorer failed a
+        # real Tesseract record (WER 0.000) because the cascade computed engines_used/units_read
+        # AFTER _persist had already written the record, so every durable record declared
+        # coverage.read 0 and engines_used [] while storing units recognised by a real engine.
+        self.assertEqual(record["coverage"]["read"], 1,
+                         "a durable record must declare the coverage its own units support")
+        self.assertTrue(record["coverage"]["complete"])
+        self.assertEqual(record["pipeline"]["engines_used"], [pages[0].engine],
+                         "a durable record must name the engine that actually read its units")
 
 
 class PerUnitRecovery(unittest.TestCase):
@@ -386,6 +440,145 @@ class MeasurementHonesty(unittest.TestCase):
         self.assertFalse(child["measured"], child)
         self.assertIn("UNKNOWN", child.get("note", ""), child)
         self.assertFalse(ocr_cascade._engine_child_peak({})["measured"])
+
+
+@unittest.skipUnless(_tesseract_ready(), "no validated project-local Tesseract on this host")
+@unittest.skipUnless(ROTATED.is_file(), "run docs/overnight/fixtures/d1/ocr_docs.py first")
+class DeclaredRotationIsAppliedOnce(unittest.TestCase):
+    """F73 production delivered a /Rotate 90 page as upside-down garbage (frozen key d1-ocr-1).
+
+    pdf.py records the declared /Rotate, the escalation forwards it as `rotations`, and
+    render_page_png passed it straight to pypdfium2 - which has ALREADY applied the page's own
+    /Rotate and treats its parameter as ADDITIONAL ("Additional rotation in degrees",
+    pypdfium2 5.6.0 render docstring). 90 + 90 = 180: the engine saw a flipped page. The
+    standalone ocr_job CLI passed no rotations at all, which is why the CLI run read the page
+    correctly while production mangled it. The contract callers actually mean: `rotation=N`
+    renders the page at N degrees as the page's VISIBLE orientation, exactly once.
+    """
+
+    def test_the_requested_orientation_is_not_applied_twice(self):
+        _, default_info = ocr_tesseract.render_page_png(str(ROTATED), 1, dpi=200)
+        _, declared_info = ocr_tesseract.render_page_png(str(ROTATED), 1, dpi=200, rotation=90)
+        self.assertEqual(
+            (declared_info["width"], declared_info["height"]),
+            (default_info["width"], default_info["height"]),
+            "a caller asking for the page's own declared /Rotate must get the raster pdfium "
+            "produces on its own, not that raster turned a second time")
+        self.assertEqual(declared_info["rotation"], 90,
+                         "the delivery must still state the orientation it rendered FOR")
+
+    def test_the_declared_rotation_still_lets_the_engine_read_the_page(self):
+        pages = ocr_tesseract.ocr_pdf_pages(str(ROTATED), [1], language="eng", dpi=200,
+                                            rotations={1: 90})
+        self.assertEqual(pages[0].state, "recognised", pages[0].detail)
+        words = " ".join((pages[0].text or "").split())
+        self.assertIn("measured across eleven observation wells", words,
+                      f"the frozen fixture sentence must survive the declared rotation; "
+                      f"got: {words[:200]}")
+
+
+@unittest.skipUnless(_tesseract_ready(), "no validated project-local Tesseract on this host")
+@unittest.skipUnless(MIXED.is_file(), "run docs/overnight/fixtures/d1/ocr_docs.py first")
+class MixedPageOneRasterLineIsNotOverprinted(unittest.TestCase):
+    """F74 production: the frozen key demands OCR deliver "Section 4.2 Ground Water" from
+    d1_mixed page 1, but the fixture drew its text-layer heading (text_stream default top=760)
+    on the SAME baseline where the raster's first line prints. The render composites both, so
+    the page carried one fused double-ink stroke there: every honest engine returns garbage at
+    the overlap and drops the line (f74a content pass, f73-engine-d1_mixed.json - identical
+    garble before and after the delivery fixes, proving the block is at the ink, not at merge).
+    The generator must not print a second ink over raster lines the key requires recognition
+    to deliver. Fixture geometry repaired (heading moved to the blank foot band); the answer
+    key stayed byte-identical.
+    """
+
+    def test_forced_ocr_of_the_mixed_page_reads_the_raster_first_line(self):
+        pages = ocr_tesseract.ocr_pdf_pages(str(MIXED), [1], language="eng", dpi=200)
+        self.assertEqual(pages[0].state, "recognised", pages[0].detail)
+        words = " ".join((pages[0].text or "").split())
+        self.assertIn("Section 4.2 Ground Water", words,
+                      f"the frozen fixture line must be physically readable on the rendered "
+                      f"page; got: {words[:300]}")
+
+
+class UndeclaredLanguageIsATypedRefusal(unittest.TestCase):
+    """F74 measured: the D1 no-language case had NO job-boundary test at all.
+
+    The frozen key demands that an undeclared language is a typed refusal naming what the
+    operator must set, never a silent English default. The production passes (f74e/f74f, 0/4)
+    traced to the boot harness leaving RUKE_DOCUMENT_OCR_LANGUAGE=eng set - every production
+    layer was honest - but nothing in the suite pinned the refusal itself, so the only proof it
+    works was an ad-hoc repro. This pins both halves of the language contract at the real job
+    boundary (documents.parse dispatch, real D1 fixtures, no engine when refusing):
+    no language anywhere -> typed needs_language refusal, engine never runs; a /Lang-declared
+    scan with no requested language -> the declaration is used and named as such.
+
+    Safety: an in-process documents.parse dispatch with no safety switches runs the REAL
+    lifecycle - an unguarded repro acquired the handoff lease and unloaded/restored the main
+    model on its own. A test must never touch the endpoint serving the coding session, so
+    both switches (RUKE_OCR_ALLOW_UNLOAD=0, RUKE_LLM_AUTOMATIC_HANDOFF=0, the same ones the
+    acceptance runner pins into every production boot) are forced on for the duration.
+    """
+
+    NOLANG = FIXTURES / "d1_scan_nolang.pdf"
+
+    def setUp(self):
+        from ruke_ml.models.registry import catalog
+        if not catalog().executable_for("documents.ocr"):
+            self.skipTest("documents.ocr not executable in this environment")
+        # The tree's own per-run OCR result store must not leak into this test's evidence.
+        self._saved_result_dir = os.environ.get("RUKE_OCR_RESULT_DIR")
+        self._tmp = tempfile.TemporaryDirectory(prefix="ruke-nolang-")
+        os.environ["RUKE_OCR_RESULT_DIR"] = self._tmp.name
+        # Force the endpoint OFF-LIMITS (an empty value is falsy for the switches, "0" is too).
+        self._saved_switches = {}
+        for var in ("RUKE_OCR_ALLOW_UNLOAD", "RUKE_LLM_AUTOMATIC_HANDOFF"):
+            self._saved_switches[var] = os.environ.get(var)
+            os.environ[var] = "0"
+
+    def tearDown(self):
+        if self._saved_result_dir is None:
+            os.environ.pop("RUKE_OCR_RESULT_DIR", None)
+        else:
+            os.environ["RUKE_OCR_RESULT_DIR"] = self._saved_result_dir
+        for var, value in self._saved_switches.items():
+            if value is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = value
+        self._tmp.cleanup()
+
+    def _dispatch(self, name: str) -> dict:
+        from ruke_ml.contracts import JobRequest
+        from ruke_ml.workers import runner
+        req = JobRequest("r1", "run-nolang-pin", "j-" + name, "documents.parse",
+                         {"path": str(FIXTURES / name), "root": str(FIXTURES)})
+        res = runner.dispatch(req)
+        self.assertEqual(res.state, "ready", f"job state: {res.to_dict()}")
+        return res.to_dict()
+
+    @unittest.skipUnless(NOLANG.is_file(),
+                         "run docs/overnight/fixtures/d1/ocr_docs.py first")
+    def test_undeclared_language_refuses_typed_and_never_runs_the_engine(self):
+        out = self._dispatch("d1_scan_nolang.pdf")
+        rep = out["payload"]["ocr"]
+        self.assertFalse(rep["ran"], "OCR must not run at all without a language")
+        self.assertTrue(rep.get("needs_language"), "the refusal must be typed, not prose")
+        self.assertEqual(rep["language"], "", "no language may be invented")
+        self.assertEqual(rep["language_source"], "")
+        self.assertIn("never defaulted to English", rep["reason"])
+        self.assertIn("OCR NOT run", json.dumps(out),
+                      "the coverage note must carry the refusal, not hide it")
+
+    @unittest.skipUnless(SCANNED.is_file(), "run docs/overnight/fixtures/d1/ocr_docs.py first")
+    @unittest.skipUnless(_tesseract_ready(), "project-local tesseract missing")
+    def test_declared_lang_is_used_and_named_as_declared(self):
+        # d1_scanned.pdf carries /Lang(en-US); with NO requested language the declaration wins
+        # and the report says where the language came from - the same honesty the key demands.
+        out = self._dispatch("d1_scanned.pdf")
+        rep = out["payload"]["ocr"]
+        self.assertTrue(rep["ran"], "a declared language must actually drive recognition")
+        self.assertEqual(rep["language"], "en-US")
+        self.assertIn("/Lang", rep["language_source"])
 
 
 if __name__ == "__main__":

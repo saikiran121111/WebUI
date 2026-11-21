@@ -1,0 +1,288 @@
+{
+  "key_version": "d1-ocr-1",
+  "pass": "content",
+  "base": "http://localhost:3000",
+  "run_at": "2026-11-21T03:38:33",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails",
+    "hard_max_mib": 4768
+  },
+  "memory": {
+    "baseline": {
+      "at": 1795212489.68,
+      "avail_physical_mib": 2292,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19532,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "during_run": {
+      "samples": 12,
+      "min_available_physical_mib": 2122,
+      "peak_physical_used_mib": 63177,
+      "peak_vram_used_mib": 9483,
+      "max_commit_available_mib": 19530,
+      "samples_head_tail": [
+        {
+          "at": 1795212489.71,
+          "avail_physical_mib": 2280,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19530,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        },
+        {
+          "at": 1795212512.17,
+          "avail_physical_mib": 2268,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19383,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        }
+      ]
+    },
+    "after_run": {
+      "at": 1795212513.55,
+      "avail_physical_mib": 2295,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19419,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "definitions": "avail_physical_mib = GlobalMemoryStatusEx ullAvailPhys; commit_avail_mib = ullAvailPageFile; vram via nvidia-smi; worker peaks come from --worker-evidence",
+    "target_bytes": 4000000000,
+    "hard_max_bytes": 5000000000
+  },
+  "note": "passing this run establishes routing, page attribution, fallback selection, coverage honesty and the listed facts on clean synthetic renders. It does NOT establish general OCR quality, and a Tesseract pass is NOT primary-engine acceptance.",
+  "fixtures": [
+    {
+      "fixture": "d1_native.pdf",
+      "http_status": 200,
+      "seconds": 0.77,
+      "pages": 6,
+      "indexed": null,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 6 of 6 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; both readers agree every page carries a text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; OCR did not run: all 6 unit(s) produced a usable text layer; no unit showed raster evidence]",
+      "checks": [
+        {
+          "check": "ocr_did_not_run",
+          "ok": true,
+          "detail": "note: [document capability documents.parse (pypdf-7.1.0-plain); text layer: 6 of 6 page(s) via pdf.js; capability filled 0 page(s) by OCR and 0 page(s) by its own text layer; both readers agree every page carries a text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; OCR did not run: all 6 unit(s) produced a usable text layer; no unit showed raster evidence]"
+        },
+        {
+          "check": "page1_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "page2_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: measured across eleven observation wells. Extraction permits were capped at 62% of the recharge estimate for 2019. reduced dry-season flow rather than tidal intrusion alone."
+        },
+        {
+          "check": "page3_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Station Flow m3/s Turbidity NTU Kandla 18.4 12.7 Gandhi Dham 44.0 3.9 Aranjes 12.6 51.2"
+        },
+        {
+          "check": "page4_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: def recharge(precip_mm, area_km2): runoff = precip_mm * 0.18 * area_km2 return round(runoff * 1000, 1) # m3 print(recharge(740, 12.5))"
+        },
+        {
+          "check": "page5_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Q = W x b x sqrt(2 g h) T = 25 degC, pH = 7.4, EC = 0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook."
+        },
+        {
+          "check": "page6_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        },
+        {
+          "check": "late_evidence_page6",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        }
+      ]
+    },
+    {
+      "fixture": "d1_scanned.pdf",
+      "http_status": 200,
+      "seconds": 8.46,
+      "pages": 6,
+      "indexed": null,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]",
+      "checks": [
+        {
+          "check": "ocr_ran",
+          "ok": true,
+          "detail": "note: [document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consu"
+        },
+        {
+          "check": "page1_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "page1_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.1"
+        },
+        {
+          "check": "page2_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: measured across eleven observation wells. Extraction permits were capped at 62% of the recharge estimate for 2019. reduced dry-season flow rather than tidal intrusion alone."
+        },
+        {
+          "check": "page2_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.1"
+        },
+        {
+          "check": "page3_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Station Flow m3/s Turbidity NTU Kandla 18.4 12.7 Gandhi Dham 44.0 3.9 Aranjes 12.6 51.2"
+        },
+        {
+          "check": "page3_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.1"
+        },
+        {
+          "check": "page4_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: def recharge(precip_mm, area_km2): runoff = precip_mm * 0.18 * area_km2 return round(runoff * 1000, 1) # m3 print(recharge(740, 12.5))"
+        },
+        {
+          "check": "page4_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.1"
+        },
+        {
+          "check": "page5_phrase_in_body",
+          "ok": false,
+          "detail": "delivered: Q=Wxbxsqrt(2gh) T =25degC, pH =7.4, EC =0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook."
+        },
+        {
+          "check": "page5_wer<=limit",
+          "ok": false,
+          "detail": "wer=0.471 limit=0.1"
+        },
+        {
+          "check": "page6_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        },
+        {
+          "check": "page6_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.1"
+        },
+        {
+          "check": "late_evidence_page6",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        },
+        {
+          "check": "no_fabricated_content",
+          "ok": true,
+          "detail": "page1: Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "coverage_units_read",
+          "ok": true,
+          "detail": "6 of 6 page(s) carry delivered content in the body (markers seen: [1, 2, 3, 4, 5, 6])"
+        }
+      ]
+    },
+    {
+      "fixture": "d1_mixed.pdf",
+      "http_status": 200,
+      "seconds": 7.0,
+      "pages": 3,
+      "indexed": null,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 2 of 3 page(s) via pdf.js; capability filled 1 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3; units: 3 of 3 read; 2 page(s) recognised by OCR (eng): 2/2 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 2}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=2; language eng from requested; 1 page(s) were OCR-flagged and OCR output exists but the TS text layer was kept; 1 page(s) carry a second-reader variant alongside the TS text layer (kept beside it, never replaced)]",
+      "checks": [
+        {
+          "check": "late_evidence_page3",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        },
+        {
+          "check": "mixed_page1_native",
+          "ok": true,
+          "detail": "Exhibit C - native heading carried by the text layer, not by recognition. Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "mixed_page1_recognised",
+          "ok": true,
+          "detail": "Exhibit C - native heading carried by the text layer, not by recognition. Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "mixed_heading_not_duplicated",
+          "ok": true,
+          "detail": "heading occurrences: 1"
+        },
+        {
+          "check": "page3_has_delivered_content",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        },
+        {
+          "check": "page3_not_read_by_ocr",
+          "ok": true,
+          "detail": "page 3 markers: ['read by: pdf.js text layer']"
+        },
+        {
+          "check": "page3_read_by_a_native_reader",
+          "ok": true,
+          "detail": "page 3 markers: ['read by: pdf.js text layer']"
+        },
+        {
+          "check": "coverage_units_read",
+          "ok": true,
+          "detail": "3 of 3 page(s) carry delivered content in the body (markers seen: [1, 2, 3])"
+        }
+      ]
+    },
+    {
+      "fixture": "d1_rotated_scan.pdf",
+      "http_status": 200,
+      "seconds": 6.6,
+      "pages": 1,
+      "indexed": null,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 1 page(s) via pdf.js; capability filled 1 page(s) by OCR and 0 page(s) by its own text layer; read: page 1; units: 1 of 1 read; 1 page(s) recognised by OCR (eng): 1/1 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 1}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=1; language eng from requested; raster rotation applied: page 1 90\u00b0]",
+      "checks": [
+        {
+          "check": "rotated_recognised",
+          "ok": true,
+          "detail": "tidal intrusion alone. of the recharge estimate for 2019. reduced dry-season flow rather than measured across eleven observation wells. Extraction permits were capped at 62%"
+        },
+        {
+          "check": "rotated_page_reference",
+          "ok": true,
+          "detail": "pages seen: [1]"
+        },
+        {
+          "check": "rotation_declared_in_delivery",
+          "ok": true,
+          "detail": "note: [document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 1 page(s) via pdf.js; capability filled 1 page(s) by OCR and 0 page(s) by its own text layer; read: page 1; units: 1 of 1 read; 1 page(s) recognised by OCR (eng): 1/1 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by "
+        },
+        {
+          "check": "rotated_marker_says_ocr_reader",
+          "ok": true,
+          "detail": "page 1 markers: ['read by: tesseract v5.5.3.20260724 OCR (eng)']"
+        },
+        {
+          "check": "coverage_units_read",
+          "ok": true,
+          "detail": "1 of 1 page(s) carry delivered content in the body (markers seen: [1])"
+        }
+      ]
+    }
+  ],
+  "misses": 2
+}

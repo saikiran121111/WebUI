@@ -608,6 +608,28 @@ class PdfReading(unittest.TestCase):
                      "a one-character 'text layer' is decoration, not extraction")
         self.assertFalse(doc.coverage.complete)
 
+    def test_a_heading_only_text_layer_over_a_raster_is_also_ocr_eligible(self):
+        # F73 production (frozen fixture d1_mixed p1): the text layer carried only the page
+        # heading while the page BODY lived in a raster image. The usable text layer made the
+        # page "succeeded" and never offered the image to OCR, so a fact that exists only in
+        # the imagery was undeliverable through the whole chat path. A page can be recorded
+        # read AND stay OCR-eligible - the same two-flag honesty the weak-text branch above
+        # already uses, now also when the usable layer is short relative to the imagery.
+        fixture = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), os.pardir, os.pardir,
+            "docs", "overnight", "fixtures", "d1", "pdfs", "d1_mixed.pdf"))
+        if not os.path.isfile(fixture):
+            self.skipTest("run docs/overnight/fixtures/d1/ocr_docs.py first")
+        doc = parser.load_document(fixture)
+        self.assertIn(1, doc.coverage.units_succeeded,
+                      "the native heading must still count as read")
+        self.assertGreater(doc.meta["pages_with_images"].get(1, 0), 0)
+        self.assertIn(1, doc.coverage.units_needing_ocr,
+                      "a page carrying imagery that was never read is not a fully-read page")
+        self.assertIn(2, doc.coverage.units_needing_ocr, "the image-only page keeps the old path")
+        self.assertNotIn(3, doc.coverage.units_needing_ocr,
+                         "a native page with NO imagery must not be escalated on speculation")
+
 
 if __name__ == "__main__":
     unittest.main()

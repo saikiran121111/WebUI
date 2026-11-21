@@ -1,16 +1,16 @@
 {
-  "root_pid": 19596,
-  "sample_seconds": 2.6,
-  "samples": 23,
+  "root_pid": 24424,
+  "sample_seconds": 1.7,
+  "samples": 16,
   "skipped_unknown_samples": 0,
-  "baseline_tree_working_set_mib": 36,
-  "peak_tree_working_set_mib": 204,
-  "peak_tree_commit_mib": 157,
+  "baseline_tree_working_set_mib": 37,
+  "peak_tree_working_set_mib": 207,
+  "peak_tree_commit_mib": 161,
   "pids_at_peak": [
-    19596,
-    6892,
-    25128,
-    23780
+    24424,
+    25556,
+    25080,
+    14832
   ],
   "definition": "K32GetProcessMemoryInfo over the owned child plus its process children; working set = resident RAM, commit = pagefile charge"
 }

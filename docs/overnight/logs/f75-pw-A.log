@@ -1,0 +1,82 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test chat-stream decision-routing search-gate greeting --reporter=list
+
+Running 9 tests using 1 worker
+
+[t=209ms] "Step 1 of 1\nNew\nProjects\nArtifacts\nCustomize\nRecents\nSelect\nNo chats yet.\nS\nSaiKiran\n· Free\n\nHey\n\nAnalyzing your prompt...\nReasoning…\nSpeed: — tk/s · Context: 75757/131072\nLocal model\nMedium\nManual"
+[t=422ms] "Step 1 of 1\nNew\nProjects\nArtifacts\nCustomize\nRecents\nSelect\nNo chats yet.\nS\nSaiKiran\n· Free\n\nHey\n\nAnalyzing your prompt...\nReasoning…\nSpeed: — tk/s · Context: 75757/131072\nLocal model\nMedium\nManual"
+[t=639ms] "Step 1 of 1\nNew\nProjects\nArtifacts\nCustomize\nRecents\nSelect\nNo chats yet.\nS\nSaiKiran\n· Free\n\nHey\n\nAnalyzing your prompt...\nReasoning…\nSpeed: — tk/s · Context: 75757/131072\nLocal model\nMedium\nManual"
+[t=856ms] "Step 1 of 1\nNew\nProjects\nArtifacts\nCustomize\nRecents\nSelect\nNo chats yet.\nS\nSaiKiran\n· Free\n\nHey\n\nAnalyzing your prompt...\nReasoning…\nSpeed: — tk/s · Context: 75757/131072\nLocal model\nMedium\nManual"
+[t=1081ms] "it\nRust Merge K Sorted Lists Solution\nRecursion Explanation and Date Inquiry\nS\nSaiKiran\n· Free\n\nHey\n\nAnalyzing your prompt...\nReasoning…\nSpeed: — tk/s · Context: 75757/131072\nLocal model\nMedium\nManual"
+Reasoning cleared — response complete
+=== PAGE TITLE: Ruke — Local AI Chat
+=== FINAL BODY TEXT (last 500 chars): "e/zinbNw7L8xI — who won t\nHyderabad to Bangalore Bus Options\nWhat are hotel prices in Hyderabad on Tr\nHyderabad Delhi Flight Fares\nHyderabad Top-Rated Restaurants on Zomato\nHyderabad BookMyShow Movie Listings\nKingfisher 650ml Price on Zepto\nLevi's 501 Jeans Price on Myntra\nAmul Butter Price on Blinkit\nRust Merge K Sorted Lists Solution\nRecursion Explanation and Date Inquiry\nS\nSaiKiran\n· Free\n\nHey\n\nAnalyzing your prompt...\nReasoning…\nSpeed: — tk/s · Context: 75757/131072\nLocal model\nMedium\nManual"
+=== CONSOLE LOGS: ["%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold","Failed to load resource: the server responded with a status of 404 (Not Found)"]
+=== ERRORS: ["Failed to load resource: the server responded with a status of 404 (Not Found)"]
+  ✓  1 [chromium-visible] › tests\chat-stream.spec.ts:4:7 › chat streaming › receives content after reasoning (4.8s)
+Status: 200
+Body (first 1000 chars): data: {"ruke_stage":{"stage":"decision_done","mode":"standard_chat","ms":133}}
+
+data: {"ruke_stage":{"stage":"skill","ms":0}}
+
+data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795214363, "model": "qwen3.8-flash-next-iq3_s", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}
+
+: keep-alive
+
+: keep-alive
+
+: keep-alive
+
+data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795214363, "model": "qwen3.8-flash-next-iq3_s", "choices": [{"index": 0, "delta": {"reasoning_content": "The"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795214363, "model": "qwen3.8-flash-next-iq3_s", "choices": [{"index": 0, "delta": {"reasoning_content": " user"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795214363, "model":
+Body length: 8953
+Number of SSE events: 39
+  Event: data: {"ruke_stage":{"stage":"decision_done","mode":"standard_chat","ms":133}}
+  Event: data: {"ruke_stage":{"stage":"skill","ms":0}}
+  Event: data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795
+  Event: data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795
+  Event: data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795
+  Last event: data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795
+  Last event: data: {"id": "chatcmpl-5f1a54afb1b240d9989238fd", "object": "chat.completion.chunk", "created": 1795
+  Last event: data: [DONE]
+  ✓  2 [chromium-visible] › tests\chat-stream.spec.ts:90:7 › chat streaming › direct API call to /api/chat (5.5s)
+  ✓  3 [chromium-visible] › tests\decision-routing.spec.ts:68:5 › anatomy retirement: /api/decision routes no anatomy vocabulary to a renderer (1.1s)
+  ✓  4 [chromium-visible] › tests\decision-routing.spec.ts:126:5 › anatomy retirement: a real chat turn carries the post-retirement mode (931ms)
+  ✓  5 [chromium-visible] › tests\greeting.spec.ts:3:5 › greeting reply stays local — no Research Trail card, no citation crash (46.9s)
+  ✓  6 [chromium-visible] › tests\greeting.spec.ts:56:5 › thinking model shows the live Reasoning indicator during the reasoning phase (1.9s)
+  ✓  7 [chromium-visible] › tests\search-gate.spec.ts:112:5 › pure LeetCode algorithm prompt triggers NO web search (1.0m)
+  ✓  8 [chromium-visible] › tests\search-gate.spec.ts:143:5 › named LeetCode problem the model knows needs no search (1.0m)
+  ✘  9 [chromium-visible] › tests\search-gate.spec.ts:163:5 › live-fact question triggers model-directed search with on-topic sources (2.9m)
+
+
+  1) [chromium-visible] › tests\search-gate.spec.ts:163:5 › live-fact question triggers model-directed search with on-topic sources 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByTestId('web-search-toggle').first()
+    Expected: visible
+    Timeout: 170000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByTestId('web-search-toggle').first() with timeout 170000ms
+      - waiting for getByTestId('web-search-toggle').first()
+
+
+      171 |   // token) the RUKE processing line becomes clickable; open the sources popup.
+      172 |   const toggle = page.getByTestId("web-search-toggle").first();
+    > 173 |   await expect(toggle).toBeVisible({ timeout: 170000 });
+          |                        ^
+      174 |   await toggle.click();
+      175 |
+      176 |   const popup = page.getByTestId("research-trail-card").first();
+        at D:\Projects\WebUI\WebUI\tests\search-gate.spec.ts:173:24
+
+    Error Context: test-results\search-gate-live-fact-ques-d4ce9-earch-with-on-topic-sources-chromium-visible\error-context.md
+
+  1 failed
+    [chromium-visible] › tests\search-gate.spec.ts:163:5 › live-fact question triggers model-directed search with on-topic sources 
+  8 passed (6.0m)

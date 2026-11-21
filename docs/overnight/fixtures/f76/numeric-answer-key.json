@@ -1,0 +1,407 @@
+{
+  "key_version": "f76-numeric-8",
+  "created": "2026-11-21",
+  "note": "F76 defect-1 acceptance key, frozen model-free BEFORE any model ran for this suite. d1 expectations derive from the frozen d1-ocr-1 late_evidence; synthetic cases from plain arithmetic. observed_wrong_user_record = the wrong variants the user saw live (evidence only; the value audit rejects them on value, not on string match). v2 (same day): scorer-v2 config only — scale abbreviations/plurals, A-case measure_next (physical units), and selftest strings pinning that verification vocabulary (place-value decompositions, unit definitions) is explained while a wrong-sum decomposition fails. Case expectations and accepted values are UNCHANGED from v1. v3 (same day, after live run 1): scorer-side extensions only — generalized unit-word measurement rule, echo-gap additive runs, currency-suffixed run completion (attached only when the sum needs it), and the anchored+local denouncement exemption; new selftest pins for each (including two that must KEEP failing: assert-wrong-after-negating-right, and asserted-wrong beside an accepted figure). v4 (same day, after live run 2): scorer-side only — sentence-scoped hedge detection (labelled roundings like 'Rounded alternatives … to 2 decimals … the exact version remains X' are honest rounding within approx_tolerance; hedge words NEVER rescue a figure hundreds of percent off — pinned by a fail-string), sentence-scoped denouncement windows, and approx/denouncement made orthogonal. New selftest pins for each. v5 (same day, rescore of run 2): scorer-side only — multiplication-expanded echo gaps ('4 crore (4 × 10,000,000) + 18 lakh …': gap digits may equal a component's coefficient, scaled value or unit multiplier; residue class gains × ( ) ) and markdown code-span backticks count as mark adjacency. A wrong-sum multiplication decomposition stays flagged (pinned fail-string). Case expectations and accepted values are UNCHANGED from v1/v2/v3/v4. v6 (same day, after live run 3): scorer-side only — currency-marked coefficients inside a TRUE product identity absorb into their product ('₹12 × 100,000 = 1,200,000' is the term 1,200,000 written expanded; its right-hand figure is an echo, not an independent claim), runs may complete across an echo gap, SI space grouping parses as one figure ('125 000 µg' = 0.125 g), and the whole mechanism is fail-closed: a FALSE identity absorbs nothing (pinned), an unlabelled rounded assertion still fails (pinned — this was a REAL live model defect, not a scorer gap), and merging never launders a 1000x error ('4 500 µg' pinned failing). v7 (same day, after live run 4): scorer-side only — a scale-word term restated as an equality identity in digits ('8 lakh = 800,000') is one term spelled twice: the digits are an echo of the same term (skipped as an independent claim) and the decomposition run may be a SINGLE scale component completed by its addend ('8 lakh … plus 120' = 800,120), attach still requiring the sum to equal an accepted value; fail-closed as always — a FALSE spelling ('8 lakh = 810,000') absorbs nothing, a TRUE spelling whose sum is wrong ('9 lakh = 900,000 plus 120 totals ₹800,120') stays flagged, and a lone wrong scale assertion ('8 lakh (= 800,000)' vs an accepted ₹8,00,120) keeps failing (three pinned fail-strings; the pass pins mirror live run 4's fully-true costs-line decomposition, which the v6 scorer wrongly flagged). v8 (same day, after live run 5): scorer-side only — two generality bugs fixed, both content-neutral: (1) suffix ADJACENCY — the figure-suffix regex no longer bridges a dash, so a section number before an em-dash next to a heading word ('Restatement 1 — crore') is no longer a phantom '1 crore' claim (same adjacency discipline the currency marks use); (2) gap-token word boundary on EVERY alternative — the boundary lookahead had attached to only the last alternative, chopping '4 crores 18 lakhs 25 thousand' gaps to residue 's', so exact-summing PLURAL place-value runs were never explained. Neither fix launders anything: wrong-sum plural decompositions (pinned in both A and C1) and adjacent wrong scale claims beside structure words (pinned in A) keep failing; the pass pins mirror live run 5's fully-true A and B answers, which the v7 scorer wrongly flagged. Case expectations and accepted values are UNCHANGED from v1/v2/v3/v4/v5/v6/v7.",
+  "scale_source": "digits decide value; grouping never does — Number(digits) of any rendered form is compared against accepted_values",
+  "cases": [
+    {
+      "id": "A_d1_crore",
+      "desc": "frozen d1_scanned.pdf p6 amount restated in crore + international grouping (the user's 10x defect)",
+      "deliver": {
+        "mode": "pdf",
+        "file": "docs\\overnight\\fixtures\\d1\\pdfs\\d1_scanned.pdf",
+        "name": "d1_scanned.pdf"
+      },
+      "question": "The attached scanned document states one monetary amount with Indian digit grouping. Restate that same amount twice: once using crore, and once using the international grouping system. Both restatements must have exactly the value the document gives. Also say which page the amount appears on.",
+      "expect": {
+        "must_include_any": [
+          [
+            "4.1825 crore",
+            "41.825 million"
+          ],
+          [
+            "41,825,000"
+          ]
+        ],
+        "verbatim": [],
+        "page": "6",
+        "scope": {
+          "marks": [
+            "₹",
+            "rs.",
+            "rs",
+            "rupees",
+            "rupee",
+            "inr"
+          ],
+          "scales": {
+            "lakh": 100000,
+            "lakhs": 100000,
+            "lac": 100000,
+            "lacs": 100000,
+            "crore": 10000000,
+            "crores": 10000000,
+            "cr": 10000000,
+            "million": 1000000,
+            "millions": 1000000,
+            "mn": 1000000,
+            "billion": 1000000000,
+            "billions": 1000000000,
+            "bn": 1000000000,
+            "trillion": 1000000000000,
+            "trillions": 1000000000000,
+            "thousand": 1000,
+            "thousands": 1000
+          },
+          "measure_next": [
+            "m³",
+            "m3",
+            "m³/s",
+            "ppt",
+            "ntu",
+            "mm",
+            "km²",
+            "km2",
+            "°c",
+            "ds/m",
+            "ph"
+          ]
+        },
+        "accepted_values": [
+          41825000
+        ],
+        "approx_tolerance": 0.02
+      },
+      "observed_wrong_user_record": [
+        "₹418,250,000",
+        "₹41.825 crore"
+      ]
+    },
+    {
+      "id": "B_d1_exact",
+      "desc": "same frozen amount, original-figure-only request: exact printed grouping must survive",
+      "deliver": {
+        "mode": "pdf",
+        "file": "docs\\overnight\\fixtures\\d1\\pdfs\\d1_scanned.pdf",
+        "name": "d1_scanned.pdf"
+      },
+      "question": "Quote the monetary amount from the attached scanned document exactly as it is printed there, with its original digit grouping unchanged. Do not convert or re-group it.",
+      "expect": {
+        "must_include_any": [],
+        "verbatim": [
+          "4,18,25,000"
+        ],
+        "page": null,
+        "scope": {
+          "marks": [
+            "₹",
+            "rs.",
+            "rs",
+            "rupees",
+            "rupee",
+            "inr"
+          ],
+          "scales": {
+            "lakh": 100000,
+            "lakhs": 100000,
+            "lac": 100000,
+            "lacs": 100000,
+            "crore": 10000000,
+            "crores": 10000000,
+            "cr": 10000000,
+            "million": 1000000,
+            "millions": 1000000,
+            "mn": 1000000,
+            "billion": 1000000000,
+            "billions": 1000000000,
+            "bn": 1000000000,
+            "trillion": 1000000000000,
+            "trillions": 1000000000000,
+            "thousand": 1000,
+            "thousands": 1000
+          }
+        },
+        "accepted_values": [
+          41825000
+        ],
+        "approx_tolerance": 0.02
+      }
+    },
+    {
+      "id": "C1_grouping",
+      "desc": "non-frozen: Indian-grouped rupee figures, restate revenue in international grouping",
+      "deliver": {
+        "mode": "inline",
+        "name": "quarterly-ops.txt",
+        "text": "Quarterly operations report, section 4.\nRevenue this quarter: ₹12,34,567.\nCosts this quarter: ₹8,00,120."
+      },
+      "question": "Restate the revenue figure from the attached text using the international grouping system, keeping exactly the same value.",
+      "expect": {
+        "must_include_any": [
+          [
+            "1,234,567",
+            "1.234567 million"
+          ]
+        ],
+        "verbatim": [],
+        "page": null,
+        "scope": {
+          "marks": [
+            "₹",
+            "rs.",
+            "rs",
+            "rupees",
+            "rupee",
+            "inr"
+          ],
+          "scales": {
+            "lakh": 100000,
+            "lakhs": 100000,
+            "lac": 100000,
+            "lacs": 100000,
+            "crore": 10000000,
+            "crores": 10000000,
+            "cr": 10000000,
+            "million": 1000000,
+            "millions": 1000000,
+            "mn": 1000000,
+            "billion": 1000000000,
+            "billions": 1000000000,
+            "bn": 1000000000,
+            "trillion": 1000000000000,
+            "trillions": 1000000000000,
+            "thousand": 1000,
+            "thousands": 1000
+          }
+        },
+        "accepted_values": [
+          1234567,
+          800120
+        ],
+        "approx_tolerance": 0.02
+      }
+    },
+    {
+      "id": "C2_decimal_scale",
+      "desc": "non-frozen: decimal-scale conversion mg -> micrograms (10x/1000x scale trap)",
+      "deliver": {
+        "mode": "inline",
+        "name": "lab-record.txt",
+        "text": "Lab record, line 2.\nSample mass: 0.0045 mg.\nReagent mass: 125 mg."
+      },
+      "question": "State the sample mass from the attached text in micrograms (µg), keeping exactly the same value.",
+      "expect": {
+        "must_include_any": [
+          [
+            "4.5 µg",
+            "4.5 μg",
+            "4.5 ug",
+            "4.5 microgram",
+            "4.5µg",
+            "4.5 micrograms"
+          ]
+        ],
+        "verbatim": [],
+        "page": null,
+        "scope": {
+          "units": {
+            "kg": 1000,
+            "gram": 1,
+            "grams": 1,
+            "g": 1,
+            "mg": 0.001,
+            "milligram": 0.001,
+            "milligrams": 0.001,
+            "µg": 0.000001,
+            "μg": 0.000001,
+            "ug": 0.000001,
+            "microgram": 0.000001,
+            "micrograms": 0.000001,
+            "mcg": 0.000001,
+            "ng": 1e-9,
+            "nanogram": 1e-9,
+            "nanograms": 1e-9
+          }
+        },
+        "accepted_values": [
+          0.0000045,
+          0.125
+        ],
+        "approx_tolerance": 0.02
+      }
+    },
+    {
+      "id": "D1_opposite_convert",
+      "desc": "opposite-intent pair, same doc (1): convert the crore-scale price",
+      "deliver": {
+        "mode": "inline",
+        "name": "registry-extract.txt",
+        "text": "Registry extract.\nPlot price: ₹12,34,56,789.\nAnnual fee: ₹98,765."
+      },
+      "question": "Restate the plot price from the attached text using crore, keeping exactly the same value.",
+      "expect": {
+        "must_include_any": [
+          [
+            "12.3456789 crore"
+          ]
+        ],
+        "verbatim": [],
+        "page": null,
+        "scope": {
+          "marks": [
+            "₹",
+            "rs.",
+            "rs",
+            "rupees",
+            "rupee",
+            "inr"
+          ],
+          "scales": {
+            "lakh": 100000,
+            "lakhs": 100000,
+            "lac": 100000,
+            "lacs": 100000,
+            "crore": 10000000,
+            "crores": 10000000,
+            "cr": 10000000,
+            "million": 1000000,
+            "millions": 1000000,
+            "mn": 1000000,
+            "billion": 1000000000,
+            "billions": 1000000000,
+            "bn": 1000000000,
+            "trillion": 1000000000000,
+            "trillions": 1000000000000,
+            "thousand": 1000,
+            "thousands": 1000
+          }
+        },
+        "accepted_values": [
+          123456789,
+          98765
+        ],
+        "approx_tolerance": 0.02
+      }
+    },
+    {
+      "id": "D2_opposite_exact",
+      "desc": "opposite-intent pair, same doc (2): copy both amounts exactly as printed",
+      "deliver": {
+        "mode": "inline",
+        "name": "registry-extract.txt",
+        "text": "Registry extract.\nPlot price: ₹12,34,56,789.\nAnnual fee: ₹98,765."
+      },
+      "question": "Copy both monetary amounts from the attached text exactly as they are printed, each with its own digit grouping unchanged. Do not convert or re-group them.",
+      "expect": {
+        "must_include_any": [],
+        "verbatim": [
+          "12,34,56,789",
+          "98,765"
+        ],
+        "page": null,
+        "scope": {
+          "marks": [
+            "₹",
+            "rs.",
+            "rs",
+            "rupees",
+            "rupee",
+            "inr"
+          ],
+          "scales": {
+            "lakh": 100000,
+            "lakhs": 100000,
+            "lac": 100000,
+            "lacs": 100000,
+            "crore": 10000000,
+            "crores": 10000000,
+            "cr": 10000000,
+            "million": 1000000,
+            "millions": 1000000,
+            "mn": 1000000,
+            "billion": 1000000000,
+            "billions": 1000000000,
+            "bn": 1000000000,
+            "trillion": 1000000000000,
+            "trillions": 1000000000000,
+            "thousand": 1000,
+            "thousands": 1000
+          }
+        },
+        "accepted_values": [
+          123456789,
+          98765
+        ],
+        "approx_tolerance": 0.02
+      }
+    }
+  ],
+  "selftest": {
+    "A_d1_crore": {
+      "pass": [
+        "The amount is 4,18,25,000 rupees — that is ₹41,825,000 internationally, or 4.1825 crore. It appears on page 6.",
+        "Page 6 states the sum as 4,18,25,000 rupees, ≈ ₹41.8 million, i.e. 4.1825 crore — 41,825,000 in international grouping.",
+        "The amount on page 6 is 4,18,25,000 rupees (₹4 crore, 18 lakh, 25 thousand — 1 crore = 1,00,00,000). So it is 4.1825 crore, i.e. ₹41,825,000 internationally. Elsewhere the pages list 1.4 million m³ of volumes, not money.",
+        "Amount as printed: 4,18,25,000 rupees on page 6. In the crore system: 4.1825 crore rupees (₹4.1825 cr, i.e. 4 crore 18 lakh 25 thousand). INR 41,825,000 in international grouping.",
+        "The printed amount on page 6 is 4,18,25,000 rupees. One caution: the shorthand ₹41.825 crore (₹418,250,000) is not the same value — it adds ₹37,64,25,000 — the correct restatements are 4.1825 crore, i.e. ₹41,825,000.",
+        "Place-value check: 4 crore (4 × 10,000,000) + 18 lakh (18 × 100,000) + 25 thousand (25 × 1,000) = 40,000,000 + 1,800,000 + 25,000 = 41,825,000. The printed amount on page 6 is 4,18,25,000 rupees — 4.1825 crore, i.e. ₹41,825,000 internationally.",
+        "**The amount in the document:** `4,18,25,000` rupees — page **6** (the paragraph on the arbitration award of 14 November 2021, ordering the defendant to pay within ninety days with interest at 6% per annum).\n\n**Digit-by-digit value check.** In Indian grouping the separators run lakhs→crore, so `4,18,25,000` splits as 4 | 18 | 25 | 000:\n- 4 × 10,000,000 = 4,00,00,000\n- 18 × 1,00,000 = 18,00,000\n- 25 × 1,000 = 25,000\n- Total = **4,18,25,000 = 41,825,000**\n\n**Restatement 1 — crore (1 crore = 1,00,00,000 = 10,000,000):**\n41,825,000 ÷ 10,000,000 = **₹4.1825 crore** (i.e. 4 crore 18 lakh 25 thousand).\n\n**Restatement 2 — international grouping (threes from the right):**\n**₹41,825,000** (forty-one million, eight hundred twenty-five thousand).\n\nBoth restatements resolve to the same number, 41,825,000, exactly as printed in the document. One caveat for completeness: page 6 was read by OCR (the PDF has no text layer), so the digits come from an OCR pass rather than embedded text — but the three forms above are mutually consistent with the printed grouping `4,18,25,000`."
+      ],
+      "fail": [
+        "The amount is ₹418,250,000 — i.e. ₹41.825 crore. (page 6)",
+        "The document says 4,18,25,000 rupees — that equals ₹418,250,000, or 41.825 crore, on page 6.",
+        "The amount on page 6 is 4,18,25,000 rupees — 4.1825 crore, i.e. 41,825,000 in international grouping — which is ₹418,250,000.",
+        "Restated in crore: ₹41 crore, 82 lakh, 50 thousand — that is ₹41.825 crore.",
+        "The amount is not 4,18,25,000 rupees — the correct value is ₹418,250,000, i.e. ₹41,825,000 (4.1825 crore), on page 6.",
+        "Rounded to a shorter form, the amount on page 6 is ₹41.825 crore; the exact printed value is 4,18,25,000 rupees, i.e. ₹41,825,000 (4.1825 crore).",
+        "Place-value check: 41 crore (41 × 10,000,000) + 82 lakh (82 × 100,000) + 50 thousand (50 × 1,000) = 410,000,000 + 8,200,000 + 50,000 = 418,250,000 — i.e. ₹41.825 crore, on page 6.",
+        "Restated in crore: ₹41 crores 18 lakhs 25 thousands — that is ₹41.825 crore.",
+        "The document's amount, section heading — total: 41 crore rupees, page 6."
+      ]
+    },
+    "B_d1_exact": {
+      "pass": [
+        "The only monetary amount printed in the scan is 4,18,25,000 rupees — ₹41,825,000 in international grouping, 4.1825 crore in crore terms. The scan also lists 1.4 million cubic metres of volume and 3.1 ppt of turbidity; those are quantities, not amounts.",
+        "The monetary amount appears on page 6 (OCR of the scanned page), printed as:\n\n> \"…ordered the defendant to pay **4,18,25,000** rupees within ninety days, with interest at 6% per annum.\"\n\nQuoted exactly as printed, digits and grouping unchanged: **4,18,25,000** rupees (Indian lakh/crore digit grouping).\n\nFor reference only — the same figure re-grouped in the international convention is 41,825,000 rupees (4 crores 18 lakhs 25 thousand); the grouping differs but the value is identical. Note that this page was recognised by OCR (no text layer), so the digits are as transcribed by the OCR engine."
+      ],
+      "fail": [
+        "The amount printed is 4,18,25,000 rupees — which is 418,250,000 rupees in plain figures."
+      ]
+    },
+    "D1_opposite_convert": {
+      "pass": [
+        "Restated in crore: ₹12.3456789 crore. Value check: ₹12 crore = 12,00,00,000; ₹0.3456789 crore = 34,56,789; sum = 12,34,56,789 — identical to the printed price. One caution: the usual shorthand ₹12.35 crore is not the same value — it adds ₹4,311.",
+        "Restated in crore: ₹12.3456789 crore (exact). Conversion applied: 1 crore = 1,00,00,000, so the price is 12,34,56,789 → 12.3456789. Rounded alternatives, if a shorter form is needed: ₹12.35 crore (to 2 decimals) or ≈ ₹12.3 crore. These are rounded restatements, so the exact-value version remains ₹12.3456789 crore."
+      ],
+      "fail": [
+        "The plot price is ₹12.35 crore — that is ₹123,456,789."
+      ]
+    },
+    "C1_grouping": {
+      "pass": [
+        "Revenue: ₹1,234,567 (the document prints ₹12,34,567 in Indian grouping). Verification: 12,34,567 = 12,00,000 + 34,000 + 567 (₹12 × 100,000 = 1,200,000; ₹34 × 1,000 = 34,000; + 567 = 1,234,567) — same value. Exact lakh form: 12.34567 lakh.",
+        "Revenue: ₹1,234,567 (report: ₹12,34,567). The costs line: ₹8,00,120 → ₹800,120 (8 lakh = 800,000 plus 120).",
+        "**Revenue: ₹1,234,567** (was ₹12,34,567 in the report).\n\n- **Conversion applied:** pure regrouping only — no change of unit or scale. The digits are identical in both versions: 1 2 3 4 5 6 7. Indian convention groups the last three digits then pairs of two (…₹12,34,567 = 12 lakh 34 thousand 567); the international convention groups strictly in threes from the right (₹1,234,567).\n- **Verification:** 12,34,567 = (12 × 100,000) + (34 × 1,000) + 567 = 1,200,000 + 34,000 + 567 = **1,234,567**, matching the restated figure exactly. In words: one million two hundred thirty-four thousand five hundred sixty-seven rupees.\n\nFor reference, the same treatment on the costs line: ₹8,00,120 → **₹800,120** (8 lakh = 800,000 plus 120)."
+      ],
+      "fail": [
+        "The revenue as printed is ₹12,34,567; internationally that is ₹1,234,567, equivalently 12.35 lakh.",
+        "Revenue: ₹1,234,567 (document: ₹12,34,567). Verification: ₹12 × 100,000 = 1,200,000; ₹34 × 1,000 = 35,000; + 567 = 1,235,567 — matching the printed total.",
+        "Revenue: ₹1,234,567 (₹12,34,567 as printed). Costs ₹8,00,120 → ₹800,120 (8 lakh = 810,000 plus 120).",
+        "Revenue: ₹1,234,567 (₹12,34,567 as printed). Costs: 9 lakh = 900,000 plus 120 totals ₹800,120.",
+        "Revenue: ₹1,234,567 (₹12,34,567 as printed). For the costs, the report line 8 lakh (= 800,000) is what matters.",
+        "Revenue: ₹1,234,567 (₹12,34,567 as printed). Costs ₹8,00,120: 7 lakhs 9 thousand 120."
+      ]
+    },
+    "C2_decimal_scale": {
+      "pass": [
+        "The sample mass is 4.5 µg (0.0045 mg = 4.5 micrograms).",
+        "The sample mass is 4.5 µg (0.0045 mg × 1000 = 4.5 µg). For reference, the reagent mass is 125 mg, i.e. 125 000 µg."
+      ],
+      "fail": [
+        "The sample mass is 4,500 µg.",
+        "The sample mass is 45 µg.",
+        "The sample mass is 4 500 µg."
+      ]
+    }
+  }
+}

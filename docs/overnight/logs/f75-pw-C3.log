@@ -1,0 +1,25 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test file-reading --grep the model reads the file.*(fixture-txt\.(gql|proto|tf|hcl|vue|svelte|astro)|fixture-sheet\.) --reporter=list
+
+Running 9 tests using 1 worker
+
+  fixture-txt.gql            Thought for <1s View reasoning YES READABLE-MARKER-GQL-7QX9 Copy
+  ✓  1 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.gql → the reply contains its own marker (8.3s)
+  fixture-txt.proto          Thought for <1s View reasoning YES READABLE-MARKER-PROTO-7QX9 Copy
+  ✓  2 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.proto → the reply contains its own marker (8.4s)
+  fixture-txt.tf             Thought for <1s View reasoning YES READABLE-MARKER-TF-7QX9 Copy
+  ✓  3 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.tf → the reply contains its own marker (8.9s)
+  fixture-txt.hcl            Thought for <1s View reasoning YES READABLE-MARKER-HCL-7QX9 Copy
+  ✓  4 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.hcl → the reply contains its own marker (8.4s)
+  fixture-txt.vue            Thought for 1s View reasoning YES READABLE-MARKER-VUE-7QX9 Copy
+  ✓  5 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.vue → the reply contains its own marker (9.0s)
+  fixture-txt.svelte         Thought for <1s View reasoning YES READABLE-MARKER-SVELTE-7QX9 Copy
+  ✓  6 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.svelte → the reply contains its own marker (8.4s)
+  fixture-txt.astro          Thought for 1s View reasoning YES READABLE-MARKER-ASTRO-7QX9 Copy
+  ✓  7 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-txt.astro → the reply contains its own marker (9.8s)
+  fixture-sheet.xlsx         Thought for <1s View reasoning YES READABLE-MARKER-XLSX-7QX9 Copy
+  ✓  8 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsx → the reply contains its own marker (9.1s)
+  fixture-sheet.xlsm         Thought for 2s View reasoning YES READABLE-MARKER-XLSM-7QX9 Copy
+  ✓  9 [chromium-visible] › tests\file-reading.spec.ts:174:9 › the model reads the file › fixture-sheet.xlsm → the reply contains its own marker (9.8s)
+
+  9 passed (1.3m)

@@ -63,6 +63,53 @@ describe("video frames carry their video timestamps into the prompt (I18a)", () 
     expect(last.att_id).toBe("att_vl_idx");
   });
 
+  it("F76: both video shapes carry the sampling law in the intro (isolated moments, no span claims)", () => {
+    // The defect this pins: two sampled instants read correctly, then the model
+    // claimed the marker was visible "throughout" the clip. The law must ride
+    // the attachment intro of BOTH delivery shapes, verbatim (the third surface,
+    // the retrieval lead-in, is byte-replayed by the attachment goldens).
+    // Content-neutral on purpose — this is a universal delivery law, not a
+    // fixture rule, so no marker strings or subject matter may appear here.
+    const LAW_BITS = [
+      "isolated moments",
+      "no evidence about the time between, before or after them",
+      "visible throughout",
+      "unchanged across any stretch between two shown moments",
+      "the rest cannot be confirmed",
+    ];
+    for (const parts of [
+      attachmentParts(videoAtt({ transcript: "the codeword is zephyr" })),
+      attachmentParts(videoAtt({ indexed: true, indexId: "att_vl_idx", transcript: "opening preview" })),
+    ]) {
+      const intro = parts.find(p => p.type === "text")!.text as string;
+      for (const bit of LAW_BITS) expect(intro).toContain(bit);
+    }
+  });
+
+  it("F76: inline text delivery carries the numeric-fidelity law (digit-exact quoting, verified restatements)", () => {
+    // The defect this pins: extraction delivered the printed amount verbatim,
+    // then the answer re-grouped it 10x (one figure, two contradictory values).
+    // The law is universal — no currency, unit, value or subject may appear.
+    // (The indexed-delivery side of the same law rides the rules() base in
+    // lib/server/attachindex/turn.ts ⇔ ruke-attach turn.rs, byte-replayed by
+    // the attachment goldens and pinned by the Rust rules unit test.)
+    const att = {
+      id: "att_tx", name: "quarterly.txt", kind: "file", mime: "text/plain", size: 64,
+      status: "ready", category: "document", text: "Revenue this quarter: 12,34,567.",
+    } as unknown as Attachment;
+    const parts = attachmentParts(att);
+    expect(parts.length).toBe(1);
+    const body = parts[0].text as string;
+    expect(body).toContain("[file content begins]\nRevenue this quarter: 12,34,567.\n[file content ends]");
+    for (const bit of [
+      "keep its exact digits and digit grouping",
+      "state the exact conversion being applied",
+      "verify the restated figure has the same value",
+      "never give two versions of one figure that have different values",
+      "This applies to every restated version anywhere in the answer, including brief asides",
+    ]) expect(body).toContain(bit);
+  });
+
   it("frame labels format across the hour boundary (1:02:03-style stamps)", () => {
     const parts = attachmentParts(
       videoAtt({ frames: [{ dataUrl: "data:image/png;base64,CCCC", at: 3723 }], durationSec: 4000 }),

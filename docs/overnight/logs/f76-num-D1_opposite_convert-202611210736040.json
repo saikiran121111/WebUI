@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "key_version": "f76-numeric-8",
+  "case": "D1_opposite_convert",
+  "law_mirror": true,
+  "delivered_body": "Attached file: registry-extract.txt\n[file content begins]\nRegistry extract.\nPlot price: ₹12,34,56,789.\nAnnual fee: ₹98,765.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values. This applies to every restated version anywhere in the answer, including brief asides.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**₹12.3456789 crore**\n\n- **Original (exact digits and grouping, as in the extract):** ₹12,34,56,789\n- **Conversion applied:** 1 crore = 1,00,00,000 (10⁷). Divide the rupee amount by 10⁷, i.e. shift the decimal point 7 places left: 12,34,56,789 → 12.3456789.\n- **Restated value:** ₹12.3456789 crore\n\nVerification: 12.3456789 × 1,00,00,000 = 12,34,56,789 — identical to the registry figure, no rounding applied.\n\nBreakdown by place value, for checking: 12 crore + 34 lakh + 56 thousand + 789 = 12,00,00,000 + 34,00,000 + 56,000 + 789 = ₹12,34,56,789.\n\n(Aside, if useful: the annual fee ₹98,765 = ₹0.98765 lakh = ₹0.0098765 crore — same value, just different units.)"
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=663"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"12.3456789 crore\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": true,
+      "detail": "7 in-scope figure(s) all equal an accepted value"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "7 in-scope figure(s) audited"
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+{
+ "policy": {
+  "allow_gpu": false,
+  "allow_gpu_default_reason": "the pinned OCR runtime is the CPU build: paddle.is_compiled_with_cuda() returned False on this host (measured 2026-11-17). GPU placement becomes available by preparing a CUDA-enabled pinned build in the isolated runtime and setting RUKE_OCR_ALLOW_GPU=1; it is never enabled by borrowing the main LLM's device.",
+  "allow_unload": true,
+  "allow_unload_default_reason": "the coordinated handoff is the configured deployment policy, not an acceptance-script flag: it is automatic when the measured resources do not fit alongside the resident main model AND the provider answers a validated unload/load lifecycle. It is switched off with RUKE_LLM_AUTOMATIC_HANDOFF=0; the legacy per-run override RUKE_OCR_ALLOW_UNLOAD=1/0 still wins over the configured default. Unloading is never taken when the job already fits, never while a turn is running, and never against a provider whose lifecycle calls are unvalidated.",
+  "allow_unload_source": "default(true: unloading is allowed only when the job does not fit and the provider supports lifecycle calls)",
+  "primary": "paddleocr-vl-1.6",
+  "provider": {
+   "api_key": "<redacted>",
+   "api_key_set": true,
+   "api_prefix": "/v1",
+   "automatic_handoff": true,
+   "chat_url": "http://127.0.0.1:8080/v1/chat/completions",
+   "config_source": {
+    "api_key": "dotenv(LLM_API_KEY)",
+    "automatic_handoff": "default(true: unloading is allowed only when the job does not fit and the provider supports lifecycle calls)",
+    "chat_url": "dotenv(LLM_API_URL)",
+    "control_origin": "derived-from-chat-url(dotenv(LLM_API_URL))",
+    "lifecycle_base": "unset(append to the control origin, which preserves the root-mounted lifecycle endpoints this deployment serves)",
+    "load_url": "dotenv(LLM_RELOAD_URL)",
+    "unload_url": "dotenv(LLM_UNLOAD_URL)"
+   },
+   "control_origin": "http://127.0.0.1:8080",
+   "lifecycle_base": null,
+   "lifecycle_explicit": true,
+   "load_url": "http://127.0.0.1:8080/load",
+   "model": null,
+   "provider_hint": null,
+   "unload_url": "http://127.0.0.1:8080/unload"
+  },
+  "source": "primary/gpu: env(RUKE_OCR_PRIMARY/RUKE_OCR_ALLOW_GPU); handoff policy: ruke_ml.models.provider_config (settings.json > env > .env.local > default)"
+ },
+ "primary": {
+  "assets": [
+   {
+    "detail": "snapshot 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd found in the project cache root",
+    "model_id": "PaddlePaddle/PaddleOCR-VL-1.6",
+    "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd",
+    "present": true
+   },
+   {
+    "detail": "snapshot 241f8bdfc77a7c7bee915a5057aaee58c235a8d3 found in the project cache root",
+    "model_id": "PaddlePaddle/PP-DocLayoutV3",
+    "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PP-DocLayoutV3\\snapshots\\241f8bdfc77a7c7bee915a5057aaee58c235a8d3",
+    "present": true
+   }
+  ],
+  "blockers": [],
+  "engine": "paddleocr-vl-1.6",
+  "estimate": {
+   "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+   "est_peak_mib": 3300,
+   "est_peak_vram_mib": 6000,
+   "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)"
+  },
+  "ready": true,
+  "runtime": {
+   "abi_issues": [],
+   "cpu_only_verified": true,
+   "detail": "interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe",
+   "found": true,
+   "inside_project": true,
+   "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+   "mismatched": [],
+   "missing": [],
+   "pinned": {
+    "opencv-contrib-python": "4.10.0.84",
+    "paddleocr": "3.6.0",
+    "paddlepaddle": "3.2.1",
+    "paddlex": "3.6.1",
+    "protobuf": "7.36.2"
+   },
+   "runtime": "paddle-ocr-cpu"
+  }
+ },
+ "primary_engine": {
+  "blockers": [],
+  "engine": "paddleocr-vl-1.6",
+  "est_peak_basis": "provisional: pinned weight bytes 1966 MiB + paddle runtime and activation allowance; NOT yet a measured cold-load peak",
+  "est_peak_mib": 3300,
+  "est_peak_vram_mib": 6000,
+  "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+  "est_vram_kind": "provisional",
+  "estimate_kind": "provisional",
+  "fault": "",
+  "fault_note": "",
+  "layout_asset": {
+   "detail": "snapshot 241f8bdfc77a7c7bee915a5057aaee58c235a8d3 found in the project cache root",
+   "model_id": "PaddlePaddle/PP-DocLayoutV3",
+   "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PP-DocLayoutV3\\snapshots\\241f8bdfc77a7c7bee915a5057aaee58c235a8d3",
+   "present": true
+  },
+  "model_id": "PaddleOCR-VL-1.6",
+  "ready": true,
+  "recognition_asset": {
+   "detail": "snapshot 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd found in the project cache root",
+   "model_id": "PaddlePaddle/PaddleOCR-VL-1.6",
+   "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd",
+   "present": true
+  },
+  "runtime": {
+   "abi_issues": [],
+   "cpu_only_verified": true,
+   "detail": "interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe",
+   "found": true,
+   "inside_project": true,
+   "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+   "mismatched": [],
+   "missing": [],
+   "pinned": {
+    "opencv-contrib-python": "4.10.0.84",
+    "paddleocr": "3.6.0",
+    "paddlepaddle": "3.2.1",
+    "paddlex": "3.6.1",
+    "protobuf": "7.36.2"
+   },
+   "runtime": "paddle-ocr-cpu"
+  },
+  "worker": "ocr_paddle_worker.py",
+  "worker_present": true
+ },
+ "rasterizer": {
+  "package": "pypdfium2",
+  "present": true,
+  "version": "5.6.0"
+ },
+ "recovery": {
+  "detail": "engine validated (tesseract v5.5.3.20260724); rasterizer pypdfium2 importable; per-page OCR is executable here",
+  "human_step": "",
+  "languages": [
+   "eng",
+   "osd"
+  ],
+  "languages_source": "captured from --list-langs of the validated binary",
+  "quality": "not measured on this host until the document quality gate runs",
+  "status": "available"
+ },
+ "recovery_languages": [
+  "eng",
+  "osd"
+ ]
+}

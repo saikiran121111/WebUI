@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "key_version": "f76-numeric-7",
+  "case": "D1_opposite_convert",
+  "law_mirror": true,
+  "delivered_body": "Attached file: registry-extract.txt\n[file content begins]\nRegistry extract.\nPlot price: ₹12,34,56,789.\nAnnual fee: ₹98,765.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**₹12.3456789 crore** (exact, not rounded).\n\n- Original: ₹12,34,56,789 (digit grouping as it appears in the extract)\n- Conversion applied: 1 crore = 1,00,00,000 = 10⁷, so divide the rupee figure by 10⁷ — i.e. place the crore boundary after the leading \"12\": 12 | 34,56,789 → 12.3456789 crore\n- Check back: 12.3456789 × 1,00,00,000 = 12,34,56,789 ✓ — same digits (123456789), same value."
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=386"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"12.3456789 crore\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": true,
+      "detail": "3 in-scope figure(s) all equal an accepted value"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "3 in-scope figure(s) audited"
+    }
+  ]
+}

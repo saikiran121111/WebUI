@@ -1,0 +1,26 @@
+ok   extract_delivered_text - chars=1759 indexed=undefined chunks=0
+ok   late_fact_reached_the_body - key fact "4,18,25,000" is the delivered body
+extract coverageNote: "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]"
+
+stages seen: [{"stage":"decision_done","mode":"standard_chat","ms":142},{"stage":"skill","ms":0}]
+finish_reason=stop doneFrames=1 ruke_error=none
+answer (1074 chars):
+GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+The award appears on **page 6** of the scan (the only page that mentions it).
+
+What it ordered, as the document states it:
+
+- **Amount:** **4,18,25,000 rupees** (Indian-style lakh/crore grouping GÇö i.e. Gé¦4.1825 crore, Gëê Gé¦41.8 million)
+- **Period:** **within ninety (90) days**
+- **Interest:** **6% per annum**
+
+One nuance worth flagging: page 6 doesn't reproduce the award itself. It is a chapter-level report GÇö "**Chapter eleven records that** the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum." So the figure is as recorded/reported in this document, not a quoted extract from the award, and it comes from OCR of a scan, so if the number matters for filing or computation you'd want to check it against the award's own text. The remaining five pages are unrelated groundwater/hydraulic material (aquifer yield, salinity at the Kandla gauge, a station flow/turbidity table, a recharge Python snippet, and a Q = W-+b-+GêÜ(2gh) note), so nothing in them corroborates or contradicts the sum.
+GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+ok   single_stream_terminal - doneFrames=1 finish=stop error=none
+ok   answer_not_empty - chars=1074
+ok   late_fact_delivered - exact amount "4,18,25,000" (frozen key)
+ok   deadline_delivered - payment period stated
+ok   page_attributed - key names page 6 as the late evidence
+ok   no_repeat_loop - phrase repeated 1x in one answer
+
+ANSWER PASS - evidence docs\overnight\logs\f74-answer-f74i.json

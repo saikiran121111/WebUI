@@ -1,0 +1,48 @@
+[00:54:36] processing: device=cpu est_peak_mib=3300
+[00:54:37] ocr: Tesseract recovery for 1 unit(s): primary pipeline unavailable: fault-injected by RUKE_OCR_FAULT=unavailable for the fallback acceptance run; this is NOT an engine result
+[00:54:37] ocr: page 1 at 200 dpi
+[00:54:37] releasing_worker: worker resources released by the adapter
+[00:54:37] ready: lease released
+{
+  "ok": true,
+  "reason": "",
+  "final_status": "ok",
+  "device": "cpu",
+  "freed_physical_mib": null,
+  "work": {
+    "peak": {
+      "working_set_mib": null,
+      "commit_mib": null,
+      "measured": false,
+      "components": {
+        "primary_worker_child": {
+          "measured": false,
+          "working_set_mib": null,
+          "commit_mib": null,
+          "note": "the primary engine never ran, so it has no measured peak"
+        },
+        "owned_tree": {
+          "working_set_mib": null,
+          "commit_mib": null,
+          "samples": 0,
+          "usable_samples": 0,
+          "measured": false,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 27172,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge",
+          "note": "no usable sample was taken during this stage, so the peak is UNKNOWN and is reported as unknown rather than as zero"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\3ed30d295250337860504504a0611187d6741cf8b68553f102c82a762bc247e0.json",
+    "units_persisted": 1,
+    "device_used": "cpu",
+    "device_echo": {},
+    "pages": 1,
+    "recognised": 1,
+    "unresolved": []
+  },
+  "out": "docs/overnight/logs/f73-engine-fallback-fixed2.json"
+}

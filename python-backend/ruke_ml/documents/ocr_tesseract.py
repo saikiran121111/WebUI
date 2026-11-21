@@ -202,9 +202,25 @@ def render_page_png(pdf_path: str | Path, page_1based: int, *, dpi: int = DEFAUL
                              f"page {page_1based} is outside the {total} page document")
     try:
         page = doc[page_1based - 1]
-        bitmap = page.render(scale=dpi / 72.0, rotation=int(rotation) % 360)
+        requested = int(rotation) % 360
+        if requested:
+            # pypdfium2 renders the page's own /Rotate on top of nothing and treats this
+            # parameter as ADDITIONAL ("Additional rotation in degrees", pypdfium2 5.6.0
+            # render docstring). Callers pass the declared /Rotate as the orientation to
+            # render, so subtract the page's intrinsic rotation to make the parameter mean
+            # what callers use it for. F73 production measured the consequence of not doing
+            # this: a /Rotate 90 page was turned twice (total 180°) and the engine delivered
+            # upside-down garbage while the CLI - which passes no rotations - read the very
+            # same page correctly.
+            intrinsic = int(page.get_rotation()) % 360
+            additional = (requested - intrinsic) % 360
+        else:
+            # No caller opinion: pdfium's own view orientation (page /Rotate applied once)
+            # is the correct read, exactly as the standalone ocr_job CLI has always done.
+            additional = 0
+        bitmap = page.render(scale=dpi / 72.0, rotation=additional)
         buf = bytes(bitmap.buffer)
-        info = {"page": page_1based, "dpi": dpi, "rotation": int(rotation) % 360,
+        info = {"page": page_1based, "dpi": dpi, "rotation": requested,
                 "width": bitmap.width, "height": bitmap.height,
                 "channels": bitmap.n_channels, "rasterizer": "pypdfium2"}
         png = encode_png(bitmap.width, bitmap.height, bitmap.n_channels, buf)

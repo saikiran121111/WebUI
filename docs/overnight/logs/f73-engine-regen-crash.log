@@ -1,0 +1,61 @@
+[01:13:28] processing: device=cpu est_peak_mib=3300
+[01:13:29] ocr: paddleocr-vl-1.6 page 1 at 200 dpi
+[01:13:29] ocr: Tesseract recovery for 1 unit(s): the primary engine did not read 1
+[01:13:29] ocr: page 1 at 200 dpi
+[01:13:29] releasing_worker: worker resources released by the adapter
+[01:13:29] ready: lease released
+{
+  "ok": true,
+  "reason": "",
+  "final_status": "ok",
+  "device": "cpu",
+  "freed_physical_mib": null,
+  "work": {
+    "peak": {
+      "working_set_mib": 114,
+      "commit_mib": 85,
+      "measured": true,
+      "components": {
+        "primary_worker_child": {
+          "working_set_mib": 5,
+          "commit_mib": 9,
+          "samples": 1,
+          "measured": true,
+          "definition": "resident = max sampled working set over the process tree; commit = max(sampled commit, job-object peak charge). They are different quantities and neither is a substitute for the other. A null means the quantity was never measured, not that it was zero.",
+          "device_used": "cpu"
+        },
+        "owned_tree": {
+          "working_set_mib": 114,
+          "commit_mib": 85,
+          "samples": 1,
+          "usable_samples": 1,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 11460,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\c45fa1e247b3ce897af610873e876f54e61b56b98d7fee33a1df1999190fd5f7.json",
+    "units_persisted": 1,
+    "device_used": "cpu",
+    "device_echo": {
+      "event": "ready",
+      "stage": "load",
+      "seconds": 0.0,
+      "device": "cpu",
+      "cuda_compiled": false,
+      "paddle_version": "not-loaded(fault-injected)",
+      "dropped_kwargs": [],
+      "fault": "crash",
+      "detail": "fault-injected ready handshake; no weights were loaded"
+    },
+    "pages": 1,
+    "recognised": 1,
+    "unresolved": []
+  },
+  "out": "docs/overnight/logs/f73-engine-regen-crash.json"
+}

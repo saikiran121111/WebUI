@@ -348,6 +348,43 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
     expect(merged.coverageNote).toContain("both readers agree every page carries a text layer");
   });
 
+  it("a heading-only text layer over a raster body gets the OCR read as second reader, without repeating shared lines", () => {
+    // F73 production (frozen key d1-ocr-1, d1_mixed page 1): the pdf.js layer carried only
+    // the page heading; the page BODY was a raster image the capability OCR read. The old
+    // second-reader picked the capability engine's OWN text-layer unit - the same pypdf
+    // layer pdf.js had just printed - so the OCR body never reached the delivery.
+    const HEADING = "Exhibit C - native heading carried by the text layer, not by recognition.";
+    const merged = mergePdfUnits(
+      { pages: 3, perPage: [HEADING, "TS-PAGE-TWO", "TS-PAGE-THREE"], pagesWithoutText: [] },
+      doc({
+        unitsTotal: 3, unitsSucceeded: [1, 2, 3], unitsEmpty: [], unitsNeedingOcr: [1], ocrUnits: [1],
+        units: [
+          { unit: 1, text: HEADING, provenance: "text-layer", engine: "pypdf-7.1.0", language: "", confidence: null },
+          // A whole-page scan is the near-miss: the OCR output repeats the heading line the
+          // text layer already delivered. It must not appear twice in the body.
+          { unit: 1, text: `${HEADING}\nSection 4.2 Ground Water\nThe aquifer beneath the basin yields 1.4 million cubic metres per month.`, provenance: "ocr", engine: "tesseract-5.5.3.20260724", language: "eng", confidence: 0.9 },
+          { unit: 2, text: "CAP-TWO", provenance: "text-layer", engine: "pypdf-7.1.0", language: "", confidence: null },
+          { unit: 3, text: "CAP-THREE", provenance: "text-layer", engine: "pypdf-7.1.0", language: "", confidence: null },
+        ],
+        ocr: {
+          ran: true, attempted: 1, recognized: 1, language: "eng", languageSource: "request",
+          summary: "1/1 page(s) recognised (eng)", reason: "", needsLanguage: false,
+          pages: [{ unit: 1, state: "recognised", engine: "tesseract-5.5.3.20260724", detail: "", confidence: 0.9, languageCode: "eng", rotation: null }],
+          engines: ["tesseract-5.5.3.20260724"], enginesRecognised: { "tesseract-5.5.3.20260724": 1 },
+          primaryReady: false,
+        },
+      }),
+    );
+    expect(merged.readBy[1]).toBe("ts-text-layer");
+    const pageOne = merged.text.slice(merged.text.indexOf("[page 1"), merged.text.indexOf("[page 2"));
+    expect(pageOne).toContain(HEADING);
+    expect(pageOne).toContain("Section 4.2 Ground Water");
+    expect(pageOne).toContain("tesseract-5.5.3.20260724");
+    // the whole body, not just page 1: the key counts the heading across the DELIVERED body
+    expect(merged.text.split(HEADING).length - 1).toBe(1);
+    expect(merged.coverageNote).toMatch(/OCR-flagged and OCR output exists but the TS text layer was kept/);
+  });
+
   it("an OCR page fills the hole and carries engine, language and confidence with it", () => {
     const merged = mergePdfUnits(
       { pages: 3, perPage: ["TS-ONE", "", "TS-THREE"], pagesWithoutText: [2] },
@@ -513,6 +550,27 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
     );
     expect(merged.unreadUnits).toEqual([2]);
     expect(merged.coverageNote).toMatch(/OCR needs an explicit language/);
+    expect(merged.text).not.toMatch(/OCR read/);
+  });
+
+  it("the scanned refusal itself names the language switch: a 422 delivers ONLY the refusal", () => {
+    // f74g measured the gap end to end: the coverage-note clause existed, but the route throws
+    // `${name}: ${merged.refusal}` for an unreadable scan, so only the refusal sentence reaches
+    // the user - and it carried the raw reason without the actionable switch. The key checks
+    // both phrases in the DELIVERY.
+    const merged = mergePdfUnits(
+      { pages: 2, perPage: ["", ""], pagesWithoutText: [1, 2] },
+      doc({
+        unitsTotal: 2, unitsSucceeded: [], unitsEmpty: [1, 2], unitsNeedingOcr: [1, 2], ocrUnits: [1, 2],
+        meta: { page_numbering: "1-based", pages: 2, pages_with_images: { "1": 1, "2": 1 } },
+        ocr: { ran: false, attempted: 0, recognized: 0, language: "", summary: "",
+          reason: "no document language was given or declared", needsLanguage: true,
+          pages: [], engines: [], enginesRecognised: {}, primaryReady: false, languageSource: "" },
+      }),
+    );
+    expect(merged.refusal).toMatch(/needs an explicit language/);
+    expect(merged.refusal).toContain("RUKE_DOCUMENT_OCR_LANGUAGE");
+    expect(merged.refusal).toContain("no document language was given or declared");
     expect(merged.text).not.toMatch(/OCR read/);
   });
 

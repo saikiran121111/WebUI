@@ -1,0 +1,23 @@
+npm notice run webui-chat@0.2.0 npx
+npm notice run playwright test pdf-egress long-doc-retrieval --reporter=list
+
+Running 4 tests using 1 worker
+
+  ✓  1 [chromium-visible] › tests\long-doc-retrieval.spec.ts:73:7 › long document knowledge index › extraction API: oversized text is indexed, not truncated (616ms)
+  ✓  2 [chromium-visible] › tests\long-doc-retrieval.spec.ts:99:7 › long document knowledge index › extraction API: without an att id the classic cap path is untouched (15ms)
+  turn1: Thought for 2s View reasoning YES Verdanthill-42 Copy
+  turn2: Thought for <1s View reasoning Verdanthill-42 Copy
+  ✓  3 [chromium-visible] › tests\long-doc-retrieval.spec.ts:112:7 › long document knowledge index › the model answers from the deep marker, then again next turn (31.4s)
+  ✘  4 [chromium-visible] › tests\pdf-egress.spec.ts:72:5 › finding 7: exporting an html artifact as PDF cannot phone home from the render (87ms)
+
+
+  1) [chromium-visible] › tests\pdf-egress.spec.ts:72:5 › finding 7: exporting an html artifact as PDF cannot phone home from the render 
+
+    TypeError: fetch failed
+    [cause]: Error: connect ECONNREFUSED 127.0.0.1:3210
+
+    Error Context: test-results\pdf-egress-finding-7-expor-9cbd2--phone-home-from-the-render-chromium-visible\error-context.md
+
+  1 failed
+    [chromium-visible] › tests\pdf-egress.spec.ts:72:5 › finding 7: exporting an html artifact as PDF cannot phone home from the render 
+  3 passed (32.7s)

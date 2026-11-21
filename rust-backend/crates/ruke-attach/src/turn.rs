@@ -264,6 +264,16 @@ fn rules(r: &AttachmentRef) -> String {
         "part of the content clearly enough to answer it — do not guess, and do not explain how the content ",
         "was processed. ",
     ));
+    // F76 numeric-fidelity law — byte-identical to the TS rules() base segment
+    // above; rides EVERY indexed category (figures live in documents, slides
+    // and speech alike).
+    s.push_str(concat!(
+        "When quoting a figure from the material, keep its exact digits and digit grouping. When restating ",
+        "a figure in different units or a different grouping convention, state the exact conversion being ",
+        "applied and verify the restated figure has the same value; never give two versions of one figure ",
+        "that have different values. This applies to every restated version anywhere in the answer, ",
+        "including brief asides. ",
+    ));
     s.push_str(if is_video {
         concat!(
             "This video's complete saved record is kept locally and you are shown the parts of it that matter to ",
@@ -345,9 +355,18 @@ pub fn anchor_query(question: &str, messages: &[Value], user_idx: usize) -> Stri
 }
 
 /// The video keyframes lead-in line appended to the user turn (byte-exact).
+/// F76 (2026-11-21): carries the sampling law — the delivered instants say
+/// nothing about the time between them, and without the law the model fills
+/// that gap ("visible throughout the clip"). Byte-identical to the lead-in in
+/// `lib/server/attachindex/turn.ts` (the attachment goldens replay these
+/// bytes) and to `VIDEO_MOMENTS_LAW` in `lib/chat/client.ts`.
 const FRAME_LEAD_IN: &str = concat!(
     "Moments from the attached video nearest to the discussed time range — they come from the video's saved ",
     "record; describe them as things that happen in the video, never as frames:",
+    " The images are isolated moments: the record holds no evidence about the time between, before or after them. ",
+    "Never claim that something is visible throughout a video, always or never shown, or unchanged across any ",
+    "stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say ",
+    "the rest cannot be confirmed.",
 );
 
 /// `buildAttachmentTurn` — returns the number of injected system blocks.
@@ -744,10 +763,15 @@ mod tests {
     #[test]
     fn rules_variant_boundaries_are_exact() {
         let v = rules(&ref_of("att_x1", "V", "video"));
-        // Segment 4 of the base ends "…was processed. " and the video
-        // variant starts "You have watched…" — one space, no re-flowing.
-        assert!(v.contains("do not explain how the content was processed. This video's complete saved record is kept locally and you are shown the parts of it that matter to this question"));
+        // The base ends "…was processed. ", the F76 numeric-fidelity law rides
+        // next, then the variant starts "This video's…" — one space at each
+        // boundary, no re-flowing.
+        assert!(v.contains("do not explain how the content was processed. When quoting a figure from the material, keep its exact digits and digit grouping."));
+        assert!(v.contains("never give two versions of one figure that have different values. This applies to every restated version anywhere in the answer, including brief asides. This video's complete saved record is kept locally and you are shown the parts of it that matter to this question"));
         assert!(v.ends_with("when a time reference genuinely helps."));
+        // The law rides every category, not just video.
+        let doc = rules(&ref_of("att_x1", "D", "document"));
+        assert!(doc.contains("When quoting a figure from the material") && doc.contains("including brief asides. You have read this document directly"));
         let a = rules(&ref_of("att_x1", "A", "audio"));
         assert!(a.ends_with("This recording's complete saved record is kept locally and you are shown the parts that matter to this question: speak of what the recording says; never claim to have heard it yourself, and never mention transcription, retrieval or indexing."));
         let d = rules(&ref_of("att_x1", "D", "document"));

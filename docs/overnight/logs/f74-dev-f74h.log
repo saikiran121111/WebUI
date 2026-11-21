@@ -1,0 +1,51 @@
+npm notice run webui-chat@0.2.0 dev
+npm notice run node scripts/dev-supervisor.mjs
+[dev-supervisor] python: project venv reused (offline start, python 3.12.15)
+[dev-supervisor] Building Rust backend (cargo build)...
+warning: function `resolve_with` is never used
+   --> crates\ruke-core\src\settings.rs:256:4
+    |
+256 | fn resolve_with(
+    |    ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ruke-core` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.23s
+[dev-supervisor] Rust backend build OK.
+ruke-ml commit ceiling enforced: 5000000000 bytes via windows-job-object (ruke-runtime)
+ruke-ml supervisor ready on 127.0.0.1:64069 pid=16748
+03:28:48 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[dev-supervisor] Python supervisor ready on 127.0.0.1:64069 (pid 4756, state ready, heavy imports at startup: 0, idle TTL 120s).
+[dev-supervisor] starting ruke-server rust-backend\target\debug\ruke-server.exe (pid 6648) on 127.0.0.1:3101...
+[2m2026-11-20T21:58:48.565713Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m shared-endpoint admission is lease-aware (handoff windows are refused, not woken) [3mlease[0m[2m=[0mD:\Projects\WebUI\WebUI\.ai-coordination\llm-handoff.lock [3mwait_ms[0m[2m=[0m2000
+[2m2026-11-20T21:58:48.573908Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m attachment query-embedder configured (Node ONNX loopback RPC)
+[2m2026-11-20T21:58:48.574581Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m web-research bridge configured (Next-owned TS search via loopback RPC)
+[2m2026-11-20T21:58:48.584194Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m capability backend rendezvous resolved (python supervisor; status on GET /api/ruke/ml-status) [3mendpoint[0m[2m=[0mhttp://127.0.0.1:64069 [3msource[0m[2m=[0m"discovery" [3msupervisor_pid[0m[2m=[0mSome(16748)
+[2m2026-11-20T21:58:48.584997Z[0m [32m INFO[0m [2mruke_server[0m[2m:[0m ruke-server listening (health + isolated /api/chat) — Next :3000 remains authoritative [3maddr[0m[2m=[0m127.0.0.1:3101 [3mroot[0m[2m=[0mD:\Projects\WebUI\WebUI
+[dev-supervisor] Rust backend ready.
+[dev-supervisor] starting next dev (pid 13344) on 127.0.0.1:3000...
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+  - Experiments (use with caution):
+    · instrumentationHook
+
+ ✓ Starting...
+[dev-supervisor] Next.js ready (listening).
+[dev-supervisor] Ready
+  UI:      http://localhost:3000
+  Backend: http://127.0.0.1:3101
+  proxy delegation ON · bridge secret armed
+Press Ctrl+C to stop RUKE.
+ ○ Compiling /instrumentation ...
+ ✓ Compiled /instrumentation in 923ms (154 modules)
+ ✓ Ready in 2.6s
+ ○ Compiling / ...
+ ✓ Compiled / in 3.5s (7780 modules)
+ GET / 200 in 1342ms
+ ○ Compiling /api/files/extract ...
+ ✓ Compiled /api/files/extract in 544ms (4011 modules)
+03:28:56 127.0.0.1 "POST /job HTTP/1.1" 200 -
+[03:28:56.639] [31mERROR[39m (api/files/extract): [36mextraction failed: d1_scan_nolang.pdf: this document has no readable text layer - pages 1, 2, 3, 4, 5, 6 carry image content with no text layer. OCR needs an explicit language (set RUKE_DOCUMENT_OCR_LANGUAGE); the engine was not run: no document language was given or declared; the engine's language data is chosen explicitly and is never defaulted to English. Send the page you care about as an image and the vision model can read it.[39m [90m{"file":"d1_scan_nolang.pdf"}[39m
+ POST /api/files/extract?name=d1_scan_nolang.pdf&att=att_d1nolanguage01 422 in 938ms

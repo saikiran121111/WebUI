@@ -1,0 +1,13 @@
+d1_mixed.pdf: not_evaluable (0/0 checks ok)
+d1_native.pdf: not_evaluable (0/0 checks ok)
+d1_rotated_scan.pdf: not_evaluable (0/0 checks ok)
+d1_scan_nolang.pdf: not_evaluable (0/0 checks ok)
+d1_scanned.pdf: fail (18/22 checks ok) misses=['page5_phrase_in_units', 'page5_wer<=limit', 'page6_phrase_in_units', 'page6_wer<=limit']
+{
+  "states": {
+    "pass": 0,
+    "fail": 1,
+    "not_evaluable": 4
+  },
+  "out": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\d1-engine-20261121-010545.json"
+}

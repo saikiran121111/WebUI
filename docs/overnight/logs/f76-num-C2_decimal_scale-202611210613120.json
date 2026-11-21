@@ -1,0 +1,40 @@
+{
+  "ok": false,
+  "key_version": "f76-numeric-5",
+  "case": "C2_decimal_scale",
+  "law_mirror": true,
+  "delivered_body": "Attached file: lab-record.txt\n[file content begins]\nLab record, line 2.\nSample mass: 0.0045 mg.\nReagent mass: 125 mg.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**Sample mass = 4.5 µg**\n\nConversion applied: 1 mg = 1000 µg, so 0.0045 mg × 1000 = 4.5 µg.\n\nCheck: 4.5 µg ÷ 1000 = 0.0045 mg — same value as the quoted figure \"0.0045 mg\", digits preserved.\n\n(For reference, the other figure in the record, the reagent mass of 125 mg, is a separate quantity and equals 125 000 µg.)"
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=314"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"4.5 µg\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": false,
+      "detail": "figure(s) with values outside the accepted set: 000 µg = 0"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "8 in-scope figure(s) audited"
+    }
+  ]
+}

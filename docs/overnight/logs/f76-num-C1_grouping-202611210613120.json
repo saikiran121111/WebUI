@@ -1,0 +1,40 @@
+{
+  "ok": false,
+  "key_version": "f76-numeric-5",
+  "case": "C1_grouping",
+  "law_mirror": true,
+  "delivered_body": "Attached file: quarterly-ops.txt\n[file content begins]\nQuarterly operations report, section 4.\nRevenue this quarter: ₹12,34,567.\nCosts this quarter: ₹8,00,120.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**Revenue: ₹1,234,567**\n\n- Source figure as written: ₹12,34,567 (Indian/Lakh grouping: 12 lakh, 34 thousand, 567).\n- Conversion applied: regrouping only — same digits, one unit (rupees), no scaling. Remove the lakh comma and re-insert commas every three digits from the right.\n- Verification: 12,34,567 = 12,00,000 + 34,000 + 567 = 12,00,000 + 34,567 = 12,34,567 = 1,234,567 ✓ (₹12 × 100,000 = 1,200,000; ₹34 × 1,000 = 34,000; + 567 = 1,234,567). Same value, unchanged digits.\n\nIn words: one million two hundred thirty-four thousand five hundred sixty-seven rupees (equivalently 12.35 lakh, or 12,34,567 in Indian grouping)."
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=624"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"1,234,567\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": false,
+      "detail": "figure(s) with values outside the accepted set: 12 = 12 | 34 = 34 | 12.35 lakh = 1235000"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "5 in-scope figure(s) audited"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+tree env: RUKE_OCR_ALLOW_UNLOAD=0 RUKE_LLM_AUTOMATIC_HANDOFF=0 RUKE_OCR_FAULT='' RUKE_OCR_PRIMARY='' RUKE_DOCUMENT_OCR_LANGUAGE='eng' RESULT_DIR=D:\Projects\WebUI\WebUI\.data\tmp\f73-prod-content-answer
+dev tree root pid 6228; log D:\Projects\WebUI\WebUI\docs\overnight\logs\f73-dev-content-answer.log
+tree ready: True (after up to 240 s)
+  | d1_native.pdf: http 200 in 1.05s, 8/8 checks ok
+  | MISS d1_scanned.pdf page5_phrase_in_body: delivered: Q=Wxbxsqrt(2gh) T =25degC, pH =7.4, EC =0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook.
+  | MISS d1_scanned.pdf page5_wer<=limit: wer=0.471 limit=0.1
+  | d1_scanned.pdf: http 200 in 8.58s, 14/16 checks ok
+  | MISS d1_mixed.pdf mixed_page1_recognised: Exhibit C - native heading carried by the text layer, not by recognition.
+  | d1_mixed.pdf: http 200 in 6.55s, 7/8 checks ok
+  | MISS d1_rotated_scan.pdf rotated_recognised: �auo|e uoisnuul [eph} uey} Jayjel moj} uoseas-AIp paonpal "610g Jo} ajewnsa abieyoal ay} jo %�29 Je padded aiam sjwiad uonoesxy *S||oM UOI}BAISSQO USAS|S SSOJOE palnseaw
+  | d1_rotated_scan.pdf: http 200 in 6.53s, 4/5 checks ok
+  | {
+  |   "pass": "content",
+  |   "misses": 4,
+  |   "out": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\d1-http-content-answer-content.json"
+  | }
+production pass content: exit 1; evidence D:\Projects\WebUI\WebUI\docs\overnight\logs\d1-http-content-answer-content.json
+  | ok   extract_delivered_text - chars=1759 indexed=undefined chunks=0
+  | ok   late_fact_reached_the_body - key fact "4,18,25,000" is the delivered body
+  | extract coverageNote: "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]"
+  | 
+  | stages seen: [{"stage":"decision_done","mode":"standard_chat","ms":135},{"stage":"skill","ms":0}]
+  | finish_reason=stop doneFrames=1 ruke_error=none
+  | answer (498 chars):
+  | ────────────────────────────────────────────────────────────────────────
+  | The award appears on **page 6** of the scan (in the passage beginning "Chapter eleven records that…").
+  | 
+  | It ordered the defendant to pay **₹4,18,25,000** (written in the document as "4,18,25,000 rupees", i.e. ₹4.18 crore in Indian digit grouping) **within ninety days**, with interest at **6% per annum**.
+  | 
+  | One caveat: page 6 has no embedded text layer — this wording comes from OCR (Tesseract), so the figures are as machine-read rather than guaranteed character-perfect against the original print.
+  | ────────────────────────────────────────────────────────────────────────
+  | ok   single_stream_terminal - doneFrames=1 finish=stop error=none
+  | ok   answer_not_empty - chars=498
+  | ok   late_fact_delivered - exact amount "4,18,25,000" (frozen key)
+  | ok   deadline_delivered - payment period stated
+  | ok   page_attributed - key names page 6 as the late evidence
+  | ok   no_repeat_loop - phrase repeated 0x in one answer
+  | 
+  | ANSWER PASS - evidence docs\overnight\logs\f73-answer-content-answer.json
+answer action exit 0
+stopped pids: 6228, 26236, 2500, 22172, 26352, 22168, 12912, 23252, 16184, 16316, 26348, 27044
+handoff journal: absent (no lifecycle window opened - safety switches held)
+G60 RESULT content=1 answer=0

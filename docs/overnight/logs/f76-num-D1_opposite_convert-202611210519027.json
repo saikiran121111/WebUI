@@ -1,0 +1,40 @@
+{
+  "ok": false,
+  "key_version": "f76-numeric-2",
+  "case": "D1_opposite_convert",
+  "law_mirror": true,
+  "delivered_body": "Attached file: registry-extract.txt\n[file content begins]\nRegistry extract.\nPlot price: ₹12,34,56,789.\nAnnual fee: ₹98,765.\n[file content ends]\nWhen quoting a figure from the material, keep its exact digits and digit grouping. When restating a figure in different units or a different grouping convention, state the exact conversion being applied and verify the restated figure has the same value; never give two versions of one figure that have different values.",
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "**Plot price:** ₹12,34,56,789 → **₹12.3456789 crore** (exact, not rounded)\n\n**Conversion applied:** divide by 1,00,00,000 (i.e. 1 crore = 10⁷), which moves the decimal point 7 places to the left. Same rupee value, just expressed in crore instead of the lakh/grouped rupee notation.\n\n**Value check (reconstructed back into rupees):**\n- ₹12 crore = 12,00,00,000\n- ₹0.3456789 crore = 34,56,789 (0.3 → 30,00,000; 0.04 → 4,00,000; 0.005 → 50,000; 0.0006 → 6,000; 0.00007 → 700; 0.000008 → 80; 0.0000009 → 9)\n- Sum = **12,34,56,789** ✓ identical to the extract's ₹12,34,56,789\n\nIn mixed units the same figure reads: 12 crore, 34 lakh, 56 thousand, 789 rupees.\n\nOne caution: the usual shorthand **₹12.35 crore** is *not* the same value (it adds ₹4,311), so if the figure must match the registry exactly, write ₹12.3456789 crore or \"₹12.3456789 crore (₹12,34,56,789)\"."
+  },
+  "checks": [
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 finish=stop error=none"
+    },
+    {
+      "name": "answer_not_empty",
+      "ok": true,
+      "detail": "chars=860"
+    },
+    {
+      "name": "restatement_present_g1",
+      "ok": true,
+      "detail": "found \"12.3456789 crore\""
+    },
+    {
+      "name": "no_contradictory_figure",
+      "ok": false,
+      "detail": "figure(s) with values outside the accepted set: 12 crore = 120000000 | 0.3456789 crore = 3456789 | 12 crore = 120000000 | 34 lakh = 3400000 | 56 thousand = 56000 | 789 = 789 | 12.35 crore = 123500000 | 4,311 = 4311"
+    },
+    {
+      "name": "audit_found_figures",
+      "ok": true,
+      "detail": "14 in-scope figure(s) audited"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+ok   extract_delivered_text - chars=1759 indexed=undefined chunks=0
+ok   late_fact_reached_the_body - key fact "4,18,25,000" is the delivered body
+extract coverageNote: "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]"
+
+stages seen: [{"stage":"decision_done","mode":"standard_chat","ms":135},{"stage":"skill","ms":0}]
+finish_reason=stop doneFrames=1 ruke_error=none
+answer (498 chars):
+GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+The award appears on **page 6** of the scan (in the passage beginning "Chapter eleven records thatGÇª").
+
+It ordered the defendant to pay **Gé¦4,18,25,000** (written in the document as "4,18,25,000 rupees", i.e. Gé¦4.18 crore in Indian digit grouping) **within ninety days**, with interest at **6% per annum**.
+
+One caveat: page 6 has no embedded text layer GÇö this wording comes from OCR (Tesseract), so the figures are as machine-read rather than guaranteed character-perfect against the original print.
+GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+ok   single_stream_terminal - doneFrames=1 finish=stop error=none
+ok   answer_not_empty - chars=498
+ok   late_fact_delivered - exact amount "4,18,25,000" (frozen key)
+ok   deadline_delivered - payment period stated
+ok   page_attributed - key names page 6 as the late evidence
+ok   no_repeat_loop - phrase repeated 0x in one answer
+
+ANSWER PASS - evidence docs\overnight\logs\f73-answer-content-answer.json

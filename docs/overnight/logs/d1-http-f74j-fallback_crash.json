@@ -1,0 +1,158 @@
+{
+  "key_version": "d1-ocr-1",
+  "pass": "fallback_crash",
+  "base": "http://localhost:3000",
+  "run_at": "2026-11-21T03:40:53",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails",
+    "hard_max_mib": 4768
+  },
+  "memory": {
+    "baseline": {
+      "at": 1795212650.09,
+      "avail_physical_mib": 1907,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19157,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "during_run": {
+      "samples": 2,
+      "min_available_physical_mib": 1861,
+      "peak_physical_used_mib": 63438,
+      "peak_vram_used_mib": 9483,
+      "max_commit_available_mib": 19155,
+      "samples_head_tail": [
+        {
+          "at": 1795212650.12,
+          "avail_physical_mib": 1903,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19155,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        },
+        {
+          "at": 1795212652.17,
+          "avail_physical_mib": 1861,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19092,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        }
+      ]
+    },
+    "after_run": {
+      "at": 1795212653.27,
+      "avail_physical_mib": 1946,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19179,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "definitions": "avail_physical_mib = GlobalMemoryStatusEx ullAvailPhys; commit_avail_mib = ullAvailPageFile; vram via nvidia-smi; worker peaks come from --worker-evidence",
+    "target_bytes": 4000000000,
+    "hard_max_bytes": 5000000000
+  },
+  "note": "passing this run establishes routing, page attribution, fallback selection, coverage honesty and the listed facts on clean synthetic renders. It does NOT establish general OCR quality, and a Tesseract pass is NOT primary-engine acceptance.",
+  "fixtures": [
+    {
+      "fixture": "d1_scanned.pdf",
+      "http_status": 200,
+      "seconds": 2.13,
+      "pages": 6,
+      "indexed": null,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]",
+      "checks": [
+        {
+          "check": "ocr_ran",
+          "ok": true,
+          "detail": "note: [document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consu"
+        },
+        {
+          "check": "primary_engine_not_claimed",
+          "ok": true,
+          "detail": "note: [document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consu"
+        },
+        {
+          "check": "page1_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "page1_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.15"
+        },
+        {
+          "check": "page2_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: measured across eleven observation wells. Extraction permits were capped at 62% of the recharge estimate for 2019. reduced dry-season flow rather than tidal intrusion alone."
+        },
+        {
+          "check": "page2_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.15"
+        },
+        {
+          "check": "page3_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Station Flow m3/s Turbidity NTU Kandla 18.4 12.7 Gandhi Dham 44.0 3.9 Aranjes 12.6 51.2"
+        },
+        {
+          "check": "page3_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.15"
+        },
+        {
+          "check": "page4_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: def recharge(precip_mm, area_km2): runoff = precip_mm * 0.18 * area_km2 return round(runoff * 1000, 1) # m3 print(recharge(740, 12.5))"
+        },
+        {
+          "check": "page4_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.15"
+        },
+        {
+          "check": "page5_phrase_in_body",
+          "ok": false,
+          "detail": "delivered: Q=Wxbxsqrt(2gh) T =25degC, pH =7.4, EC =0.84 dS/m Appendix note: the borehole log for well BH-07 was transcribed from a field notebook."
+        },
+        {
+          "check": "page5_wer<=limit",
+          "ok": false,
+          "detail": "wer=0.471 limit=0.15"
+        },
+        {
+          "check": "page6_phrase_in_body",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        },
+        {
+          "check": "page6_wer<=limit",
+          "ok": true,
+          "detail": "wer=0.000 limit=0.15"
+        },
+        {
+          "check": "late_evidence_page6",
+          "ok": true,
+          "detail": "delivered: Chapter eleven records that the arbitration award of 14 November 2021 ordered the defendant to pay 4,18,25,000 rupees within ninety days, with interest at 6% per annum."
+        },
+        {
+          "check": "no_fabricated_content",
+          "ok": true,
+          "detail": "page1: Section 4.2 Ground Water The aquifer beneath the basin yields 1.4 million cubic metres per month Downstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+        },
+        {
+          "check": "coverage_units_read",
+          "ok": true,
+          "detail": "6 of 6 page(s) carry delivered content in the body (markers seen: [1, 2, 3, 4, 5, 6])"
+        }
+      ]
+    }
+  ],
+  "misses": 2
+}

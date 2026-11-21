@@ -1,0 +1,93 @@
+{
+  "key_version": "d1-ocr-1",
+  "pass": "no_language",
+  "base": "http://localhost:3000",
+  "run_at": "2026-11-21T03:15:38",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails",
+    "hard_max_mib": 4768
+  },
+  "memory": {
+    "baseline": {
+      "at": 1795211136.88,
+      "avail_physical_mib": 3660,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19400,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "during_run": {
+      "samples": 1,
+      "min_available_physical_mib": 3652,
+      "peak_physical_used_mib": 61647,
+      "peak_vram_used_mib": 9483,
+      "max_commit_available_mib": 19396,
+      "samples_head_tail": [
+        {
+          "at": 1795211136.92,
+          "avail_physical_mib": 3652,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19396,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        },
+        {
+          "at": 1795211136.92,
+          "avail_physical_mib": 3652,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19396,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        }
+      ]
+    },
+    "after_run": {
+      "at": 1795211138.81,
+      "avail_physical_mib": 3547,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19278,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "definitions": "avail_physical_mib = GlobalMemoryStatusEx ullAvailPhys; commit_avail_mib = ullAvailPageFile; vram via nvidia-smi; worker peaks come from --worker-evidence",
+    "target_bytes": 4000000000,
+    "hard_max_bytes": 5000000000
+  },
+  "note": "passing this run establishes routing, page attribution, fallback selection, coverage honesty and the listed facts on clean synthetic renders. It does NOT establish general OCR quality, and a Tesseract pass is NOT primary-engine acceptance.",
+  "fixtures": [
+    {
+      "fixture": "d1_scan_nolang.pdf",
+      "http_status": 422,
+      "seconds": 0.88,
+      "pages": null,
+      "indexed": null,
+      "coverageNote": "",
+      "checks": [
+        {
+          "check": "ocr_did_not_run",
+          "ok": true,
+          "detail": "note: "
+        },
+        {
+          "check": "needs_language_stated",
+          "ok": false,
+          "detail": " d1_scan_nolang.pdf: this document has no readable text layer - pages 1, 2, 3, 4, 5, 6 carry image content with no text layer. OCR did not run: no document language was given or declared; the engine's language data is chosen explicitly and is never defaulted to English. Send the page you care about as an image and the vision model can read it."
+        },
+        {
+          "check": "needs_language_names_env",
+          "ok": false,
+          "detail": " d1_scan_nolang.pdf: this document has no readable text layer - pages 1, 2, 3, 4, 5, 6 carry image content with no text layer. OCR did not run: no document language was given or declared; the engine's language data is chosen explicitly and is never defaulted to English. Send the page you care about as an image and the vision model can read it."
+        },
+        {
+          "check": "ocr_not_run_without_language",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    }
+  ],
+  "misses": 2
+}

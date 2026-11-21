@@ -1,0 +1,56 @@
+{
+  "ok": false,
+  "key_version": "f76-gap-1",
+  "clip": "gap-marker.mp4",
+  "att_id": "att_a9464e15310a5b0e",
+  "extract": {
+    "category": "video",
+    "durationSec": 6,
+    "indexed": true,
+    "coverageNote": "Video \"gap-marker.mp4\" (6s): it has no audio track (ffprobe found 0 audio streams). Its visual content WAS read: keyframes were sampled at 1 moment(s) across its timeline, each carrying its video timestamp, so questions about what is ON SCREEN at one of those moments can be answered from them; what happens between, before or after the sampled moments was never examined and cannot be claimed. Questions about what is SPOKEN cannot.",
+    "frames": [
+      {
+        "at": 1.2,
+        "bytes": 15102
+      },
+      {
+        "at": 4.2,
+        "bytes": 14810
+      }
+    ]
+  },
+  "delivered_coverage_lines": [
+    "This video contains a short text marker somewhere in it. Report exactly what the marker says, and state whether it is visible for the whole video or only at certain times.",
+    "Attached file: gap-marker.mp4 — this video is long, so its complete content is kept in a local knowledge index (nothing was discarded). You are shown its structural map and its opening; passages relevant to each question are supplied as timestamped evidence when needed. This video's complete saved record is kept whole in the index; you are shown parts of it: the images below are moments from it, and its spoken content is part of the record. Speak of the video as a whole — never claim to have watched it yourself, never mention frames, sampled images, keyframes, an audio track or transcription, and never attribute content to a particular frame. The images are isolated moments: the record holds no evidence about the time between, before or after them. Never claim that something is visible throughout a video, always or never shown, or unchanged across any stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say the rest cannot be confirmed.",
+    "Moments from the video:",
+    "Opening of the content:\n[content begins]\nVideo \"gap-marker.mp4\" (6s): it has no audio track (ffprobe found 0 audio streams). Its visual content WAS read: keyframes were sampled at 1 moment(s) across its timeline, each carrying its video timestamp, so questions about what is ON SCREEN at one of those moments can be answered from them; what happens between, before or after the sampled moments was never examined and cannot be claimed. Questions about what is SPOKEN cannot.\n[content continues — the remainder is indexed, not shown]"
+  ],
+  "chat": {
+    "finishReason": "stop",
+    "doneFrames": 1,
+    "rukeError": null,
+    "answer": "The marker reads **`GAP-MARKER-9F3K`** — plain white text, centred on a black background.\n\nWhere it appears in the record:\n\n- **0:01** — the text `GAP-MARKER-9F3K` is on screen.\n- **0:04** — the same text is still on screen, looking identical in wording and placement.\n\n**On whether it runs the whole video:** I can't confirm that. The saved record only carries evidence at the two moments above (0:01 and 0:04); what the screen shows before 0:01, between 0:01 and 0:04, or after 0:04 was never examined, so I can't honestly say the marker is visible for the full 6 seconds or that it never changes in those uncovered stretches.\n\nWhat's safe to state: the marker text is `GAP-MARKER-9F3K`, and it is legible at both 0:01 and 0:04, which suggests it spans most of the clip — but the gaps between and around those points are unverified."
+  },
+  "checks": [
+    {
+      "name": "frames_are_the_two_sampled_instants",
+      "ok": true,
+      "detail": "at=[1.2, 4.2] expected~=[1.2, 4.2]"
+    },
+    {
+      "name": "single_stream_terminal",
+      "ok": true,
+      "detail": "done=1 error=none"
+    },
+    {
+      "name": "marker_read",
+      "ok": true,
+      "detail": "authored text \"GAP-MARKER-9F3K\" reported"
+    },
+    {
+      "name": "no_unfounded_span_claim",
+      "ok": false,
+      "detail": "unqualified span claim -> \"What's safe to state: the marker text is `GAP-MARKER-9F3K`, and it is legible at both 0:01 and 0:04, which suggests it spans most of the clip — but the gaps between and around those points are unverified.\""
+    }
+  ]
+}

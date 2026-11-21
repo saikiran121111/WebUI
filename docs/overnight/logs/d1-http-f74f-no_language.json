@@ -1,0 +1,93 @@
+{
+  "key_version": "d1-ocr-1",
+  "pass": "no_language",
+  "base": "http://localhost:3000",
+  "run_at": "2026-11-21T03:04:27",
+  "thresholds": {
+    "word_error_rate_primary": 0.1,
+    "word_error_rate_fallback": 0.15,
+    "coverage_units_read_fraction": 1.0,
+    "note": "measured against these listed words only; a run that misses any listed fact fails",
+    "hard_max_mib": 4768
+  },
+  "memory": {
+    "baseline": {
+      "at": 1795210457.44,
+      "avail_physical_mib": 3335,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19216,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "during_run": {
+      "samples": 5,
+      "min_available_physical_mib": 3144,
+      "peak_physical_used_mib": 62155,
+      "peak_vram_used_mib": 9483,
+      "max_commit_available_mib": 19212,
+      "samples_head_tail": [
+        {
+          "at": 1795210457.48,
+          "avail_physical_mib": 3329,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19212,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        },
+        {
+          "at": 1795210465.64,
+          "avail_physical_mib": 3261,
+          "total_physical_mib": 65299,
+          "commit_avail_mib": 19080,
+          "vram_used_mib": 9483,
+          "vram_total_mib": 12288
+        }
+      ]
+    },
+    "after_run": {
+      "at": 1795210467.58,
+      "avail_physical_mib": 3309,
+      "total_physical_mib": 65299,
+      "commit_avail_mib": 19120,
+      "vram_used_mib": 9483,
+      "vram_total_mib": 12288
+    },
+    "definitions": "avail_physical_mib = GlobalMemoryStatusEx ullAvailPhys; commit_avail_mib = ullAvailPageFile; vram via nvidia-smi; worker peaks come from --worker-evidence",
+    "target_bytes": 4000000000,
+    "hard_max_bytes": 5000000000
+  },
+  "note": "passing this run establishes routing, page attribution, fallback selection, coverage honesty and the listed facts on clean synthetic renders. It does NOT establish general OCR quality, and a Tesseract pass is NOT primary-engine acceptance.",
+  "fixtures": [
+    {
+      "fixture": "d1_scan_nolang.pdf",
+      "http_status": 200,
+      "seconds": 9.09,
+      "pages": 6,
+      "indexed": null,
+      "coverageNote": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consulted: tesseract v5.5.3.20260724; recognised per engine: tesseract v5.5.3.20260724=6; language eng from requested]",
+      "checks": [
+        {
+          "check": "ocr_did_not_run",
+          "ok": false,
+          "detail": "note: [document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consu"
+        },
+        {
+          "check": "needs_language_stated",
+          "ok": false,
+          "detail": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consu"
+        },
+        {
+          "check": "needs_language_names_env",
+          "ok": false,
+          "detail": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consu"
+        },
+        {
+          "check": "ocr_not_run_without_language",
+          "ok": false,
+          "detail": "[document capability documents.parse (pypdf-7.1.0-plain); text layer: 0 of 6 page(s) via pdf.js; capability filled 6 page(s) by OCR and 0 page(s) by its own text layer; read: pages 1, 2, 3, 4, 5, 6; units: 6 of 6 read; 6 page(s) recognised by OCR (eng): 6/6 page(s) recognised (eng), 0 empty, 0 failed, 0 skipped by cancellation; recognised per engine: {'tesseract v5.5.3.20260724': 6}; engines consu"
+        }
+      ]
+    }
+  ],
+  "misses": 4
+}

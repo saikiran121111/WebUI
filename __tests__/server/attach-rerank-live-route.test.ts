@@ -26,6 +26,15 @@
  * flipping it means the honest reporting (registry, DECISION-OWNERSHIP,
  * FINAL-REPORT "two numeric-fact misses") must be updated in the same change,
  * never silently.
+ *
+ * F75 ADDENDUM: the brief's "numeric-fact failures on UNSEEN examples" is
+ * covered by the unseen pair authored below (new domain, numbers authored at
+ * F75, used nowhere else). It characterizes the MECHANISM, not just the frozen
+ * instance: two candidates identical except their number score within ~1e-06
+ * of each other in the pinned engine's probabilities (measured at F75: margin
+ * 2.98e-06), so the retrieval stage has no honest grounds to arbitrate - its
+ * contract is to score both, keep both, and let the answer stage face the
+ * conflict.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -48,6 +57,24 @@ const PASSAGES = [
   "Crate deliveries are scheduled weekly by the regional planner.",
 ];
 const TRUTH_IDX = 1;
+
+// UNSEEN numeric-fact pair (F75): a different domain and numbers, authored when
+// this test was written, never used by the g04/g05 frozen sets or any fixture.
+// Same shape as the kept failure - ONE sentence template with only the number
+// varying, so nothing but the number can drive the ranking (an earlier draft of
+// this pair varied the year position and wording too; that confound made the
+// engine appear to arbitrate when it was matching phrasing, not numbers).
+// The 1,180 mm sentence is the designated truth (idx 3), deliberately listed
+// AFTER the wrong candidate (940 mm, idx 1).
+const UNSEEN_QUERY = "How many millimetres of rain did the Ridgemont station record in 2019?";
+const UNSEEN_PASSAGES = [
+  "Ridgemont station logged an average humidity of 71% during 2019.",
+  "The Ridgemont station recorded 940 millimetres of rain in 2019.",
+  "Rainfall at Ridgemont is measured by a tipping-bucket gauge maintained quarterly.",
+  "The Ridgemont station recorded 1,180 millimetres of rain in 2019.",
+];
+const UNSEEN_TRUTH_IDX = 3;
+const UNSEEN_WRONG_IDX = 1;
 
 // Pinned identity mirrors ruke_ml/retrieval/nn_rerank.py; pinning it HERE is
 // the point - "neural" through the live route must name the pinned asset and
@@ -169,6 +196,75 @@ describe.skipIf(!LIVE)("F66 live rerank route: the production caller chain execu
           "(numeric_fact_case_fixed), DECISION-OWNERSHIP and FINAL-REPORT wording in the " +
           "same change instead of letting this characterization go green silently",
       ).not.toBe(TRUTH_IDX);
+    },
+    LIVE_TIMEOUT_MS,
+  );
+
+  it(
+    "unseen numeric-fact pair: the two numbers score within noise; the route's contract is score-both, keep-both (characterization)",
+    async () => {
+      const stage = makeRerankStage();
+      const cands = UNSEEN_PASSAGES.map((text, i) => ({ idx: i, text }));
+      const out = await stage(UNSEEN_QUERY, cands);
+      expect(out, "the live stage refused to run").not.toBeNull();
+      expect(out!.engine).toBe(RERANK_MODE);
+      // Nothing is dropped: every candidate is scored and returned.
+      expect(out!.order.map((c) => c.idx).sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
+      const scoreOf = (i: number) => out!.order.find((c) => c.idx === i)!.score;
+      const truth = scoreOf(UNSEEN_TRUTH_IDX);
+      const wrong = scoreOf(UNSEEN_WRONG_IDX);
+      // THE mechanism behind the kept failure, on unseen data: measured on the
+      // pinned asset directly at F75 (full precision, both candidate orders),
+      // two candidates identical except the number score 0.9999770 vs
+      // 0.9999740 - margin 2.98e-06. That ordering carries no information at
+      // any sane precision, and it is demonstrably not content signal: the
+      // same engine puts the WRONG number first on the crates pair (g05
+      // cross_encoder_rank=2). Retrieval has no honest grounds to arbitrate
+      // here. A margin beyond 0.01 would mean an engine day came when the pair
+      // IS separable: STOP - update the registry (numeric_fact_case_fixed),
+      // DECISION-OWNERSHIP and FINAL-REPORT wording in the same change, as
+      // with the frozen case above - never let this characterization drift.
+      const margin = Math.abs(truth - wrong);
+      expect(
+        margin,
+        `the pinned engine separated the unseen numeric pair (margin ${margin}): STOP - update ` +
+          "the registry (numeric_fact_case_fixed), DECISION-OWNERSHIP and FINAL-REPORT wording " +
+          "in the same change instead of letting this characterization drift",
+      ).toBeLessThanOrEqual(0.01);
+      // What the engine DOES arbitrate honestly: the two numeric candidates
+      // occupy ranks 1-2 and both topical distractors fall below them - the
+      // pair is ambiguous only in its number. No rank order INSIDE the pair is
+      // asserted: at a ~3e-06 margin that order is noise (the frozen crates
+      // pair flips the other way).
+      const rankOf = (i: number) => out!.order.findIndex((c) => c.idx === i) + 1;
+      expect([rankOf(UNSEEN_TRUTH_IDX), rankOf(UNSEEN_WRONG_IDX)].sort((a, b) => a - b)).toEqual([1, 2]);
+      // Deterministic repeat (worker is warm): order and scores reproduce.
+      const again = await stage(UNSEEN_QUERY, cands);
+      expect(again!.order.map((c) => c.idx)).toEqual(out!.order.map((c) => c.idx));
+      expect(again!.order.map((c) => Math.round(c.score * 1e6))).toEqual(
+        out!.order.map((c) => Math.round(c.score * 1e6)),
+      );
+      // Evidence-level contract: BOTH conflicting numbers survive into the
+      // delivered evidence set - the conflict is surfaced to the answer stage,
+      // never silently resolved by dropping a candidate.
+      const ev = await retrieveEvidenceWithRerank(
+        idx(UNSEEN_PASSAGES),
+        UNSEEN_QUERY,
+        [],
+        opts,
+        stage,
+        rerankWindow(),
+      );
+      expect(ev.rerank.mode, `rerank did not run: ${ev.rerank.reason ?? ""}`).toBe("neural");
+      expect(ev.chunkIdxs).toContain(UNSEEN_TRUTH_IDX);
+      expect(ev.chunkIdxs).toContain(UNSEEN_WRONG_IDX);
+      // Production-request evidence for the record (engine, candidates, scores).
+      console.log(
+        "[f75-unseen-numeric] engine=" + out!.engine,
+        "order=[" + out!.order.map((c) => c.idx).join(",") + "]",
+        "scores=[" + out!.order.map((c) => c.score.toFixed(4)).join(",") + "]",
+        "tie_margin=" + margin.toFixed(6),
+      );
     },
     LIVE_TIMEOUT_MS,
   );

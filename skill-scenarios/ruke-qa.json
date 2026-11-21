@@ -1,0 +1,9 @@
+{
+  "skillName": "ruke-qa",
+  "sourceRepo": "",
+  "enabled": true,
+  "autoUse": false,
+  "whenToUse": "",
+  "triggerKeywords": [],
+  "blockedReason": null
+}

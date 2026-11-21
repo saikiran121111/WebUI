@@ -1,0 +1,57 @@
+{
+  "key_version": "f76-control-1",
+  "created": "2026-11-21",
+  "note": "CONTROL clip ground truth frozen by direct ffmpeg+tesseract probes BEFORE any model ran; marker reported by the user's live-UI record",
+  "clip": "tests/fixtures/fixture-video.mp4",
+  "sha256": "d57c97e1addb7b488ad8265d764fd759cbdf6eda37ba2cfbc474e787d98f541c",
+  "durationSec": 6,
+  "audio": false,
+  "marker": "READABLE-MARKER-MP4-7QX9",
+  "sampled_instants": [
+    1.2,
+    4.2
+  ],
+  "zone_ocr": [
+    {
+      "at": 0.5,
+      "text": "READABLE-MARKER-MP4-7QX9"
+    },
+    {
+      "at": 1.2,
+      "text": "READABLE-MARKER-MP4-7QX9"
+    },
+    {
+      "at": 2,
+      "text": "READABLE-MARKER-MP4-7QX9"
+    },
+    {
+      "at": 2.7,
+      "text": "READABLE-MARKER-MP4-7QX9"
+    },
+    {
+      "at": 3.5,
+      "text": "READABLE-MARKER-MP4-7QX9"
+    },
+    {
+      "at": 4.2,
+      "text": "READABLE-MARKER-MP4-7QX9"
+    },
+    {
+      "at": 5.5,
+      "text": "READABLE-MARKER-MP4-7QX9"
+    }
+  ],
+  "ground_truth": {
+    "marker_at_sampled_instants": false,
+    "marker_seen_at_direct_snaps": [
+      0.5,
+      1.2,
+      2,
+      2.7,
+      3.5,
+      4.2,
+      5.5
+    ],
+    "note": "user's live-UI record: marker genuinely visible throughout 0:00-0:06; zone snaps corroborate presence everywhere probed"
+  }
+}
