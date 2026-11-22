@@ -1,0 +1,1 @@
+WITH limits(kind, units) AS (VALUES ('retired',917),('active',413)) SELECT units FROM limits WHERE kind='active';

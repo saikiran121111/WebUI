@@ -1,0 +1,3 @@
+I can't quote it. The saved record of `three-hours.mp4` has on-screen content only at the sampled moments it carries — the two available here are 00:36:00 ("BASALT OPEN") and 02:06:00 ("AMBER CLOSE"). 01:31:00 is not one of the moments the index holds, and nothing about the screen at that timestamp can be inferred from the moments on either side of it.
+
+So: no title text for 01:31:00 is retrievable, and I won't guess at one. If you want, give me a timestamp that coincides with a saved moment and I'll quote exactly what's on screen there.

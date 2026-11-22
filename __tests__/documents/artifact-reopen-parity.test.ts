@@ -225,7 +225,9 @@ describe.skipIf(!VENV_READY)("generated artifact reopen parity (TS writer -> Pyt
     // The notesSlide PARTS still exist for all three slides: "no authored note" is not
     // "no part", and the reader reports which parts it looked at.
     expect(((f.meta as { note_parts?: string[] }).note_parts ?? []).length).toBe(3);
-    expect(((f.meta as { not_extracted?: string[] }).not_extracted ?? []).join(",")).toContain("charts");
+    // F78-D: the reader now extracts chart CACHED VALUES, so the blanket "charts"
+    // disclosure became the precise limit: styling and axis scaling stay out.
+    expect(((f.meta as { not_extracted?: string[] }).not_extracted ?? []).join(",")).toContain("chart styling and axis scaling (cached values only)");
   });
 
   it("reads back a generated .xlsx with formulas AND cached results, cell-addressed", () => {

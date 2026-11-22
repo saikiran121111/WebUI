@@ -503,14 +503,17 @@ class MixedPageOneRasterLineIsNotOverprinted(unittest.TestCase):
 class UndeclaredLanguageIsATypedRefusal(unittest.TestCase):
     """F74 measured: the D1 no-language case had NO job-boundary test at all.
 
-    The frozen key demands that an undeclared language is a typed refusal naming what the
-    operator must set, never a silent English default. The production passes (f74e/f74f, 0/4)
-    traced to the boot harness leaving RUKE_DOCUMENT_OCR_LANGUAGE=eng set - every production
-    layer was honest - but nothing in the suite pinned the refusal itself, so the only proof it
-    works was an ad-hoc repro. This pins both halves of the language contract at the real job
-    boundary (documents.parse dispatch, real D1 fixtures, no engine when refusing):
-    no language anywhere -> typed needs_language refusal, engine never runs; a /Lang-declared
-    scan with no requested language -> the declaration is used and named as such.
+    The frozen key demands that an undeclared language never becomes a silent English
+    default. F78 extended the law's second route: the engine may ANSWER for an undeclared
+    scan, validated - its own OSD script estimate, mapped, then required to pass a
+    verification OCR at measured bounds - and only then does the cascade run, with
+    language_source saying "detected". An unverified detection keeps this F74 refusal
+    byte-recognizable: typed, actionable, engine never runs. Pinned at the real job
+    boundary (documents.parse dispatch, real D1 fixtures):
+    no language anywhere + detection unverified -> typed needs_language refusal, engine
+    never runs; no language + detection verified -> the detected language drives
+    recognition and is named as detected; a /Lang-declared scan with no requested
+    language -> the declaration is used and named as such.
 
     Safety: an in-process documents.parse dispatch with no safety switches runs the REAL
     lifecycle - an unguarded repro acquired the handoff lease and unloaded/restored the main
@@ -558,16 +561,35 @@ class UndeclaredLanguageIsATypedRefusal(unittest.TestCase):
 
     @unittest.skipUnless(NOLANG.is_file(),
                          "run docs/overnight/fixtures/d1/ocr_docs.py first")
-    def test_undeclared_language_refuses_typed_and_never_runs_the_engine(self):
-        out = self._dispatch("d1_scan_nolang.pdf")
+    def test_undeclared_language_with_unverified_detection_refuses_typed(self):
+        # F74's refusal, kept exact when F78's validated detection does NOT verify:
+        # typed, engine never runs, reason names both the law and the detection failure.
+        with mock.patch("ruke_ml.documents.ocr_tesseract.detect_language", return_value={
+                "verified": False, "script": "latin",
+                "reason": "verification did not reach the quality bounds (glyphs 5/80)"}):
+            out = self._dispatch("d1_scan_nolang.pdf")
         rep = out["payload"]["ocr"]
-        self.assertFalse(rep["ran"], "OCR must not run at all without a language")
+        self.assertFalse(rep["ran"], "OCR must not run at all without a verified language")
         self.assertTrue(rep.get("needs_language"), "the refusal must be typed, not prose")
         self.assertEqual(rep["language"], "", "no language may be invented")
         self.assertEqual(rep["language_source"], "")
         self.assertIn("never defaulted to English", rep["reason"])
+        self.assertIn("verification did not reach the quality bounds", rep["reason"],
+                      "the detection failure reason belongs in the coverage note")
         self.assertIn("OCR NOT run", json.dumps(out),
                       "the coverage note must carry the refusal, not hide it")
+
+    @unittest.skipUnless(NOLANG.is_file() and _tesseract_ready(),
+                         "run docs/overnight/fixtures/d1/ocr_docs.py first; needs validated tesseract")
+    def test_undeclared_scan_is_answered_on_the_detected_language(self):
+        # d1_scan_nolang is a genuine Latin-script English scan: the real engine's OSD +
+        # verification pass verifies, the cascade runs, and the source names detection.
+        out = self._dispatch("d1_scan_nolang.pdf")
+        rep = out["payload"]["ocr"]
+        self.assertTrue(rep["ran"], f"verified detection must drive recognition: {rep['reason']}")
+        self.assertEqual(rep["language"], "eng")
+        self.assertTrue(rep["language_source"].startswith("detected"),
+                        f"the source must be explicit: {rep['language_source']}")
 
     @unittest.skipUnless(SCANNED.is_file(), "run docs/overnight/fixtures/d1/ocr_docs.py first")
     @unittest.skipUnless(_tesseract_ready(), "project-local tesseract missing")

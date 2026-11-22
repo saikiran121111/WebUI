@@ -1,6 +1,7 @@
 import type { Attachment } from "../types";
 import {
   classifyFile,
+  fileExtension,
   TEXT_CHAR_LIMIT,
   type FileCategory,
 } from "./extensions";
@@ -35,6 +36,9 @@ interface ExtractResponse {
 
 /** Images are downscaled to this before being handed to the model. */
 const MAX_IMAGE_SIDE = 1280;
+
+/** Containers whose animation the canvas path cannot preserve (F78-B). */
+const ANIMATED_CONTAINERS = new Set(["gif", "webp", "apng", "avif"]);
 
 function kindFor(cat: FileCategory): Attachment["kind"] {
   if (cat === "image") return "image";
@@ -106,7 +110,14 @@ export async function processAttachment(
         };
       }
 
-      case "image":
+      case "image": {
+        // F78-B: createImageBitmap decodes only the FIRST frame of an
+        // animated container — a 2-frame GIF that passed through the canvas
+        // path arrived with one frame and no announcement. Animated/
+        // multi-page-capable containers go straight to the server decoder
+        // (libvips), which decodes every page bounded, with page ids.
+        const ext = fileExtension(file.name);
+        if (ANIMATED_CONTAINERS.has(ext)) return await extractOnServer(file, att, signal);
         try {
           const { dataUrl, width, height, frames } = await encodeImage(file);
           return {
@@ -115,9 +126,10 @@ export async function processAttachment(
             status: "ready",
           };
         } catch {
-          // Browser can't decode it (tif/heic/ico/…) — let ffmpeg try instead.
+          // Browser can't decode it (tif/heic/ico/…) — let the server decoder try.
           return await extractOnServer(file, att, signal);
         }
+      }
 
       default:
         return await extractOnServer(file, att, signal);

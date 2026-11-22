@@ -243,16 +243,28 @@ async function extractRar(buf: Buffer): Promise<{ name: string; data: Buffer }[]
   // The WASM bindings' generated typings lag the runtime shape, so the
   // extractor is handled loosely.
   const mod: any = await import("node-unrar-js");
-  const extractor = await mod.createExtractorFromData({ data: new Uint8Array(buf) });
+  // The data seeker serves archive bytes to WASM through JS callbacks across
+  // every await — keep the copy in a binding that outlives the whole call.
+  const data = new Uint8Array(buf);
+  const extractor = await mod.createExtractorFromData({ data });
+  // F78-C: getFileList().fileHeaders is a LAZY generator over the archive
+  // stream, and extract() opens a SECOND archive over the same seek callbacks.
+  // The old loop interleaved the two (header → extract that one member → next
+  // header…), racing two readers on one file cursor: ERAR_EREAD "File read
+  // error" on every real RAR. Drain the header list fully (closing its
+  // archive), then run ONE extraction pass. Headers carry `name` +
+  // `flags.directory`; extraction bytes arrive directly as a Uint8Array.
+  const wanted: string[] = [];
+  for (const h of extractor.getFileList().fileHeaders as any[]) {
+    if (h.flags?.directory) continue;
+    wanted.push(h.name);
+  }
   const members: { name: string; data: Buffer }[] = [];
-  const list = extractor.getFileList();
-  for (const f of list.fileHeaders as any[]) {
-    if (f.directory) continue;
-    const extracted = extractor.extract({ files: [f.fileName] });
-    for (const file of extracted.files as any[]) {
-      if (file.extraction?.data) {
-        members.push({ name: file.fileName, data: Buffer.from(file.extraction.data) });
-      }
+  const extracted = extractor.extract({ files: wanted });
+  for (const f of extracted.files as any[]) {
+    const bytes: Uint8Array | undefined = f.extraction === "skipped" ? undefined : f.extraction;
+    if (bytes?.byteLength) {
+      members.push({ name: String(f.fileHeader.name).replace(/\\/g, "/"), data: Buffer.from(bytes) });
     }
   }
   return members;

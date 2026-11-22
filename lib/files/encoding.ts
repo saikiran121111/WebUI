@@ -35,6 +35,37 @@ function decodeUtf32(buf: Uint8Array, le: boolean, afterBom: number): string {
   return s;
 }
 
+export interface Bom {
+  /** Encoding label the BOM declares (same labels decodeText returns). */
+  encoding: string;
+  /** Byte length of the BOM itself. */
+  length: number;
+}
+
+/**
+ * Shared BOM table — the single authority for encoding.ts AND the server's
+ * magic sniffer (F78-A: a UTF-16LE/UTF-32LE text file begins FF FE, which is
+ * also a valid MP3 frame-sync byte pair, so the sniff classified it as audio).
+ * Order is LONGEST-FIRST: FF FE 00 00 (UTF-32LE) must be tested before its
+ * own FF FE prefix (UTF-16LE).
+ */
+const BOMS: { bytes: number[]; encoding: string }[] = [
+  { bytes: [0xff, 0xfe, 0x00, 0x00], encoding: "utf-32le" },
+  { bytes: [0x00, 0x00, 0xfe, 0xff], encoding: "utf-32be" },
+  { bytes: [0xef, 0xbb, 0xbf], encoding: "utf-8" },
+  { bytes: [0xff, 0xfe], encoding: "utf-16le" },
+  { bytes: [0xfe, 0xff], encoding: "utf-16be" },
+];
+
+export function detectBom(buf: Uint8Array): Bom | null {
+  for (const bom of BOMS) {
+    if (buf.length >= bom.bytes.length && bom.bytes.every((b, i) => buf[i] === b)) {
+      return { encoding: bom.encoding, length: bom.bytes.length };
+    }
+  }
+  return null;
+}
+
 function utf16HasAlternatingNul(buf: Uint8Array, parity: number): boolean {
   let nul = 0, nonzero = 0;
   const n = Math.min(buf.length - parity, 4096);
@@ -48,21 +79,14 @@ function utf16HasAlternatingNul(buf: Uint8Array, parity: number): boolean {
 }
 
 export function decodeText(buf: Uint8Array): DecodedText {
-  // BOM wins — unambiguous. Check UTF-32 before UTF-16 (FF FE is a prefix).
-  if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xfe && buf[2] === 0x00 && buf[3] === 0x00) {
-    return { text: decodeUtf32(buf, true, 4), encoding: "utf-32le", lossy: false };
-  }
-  if (buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0xfe && buf[3] === 0xff) {
-    return { text: decodeUtf32(buf, false, 4), encoding: "utf-32be", lossy: false };
-  }
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return { text: new TextDecoder("utf-16le").decode(buf), encoding: "utf-16le", lossy: false };
-  }
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    return { text: new TextDecoder("utf-16be").decode(buf), encoding: "utf-16be", lossy: false };
-  }
-  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
-    return { text: new TextDecoder("utf-8").decode(buf), encoding: "utf-8", lossy: false };
+  // BOM wins — unambiguous, longest-first (see detectBom, shared with the
+  // server sniff so detection and decoding are one law, F78-A).
+  const bom = detectBom(buf);
+  if (bom) {
+    if (bom.encoding === "utf-32le") return { text: decodeUtf32(buf, true, bom.length), encoding: "utf-32le", lossy: false };
+    if (bom.encoding === "utf-32be") return { text: decodeUtf32(buf, false, bom.length), encoding: "utf-32be", lossy: false };
+    // TextDecoder strips a matching BOM for utf-8 / utf-16le / utf-16be.
+    return { text: new TextDecoder(bom.encoding).decode(buf), encoding: bom.encoding, lossy: false };
   }
 
   // No BOM: a BOM-less UTF-16 file alternates NUL bytes through its ASCII body.

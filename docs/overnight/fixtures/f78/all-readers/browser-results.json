@@ -1,0 +1,2099 @@
+[
+  {
+    "f": "sample.txt",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.txt",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.csv",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 64
+  },
+  {
+    "f": "sample.csv",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_b3303ec9cead.csv -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_e11cf5aec579.f32\n[in#0 @ 000001b91ac9c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_b3303ec9cead.csv.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.tsv",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 64
+  },
+  {
+    "f": "sample.tsv",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 64
+  },
+  {
+    "f": "sample.md",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.md",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_a86a1bb14236.md -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_a28d3e3f5475.f32\n[in#0 @ 0000026fcb0bc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_a86a1bb14236.md.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.json",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 89
+  },
+  {
+    "f": "sample.json",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 89
+  },
+  {
+    "f": "sample.jsonl",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 117
+  },
+  {
+    "f": "sample.jsonl",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_b5fe65a2c4b1.jsonl -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_63a649af23a0.f32\n[in#0 @ 000001d9d6b1c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_b5fe65a2c4b1.jsonl.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.xml",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.xml",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.html",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.html",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_4b0cd8ebebea.html -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_fac5f5954592.f32\n[in#0 @ 000001ce2ae8c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_4b0cd8ebebea.html.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.htm",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.htm",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.yaml",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.yaml",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_9bff6bd00add.yaml -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_7dc4d51979f3.f32\n[in#0 @ 000002801552c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_9bff6bd00add.yaml.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.yml",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.yml",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.toml",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.toml",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_aa848a5b6091.toml -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_b18b3fb5076d.f32\n[in#0 @ 000002511da9c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_aa848a5b6091.toml.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.ini",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.ini",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.log",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.log",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6da8d3cf2673.log -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_c17825bfc086.f32\n[in#0 @ 00000223d861c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6da8d3cf2673.log.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.py",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.py",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.js",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.js",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_e80312117fee.js -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_1f8281323a46.f32\n[in#0 @ 000001ed69cdc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_e80312117fee.js.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.jsx",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.jsx",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.ts",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.ts",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5761e1420b9e.ts -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_2d7496baec92.f32\n[in#0 @ 000001b07358c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5761e1420b9e.ts.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.tsx",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.tsx",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.java",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.java",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_4bd68d4c26c5.java -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_732bd0a9b2ad.f32\n[in#0 @ 000001907d61c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_4bd68d4c26c5.java.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.c",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.c",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cpp",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cpp",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2c0040201800.cpp -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_84da4f227103.f32\n[in#0 @ 000001b9f8ffc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2c0040201800.cpp.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.cc",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cc",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.h",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.h",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_c1fc15a79b48.h -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_6096b53b3eda.f32\n[in#0 @ 0000021eed10c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_c1fc15a79b48.h.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.hpp",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.hpp",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cs",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cs",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6ef39bd52181.cs -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_857eb1ecf15e.f32\n[in#0 @ 0000025ca7fbc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6ef39bd52181.cs.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.go",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.go",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.rs",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.rs",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_508407b41811.rs -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_26f2401447cf.f32\n[sunrast @ 0000021f16cb4dc0] this is not sunras encoded data\r\n[out#0/f32le @ 0000021f16cc36c0] Output file does not contain any stream\r\nError opening output file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_26f2401447cf.f32.\r\nError opening output files: Invalid argument\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.php",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.php",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.rb",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.rb",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_3a535d5a4931.rb -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_1f33bb670dd9.f32\n[in#0 @ 0000017ce1d0c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_3a535d5a4931.rb.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.swift",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.swift",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.kt",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.kt",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_aeb1e1c8a1e8.kt -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_244f4d9d321d.f32\n[in#0 @ 0000021073b7c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_aeb1e1c8a1e8.kt.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.kts",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.kts",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.scala",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.scala",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2b0a26dff53b.scala -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_5e73c560318d.f32\n[in#0 @ 000002ad69d0c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2b0a26dff53b.scala.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.sh",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.sh",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.bash",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.bash",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_751eed886b76.bash -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_4cf759c45bee.f32\n[in#0 @ 000002018c48c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_751eed886b76.bash.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.zsh",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.zsh",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.ps1",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.ps1",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_8d2ae743e974.ps1 -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_42b79be5b47d.f32\n[in#0 @ 0000022f3035c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_8d2ae743e974.ps1.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.bat",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.bat",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cmd",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cmd",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_c860f749868b.cmd -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_ecbf09b784fd.f32\n[in#0 @ 00000202e3ebc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_c860f749868b.cmd.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.sql",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.sql",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.r",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.r",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_d03ac9eab7b5.r -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_8198ef98ed4d.f32\n[in#0 @ 00000269dad4c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_d03ac9eab7b5.r.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.m",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.m",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.tex",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.tex",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_f2b14b11bbf2.tex -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_5e0222092b25.f32\n[in#0 @ 00000265fdabc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_f2b14b11bbf2.tex.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.bib",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.bib",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.diff",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 81
+  },
+  {
+    "f": "sample.diff",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_ba9c68f3ccf0.diff -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_624de4fec3f8.f32\n[in#0 @ 000001acbf4ec1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_ba9c68f3ccf0.diff.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.patch",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 81
+  },
+  {
+    "f": "sample.patch",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 81
+  },
+  {
+    "f": "sample.env",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.env",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_fa0acbc6bce0.env -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_de4920215e29.f32\n[in#0 @ 0000019fb437c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_fa0acbc6bce0.env.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.conf",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.conf",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cfg",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.cfg",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_a8678fd63373.cfg -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_367a6f8a8841.f32\n[in#0 @ 0000024150ffc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_a8678fd63373.cfg.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.properties",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.properties",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.graphql",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.graphql",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2796d58f2f10.graphql -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_03166e3b0d59.f32\n[in#0 @ 000001b08c39c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2796d58f2f10.graphql.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.gql",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.gql",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.proto",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.proto",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6050cf717078.proto -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_ae1ef6f6a0f9.f32\n[in#0 @ 000001fb2567c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6050cf717078.proto.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.dockerfile",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.dockerfile",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.makefile",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.makefile",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_62408511549a.makefile -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_99d2fb0a3180.f32\n[in#0 @ 000001eef1a9c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_62408511549a.makefile.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.tf",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.tf",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.hcl",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.hcl",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_eacdccbddb46.hcl -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_37a36055eb59.f32\n[in#0 @ 000001bc0429c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_eacdccbddb46.hcl.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.vue",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.vue",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.svelte",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.svelte",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_f114d0d4b77b.svelte -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_4cb8af190247.f32\n[in#0 @ 000001c846b3c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_f114d0d4b77b.svelte.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "sample.astro",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.astro",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 99
+  },
+  {
+    "f": "sample.svg",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 107
+  },
+  {
+    "f": "sample.svg",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_b7b8c47632a8.svg -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_cd3d7358cc5c.f32\n[out#0/f32le @ 000001ffc15935c0] Output file does not contain any stream\r\nError opening output file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_cd3d7358cc5c.f32.\r\nError opening output files: Invalid argument\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "Dockerfile",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "Dockerfile",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "Makefile",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "Makefile",
+    "large": true,
+    "status": "error",
+    "cat": "text",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_729c49c45b3e -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_b10cb80b35be.f32\n[in#0 @ 0000014aa006c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_729c49c45b3e.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "chars": 0
+  },
+  {
+    "f": ".env",
+    "large": false,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": ".env",
+    "large": true,
+    "status": "ready",
+    "cat": "text",
+    "colors": [],
+    "missing": [],
+    "chars": 112
+  },
+  {
+    "f": "sample.docx",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [],
+    "chars": 223
+  },
+  {
+    "f": "sample.pptx",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [
+      "61 litres",
+      "83",
+      "42"
+    ],
+    "chars": 50
+  },
+  {
+    "f": "sample.xlsx",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [],
+    "chars": 284969
+  },
+  {
+    "f": "sample.epub",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [],
+    "chars": 125
+  },
+  {
+    "f": "sample.ipynb",
+    "large": false,
+    "status": "ready",
+    "cat": "notebook",
+    "colors": [],
+    "missing": [],
+    "chars": 441
+  },
+  {
+    "f": "sample.rtf",
+    "large": false,
+    "status": "ready",
+    "cat": "rtf",
+    "colors": [],
+    "missing": [],
+    "chars": 51
+  },
+  {
+    "f": "sample.pdf",
+    "large": false,
+    "status": "ready",
+    "cat": "pdf",
+    "colors": [],
+    "missing": [
+      "4,18,25,000"
+    ],
+    "chars": 27805
+  },
+  {
+    "f": "sample.odt",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [],
+    "chars": 92
+  },
+  {
+    "f": "sample.ods",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [
+      "Cash",
+      "Debt"
+    ],
+    "chars": 9
+  },
+  {
+    "f": "sample.odp",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [
+      "Intake",
+      "Return"
+    ],
+    "chars": 92
+  },
+  {
+    "f": "sample.xlsm",
+    "large": false,
+    "status": "ready",
+    "cat": "office",
+    "colors": [],
+    "missing": [],
+    "chars": 284969
+  },
+  {
+    "f": "sample.mat",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [
+      "440.125",
+      "98.75"
+    ],
+    "chars": 184,
+    "preview": "[legacy binary format: text recovered by scanning raw bytes for printable runs — layout, formatting, and non-printable-encoded characters are lost; treat as a partial recovery]\n\nyields"
+  },
+  {
+    "f": "smoke.doc",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [],
+    "chars": 991,
+    "preview": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU\n਍敗啢⁉敬慧祣映硩畴敲⠠搮捯ഩ䴊牡敫㩲删䅅䅄䱂ⵅ䅍䭒剅䐭䍏㜭塑ഹ吊楨⁳敬慧祣搠捯浵湥⁴慣牲敩⁳瑩⁳整瑸愠⁳汰楡⁮畲獮മ\n䴀愀爀欀攀爀㨀 刀䔀䄀䐀䄀䈀䰀䔀ⴀ䴀䄀刀䬀䔀刀ⴀ䐀伀䌀ⴀ㜀儀堀㤀唀啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕\nഀ圊扥䥕氠来捡⁹楦瑸牵⁥⸨潤⥣਍慍歲牥›䕒䑁䉁䕌䴭剁䕋ⵒ佄ⵃ儷㥘਍桔獩氠来捡⁹潤畣敭瑮挠牡楲獥椠獴琠硥⁴獡瀠慬湩爠湵⹳਍\nMarker: READABLE-MARKER-DOC-7QX9啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕"
+  },
+  {
+    "f": "smoke.xls",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [],
+    "chars": 991,
+    "preview": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU\n਍敗啢⁉敬慧祣映硩畴敲⠠砮獬ഩ䴊牡敫㩲删䅅䅄䱂ⵅ䅍䭒剅堭卌㜭塑ഹ吊楨⁳敬慧祣搠捯浵湥⁴慣牲敩⁳瑩⁳整瑸愠⁳汰楡⁮畲獮മ\n䴀愀爀欀攀爀㨀 刀䔀䄀䐀䄀䈀䰀䔀ⴀ䴀䄀刀䬀䔀刀ⴀ堀䰀匀ⴀ㜀儀堀㤀唀啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕\nഀ圊扥䥕氠来捡⁹楦瑸牵⁥⸨汸⥳਍慍歲牥›䕒䑁䉁䕌䴭剁䕋ⵒ䱘ⵓ儷㥘਍桔獩氠来捡⁹潤畣敭瑮挠牡楲獥椠獴琠硥⁴獡瀠慬湩爠湵⹳਍\nMarker: READABLE-MARKER-XLS-7QX9啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕"
+  },
+  {
+    "f": "smoke.ppt",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [],
+    "chars": 991,
+    "preview": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU\n਍敗啢⁉敬慧祣映硩畴敲⠠瀮瑰ഩ䴊牡敫㩲删䅅䅄䱂ⵅ䅍䭒剅倭呐㜭塑ഹ吊楨⁳敬慧祣搠捯浵湥⁴慣牲敩⁳瑩⁳整瑸愠⁳汰楡⁮畲獮മ\n䴀愀爀欀攀爀㨀 刀䔀䄀䐀䄀䈀䰀䔀ⴀ䴀䄀刀䬀䔀刀ⴀ倀倀吀ⴀ㜀儀堀㤀唀啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕\nഀ圊扥䥕氠来捡⁹楦瑸牵⁥⸨灰⥴਍慍歲牥›䕒䑁䉁䕌䴭剁䕋ⵒ偐ⵔ儷㥘਍桔獩氠来捡⁹潤畣敭瑮挠牡楲獥椠獴琠硥⁴獡瀠慬湩爠湵⹳਍\nMarker: READABLE-MARKER-PPT-7QX9啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕"
+  },
+  {
+    "f": "audit.zip",
+    "large": false,
+    "status": "ready",
+    "cat": "archive",
+    "colors": [],
+    "missing": [],
+    "chars": 240
+  },
+  {
+    "f": "audit.tar",
+    "large": false,
+    "status": "ready",
+    "cat": "archive",
+    "colors": [],
+    "missing": [],
+    "chars": 240
+  },
+  {
+    "f": "audit.tgz",
+    "large": false,
+    "status": "ready",
+    "cat": "archive",
+    "colors": [],
+    "missing": [],
+    "chars": 240
+  },
+  {
+    "f": "summary.csv.gz",
+    "large": false,
+    "status": "ready",
+    "cat": "archive",
+    "colors": [],
+    "missing": [],
+    "chars": 24
+  },
+  {
+    "f": "summary.csv.bz2",
+    "large": false,
+    "status": "ready",
+    "cat": "archive",
+    "colors": [],
+    "missing": [],
+    "chars": 120
+  },
+  {
+    "f": "summary.csv.xz",
+    "large": false,
+    "status": "ready",
+    "cat": "archive",
+    "colors": [],
+    "missing": [],
+    "chars": 120
+  },
+  {
+    "f": "audit.7z",
+    "large": false,
+    "status": "ready",
+    "cat": "archive",
+    "colors": [],
+    "missing": [],
+    "chars": 240
+  },
+  {
+    "f": "audit.rar",
+    "large": false,
+    "status": "error",
+    "cat": "archive",
+    "error": "File read error",
+    "colors": [],
+    "missing": [
+      "66719",
+      "45103",
+      "918"
+    ],
+    "chars": 0
+  },
+  {
+    "f": "panel.png",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          25,
+          214,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.jpg",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          11,
+          24,
+          214,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.jpeg",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          11,
+          24,
+          214,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.gif",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          25,
+          214,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.webp",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          25,
+          214,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.bmp",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          25,
+          214,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.tif",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          25,
+          213,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.tiff",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          25,
+          213,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.avif",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          26,
+          210,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "panel.ico",
+    "large": false,
+    "status": "ready",
+    "cat": "image",
+    "colors": [
+      [
+        [
+          210,
+          10,
+          10,
+          255
+        ],
+        [
+          10,
+          25,
+          214,
+          255
+        ]
+      ]
+    ],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "overlap.mp3",
+    "large": false,
+    "status": "ready",
+    "cat": "audio",
+    "colors": [],
+    "missing": [],
+    "chars": 291,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kargon Monday, 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.wav",
+    "large": false,
+    "status": "ready",
+    "cat": "audio",
+    "colors": [],
+    "missing": [
+      "Monday"
+    ],
+    "chars": 290,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kago-Wanda is 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.m4a",
+    "large": false,
+    "status": "ready",
+    "cat": "audio",
+    "colors": [],
+    "missing": [
+      "Monday"
+    ],
+    "chars": 289,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Nusbans 47 kg. The final destination is Toronto. The."
+  },
+  {
+    "f": "overlap.aac",
+    "large": false,
+    "status": "ready",
+    "cat": "audio",
+    "colors": [],
+    "missing": [],
+    "chars": 291,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kargon Monday, 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.ogg",
+    "large": false,
+    "status": "ready",
+    "cat": "audio",
+    "colors": [],
+    "missing": [],
+    "chars": 293,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kargon Monday is 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.flac",
+    "large": false,
+    "status": "ready",
+    "cat": "audio",
+    "colors": [],
+    "missing": [
+      "Monday"
+    ],
+    "chars": 290,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kago-Wanda is 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "dual.mp4",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.2,
+      11.2
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "dual.mpeg",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.2,
+      11.19
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "dual.mpg",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.2,
+      11.19
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "dual.mov",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.2,
+      11.2
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "dual.avi",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.22,
+      11.26
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "dual.mkv",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.21,
+      11.24
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "dual.webm",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.2,
+      11.21
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "dual.3gp",
+    "large": false,
+    "status": "ready",
+    "cat": "video",
+    "colors": [],
+    "frames": [
+      3.2,
+      11.2
+    ],
+    "missing": [],
+    "chars": 241,
+    "preview": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg."
+  },
+  {
+    "f": "reference.heic",
+    "large": false,
+    "status": "error",
+    "cat": "image",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_35f9074c1f9a.heic -frames:v 8 -vf scale=w=min(iw\\,1280):h=min(ih\\,1280):force_original_aspect_ratio=decrease,format=rgb24 -vsync vfr C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_d74cd8a0147e_%03d.png\n[mov,mp4,m4a,3gp,3g2,mj2 @ 00000290bf0dca40] moov atom not found\r\n[in#0 @ 00000290bf0dc8c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_35f9074c1f9a.heic.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "reference.heif",
+    "large": false,
+    "status": "error",
+    "cat": "image",
+    "error": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_7fa1b791e0ac.heif -frames:v 8 -vf scale=w=min(iw\\,1280):h=min(ih\\,1280):force_original_aspect_ratio=decrease,format=rgb24 -vsync vfr C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_c93678ace5e4_%03d.png\n[mov,mp4,m4a,3gp,3g2,mj2 @ 000002109dd6ca40] moov atom not found\r\n[in#0 @ 000002109dd6c8c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_7fa1b791e0ac.heif.\r\nError opening input files: Invalid data found when processing input\r\n",
+    "colors": [],
+    "missing": [],
+    "chars": 0
+  },
+  {
+    "f": "simple.doc",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [],
+    "chars": 1502,
+    "preview": "nt\nSummaryInformation\nDocumentSummaryInformation\nCompObj\nObjectPool\nﵙǂﵙǂ\n楍牣獯景⁴潗摲䐠捯浵湥t\n卍潗摲潄c\n潗摲䐮捯浵湥⹴8㧴熲\n㸀̀︀৿؀\n฀戀扪瑪琫+\n吀楨⁳獩愠猠浩汰⁥楦敬挠敲瑡摥眠瑩⁨潗摲㤠ⴷ剓⸲\nᰁἀ킰 ℽࢰ∇ࢰ⌇ꂐ␅ꂐ┅°\nሀༀ਀Ā嬀ༀȀ\n؀一漀爀洀愀氀\n㰀䄀ꇿ㰀\nᘀ䐀攀昀愀甀氀琀 倀愀爀愀最爀愀瀀栀 䘀漀渀琀\nഀ䈀漀戀 伀琀琀攀爀戀攀爀最ഀ䄀㨀尀猀椀洀瀀氀攀⸀搀漀挀＀@ƀ⼀\n뀀⨗āĀ⼀\nȂ̆ЅȅЃ窇\nTimes New Roman\nԅȁ܁Ȇ܅\nSymbol\nଂІȂȂЂ窇\nArial\n.This is a simple file created with Word 97-SR2\n龅鱗桏꬐࢑⬀댧ベ\n吀楨⁳獩愠猠浩汰⁥楦敬挠敲瑡摥眠瑩⁨潗摲㤠ⴷ剓2Ḱ\n䈀扯传瑴牥敢杲氀ṥ\n一牯慭⹬潤tṲ\n䴀捩潲潳瑦圠牯⁤⸸0䁬\nȀ췕鳕ᬮ錐ࢗ⬀郎䒮\nԀ췕鳕ᬮ錐ࢗ⬀郎沮\n䌀䉉⁃潗汲⁤慍歲瑥s̀\n吀楨⁳獩愠猠浩汰⁥楦敬挠敲瑡摥眠瑩⁨潗摲㤠ⴷ剓2ဌ\n开䥐彄啇䑉Ȁ\n笀㄀　㔀䘀　㜀㄀䐀ⴀ㔀㐀　䔀ⴀ㄀㄀䐀㜀ⴀ䄀䈀䈀㤀ⴀ　　　㠀　㈀㔀㐀㌀　䔀䘀紀\n勿漀漀琀 䔀渀琀爀礀\n㄀吀愀戀氀攀\n圀漀爀搀䐀漀挀甀洀攀渀琀\nԀ匀甀洀洀愀爀礀䤀渀昀漀爀洀愀琀椀漀渀\nԀ䐀漀挀甀洀攀渀琀匀甀洀洀愀爀礀䤀渀昀漀爀洀愀琀椀漀渀\nĀ䌀漀洀瀀伀戀樀\n伀戀樀攀挀琀倀漀漀氀\nǿ︀Ͽ\n＀\n䴀捩潲潳瑦圠牯⁤潄畣敭瑮਀\n䴀坓牯䑤捯က\n圀牯⹤潄畣敭瑮㠮눹q"
+  },
+  {
+    "f": "SampleShow.ppt",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [],
+    "chars": 33270,
+    "preview": "￷蓿뗞￞\n鳿웧￷\n￞￯\n￯￧\n컎ￎ\n컿컎\n￷\n컯컎\n￷컿훎컖ￎ\n컷뷆붽떭ﾽ궭ﾭ떵\n뗿떵￷컿뷆\n귿궭훷웎\n뷆붽욽\n뷿떽훎훞\n훧웎붽\n욽ￎ떽ﾵ\n떵욵컆웎ﾽ\n뷿붽훿웎\n컿뷆\n웿붽웆웎웆떵훞\n웷뷆컆\n컖떵캽컎궭ﾭ\n컎ￖ궥욭웆컖훎\n궭컎훎ꖭ붽ﾽ\n웆뷆붽￯\n웿웆웆훆컖\n붵뷆떵귷ꖥ욽훞뷿붽뷆ﾽ\n훿ꖭ컖훎\n웆훆컎컆뗖궭￯\n웯뷆뷧욽\n웿웆￷뷿붽붵횽컎웯붽웆ￆ\n뷿붽웆\n￷웿떽￷\n훿웎\n붵揆捣귞떭\n葻媌婚貔ﾄ\n蓿钌婚굚鲥\n귿욽婚ꖥﾭ\n獳捻婚鲥ﾔ\n훎揞歫歳\n獫捳捣컖ￆ\n毷筳獻땫붽￧\n钌媜婚箄ｻ\n毿葳컞ꗆ욵貜ｻ\n욵篖婫勿㥂\n￷㤹Ｙ\n䩂ｚ獫떄鲥⇯ㄩ컞賆궜箌ｳ\n䋿婒㧯削ꖭ떜떵궭ﾭ\n⧿ㄱ궭떭떵궵ﾭ\n毿葻컞귆캽貜ｻ\n뗿욽䈹왂궵毷剚\n훎嫞捣箄ｫ\n䩂ｚ䈹ｒ\n揿葳컖媽筫貔떄떵궭\n䫯捒鲥궔궭䈹컖\nㇿ䈹궭궭궭ㄩＱ\n毿葳컞ꗆ욵玄｣\n캽嫞䉒￯\n䩂ｚ婊컞\n勿正컞毆葻蒔굻궭婒왣ꖵ\n뷿훎箌鱳떭တ娐婚\n剒筊筻剚ｊ\n䫧䉂筻䉻䉂\n珖貄᠘笐歳\nꖔ᢭᠘婚\n䈹歒捣正歳剣\nꗿ붵婚歒筳歳ｚ\n㤱㥂ㄹꖭ殜葻컞귆캽䉂笹獳욽䫆䉊筳왻떽捒⥳℡歳ｚ\n䉂葊蒄钜ﾌ\n䩂ｚ욵䫎䉊歫⥫⤩컞\n䩊葊蒄䉊ｂ\n䩂ｒ￧\n揯筳컞ￆ\n貄媔婚婚婚婚歳뵣훆貔ｻ\n㤱ꕂꖥ￯\n훎勧䉊떽箭钄컞ﾽ\n椀敤吠瑩敬s\n开釀鯣óऀ̃봀欂睩睩湩獧\n䌀甀爀爀攀渀琀 唀猀攀爀"
+  },
+  {
+    "f": "basic_test_ppt_file.ppt",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [],
+    "chars": 2767,
+    "preview": "耀䠀讅脁Ё\n؀謂༁ഀ黰\n缀ĀԀ耀᠀變蜁Ȁ\n倀缇༖ᄀჰ\nऀ謂༁ഀ僰\n缀ĀԀ耀ꐀ᱿蜁Ȁ\nࠀ謂༁ഀ勰\n梽鐀踁讟뼀ሁሀ＀\n앗䀁༢␃\nЀ耀鐀᳝뼁\nༀᰀ༁ഀ೰\n退怉 །ᄀჰ\nကᰀ༁ഀ೰\n앗쀁쫟࿽㨃\n܀ഀ༰ఀ먄\n଀謀༁Ѐ닰\nЀ耀耀讑뼁\nఀ謀༁ഀ䳰\n吀敨敳愠敲琠敨渠瑯獥映牯瀠条⁥1ꨀሏ\n앗䀁\"爀᠗\nĀཷ\n밀ᎃ匀ಾ배ᎃ\n툀吏᎖吀᎖␀Თ\n龅鱗桏꬐࢑⬀댧ベ\n䠀杯慷瑲s\n䴀捩潲潳瑦传晦捩⁥潐敷偲楯瑮䀀\n磿ꀀ砀ꀀ＀\n吀楨⁳獩愠琠獥⁴楴汴٥؀̀ЀȀ̀Ѐ̀؀̀Ȁ؀Ѐ̀̀̀ȀȀ̀؀Ѐ\nĀȂ匢獹整m\n吀楨⁳獩愠琠獥⁴畳瑢瑩敬ԀЀĀЀȀȀ̀ȀЀȀȀЀЀȀĀЀЀЀȀȀĀȀЀЀ\n吀楨⁳獩漠⁮慰敧ㄠբЀĀЀȀȀ̀ȀЀЀȀЀЀЀЀȀЀЀ\nȀ췕鳕ᬮ錐ࢗ⬀郎ギ\n伀⵮捳敲湥匠潨wḀ\n吀牯档潢x\n䐀晥畡瑬䐠獥杩n\n桔獩椠⁳⁡整瑳琠瑩敬ᰀ\n吀楨⁳獩琠敨琠瑩敬漠⁮慰敧㈠ఀ\n䘀湯獴唠敳d\n敄楳湧吠浥汰瑡e\n汓摩⁥楔汴獥̀\n开釀䋣)ࠀ̃\n䠀杯慷瑲ࡳ\n䠀漀最眀愀爀琀猀\n䌀甀爀爀攀渀琀 唀猀攀爀\n桔獩椠⁳⁡整瑳猠扵楴汴൥桔獩椠⁳湯瀠条⁥1ᐃ\n吀楨⁳獩琠敨琠瑩敬漠⁮慰敧㈠\n桔獩椠⁳慰敧琠潷䤍⁴慨⁳敳敶慲⁬汢捯獫漠⁦整瑸不湯⁥景琠敨⁭慨敶映牯慭瑴湩呧\n桔獥⁥牡⁥桴⁥潮整⁳湯瀠条⁥睴Ɐ愠慧湩氠捡楫杮映牯慭瑴湩gꨀሏ\n앗䀁礄<爀ᐗ\nĀཷ\n툀吏᎖吀᎖耀锫\n桔獩椠⁳慰敧琠潷䤍⁴慨⁳敳敶慲⁬汢捯獫漠⁦整瑸不湯⁥景琠敨⁭慨敶映牯慭瑴湩gꨀᨏ\nЀ耀耀閿뼀\nഀ销ༀഀ೰\nЀ耀閿뼀\n฀销ༀഀ೰\n앗靏,爀ဗ\nĀက؀\"؀က︀&\n!⨀)Ā"
+  },
+  {
+    "f": "solver.xls",
+    "large": false,
+    "status": "ready",
+    "cat": "legacy",
+    "colors": [],
+    "missing": [],
+    "chars": 80381,
+    "preview": "㌬〹زЀ؀؀؀Ԁ\n㌀ㄬ㈹زЀ؀؀؀Ԁ\n㐀㜬㤸زЀ؀؀؀Ѐ\nᘀ쨄攀ሁᬀЀ\n匀污獥删癥湥敵؀؀Ȁ؀Ԁ̀܀؀؀؀؀؀؀Ѐ\n␀㐱ⰳ㘶ز؀؀؀Ѐ؀؀؀Ԁ\n␀㜱ⰵ㠵ط؀؀؀Ѐ؀؀؀Ԁ\n␀㈱ⰷ〷ذ؀؀؀Ѐ؀؀؀Ԁ\n␀㤱ⰱ㐵ع؀؀؀Ѐ؀؀؀Ѐ\nᘀ礄攀氁ᬀЀ\n䌀獯⁴景匠污獥܀؀ԀЀ̀؀Ѐ̀؀؀Ȁ؀ԀЀ\n㠀ⰹ㠷ع؀Ѐ؀؀؀Ԁ\n㄀㤰㜬㈴ع؀؀Ѐ؀؀؀Ԁ\n㜀ⰹㄸز؀Ѐ؀؀؀Ԁ\n㄀㤱㜬㠱ع؀؀Ѐ؀؀؀Ѐ\nᘀ蜄攀稁ᬀЀ\n䜀潲獳䴠牡楧ݮЀ؀ԀԀ̀ࠀ؀Ѐ؀Ȁ؀Ѐ\n㔀ⰳ㜸س؀Ѐ؀؀؀Ԁ\n㘀ⰵ㐸ص؀Ѐ؀؀؀Ԁ\n㐀ⰷ㠸ط؀Ѐ؀؀؀Ԁ\n㜀ⰱ㌸ر؀Ѐ؀؀؀Ѐ\nᘀ鼄攀鈁ᬀЀ\n匀污獥潦捲٥؀Ȁ؀ԀЀ؀ЀԀ؀Ѐ\n㠀〬〰رЀ؀؀؀Ԁ\n㤀〬〰رЀ؀؀؀Ԁ\n㤀〬〰رЀ؀؀؀Ѐ\nᘀ괄攀ꀁᬀЀ\n䄀癤牥楴楳杮ݮ؀؀؀ЀЀȀԀȀ؀؀Ѐ\n㄀ⰰ〰ذ؀Ѐ؀؀؀Ԁ\n㄀ⰰ〰ذ؀Ѐ؀؀؀Ѐ\nᘀ묄攀긁ᬀЀ\n䌀牯⁰癏牥敨摡܀؀Ѐ؀̀ࠀ؀؀Ѐ؀؀؀؀Ѐ\n㈀ⰱ㐵ع؀Ѐ؀؀؀Ԁ\n㈀ⰶ㌳ظ؀Ѐ؀؀؀Ԁ\n㄀ⰹ㔱ص؀Ѐ؀؀؀Ԁ\n㈀ⰸ㌷ز؀Ѐ؀؀؀Ѐ\nᘀ줄攀밁ᬀЀ\n吀瑯污䌠獯獴١؀Ѐ؀Ȁ̀܀؀ԀЀԀЀ\n㌀ⰹ㐵ع؀Ѐ؀؀؀Ԁ\n㐀ⰴ㌳ظ؀Ѐ؀؀؀Ԁ\n㌀ⰸ㔱ص؀Ѐ؀؀؀Ԁ\n㐀ⰷ㌷ز؀Ѐ؀؀؀Ѐ\nĀĀ㜀漀Ѐ\nĀĀ㔀漀Ѐ\nĀĀ㔀焀Ѐ\nĀ匀㔀ᰀЀ\nĀ匀㜀ᰀЀ\nༀĀ☀漀Ѐ\nༀĀ☀焀Ѐ\nༀĀ☀搀Ё\n昀Ā㠀搀Ё\n昀Ā㠀漀Ѐ\n昀Ā㠀焀܀\n଀̀ꄀ漀܀\nᄀ̀鸀挀܁\nꠀ̀⌀ᤀЀ\nᰀĀ꼀漀Ѐ\nᰀĀ꼀焀Ѐ\nĀĀ㜀焀Ѐ\nᰀĀ꼀搀ఁ\ǹ䨀⌁ᰀЀ\nĀ㔀爀Ѐ\nĀ㜀爀Ѐ\nĀĀ㜀焀܀\ǹ鸀漀ఀ\ǹ가漀Ѐ"
+  }
+]

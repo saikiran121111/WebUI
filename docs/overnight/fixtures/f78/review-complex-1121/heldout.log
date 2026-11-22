@@ -1,0 +1,57 @@
+==============================================================================
+ho-hydro.pdf: HTTP 200 ok=true category=pdf body=2152 chars
+  PASS must: spillway gate 4 failed inspection on 12 May
+  PASS must: the Kestrel weir closure was approved on 8 August
+  PASS must: Q = C * b * sqrt(2 * g * h)
+  PASS must: LEFT COLUMN page 2
+  PASS must: RIGHT COLUMN page 2
+  PASS coverage_must_any: units: 6 of 7 read || failed units: 3 [matched: units: 6 of 7 read]
+==============================================================================
+ho-negate.pdf: HTTP 200 ok=true category=pdf body=3042 chars
+  PASS must: did not approve the 14 percent surcharge
+  PASS must: inspection levy was set at EUR 2,400 per vessel
+  PASS must: 2,400 EUR 3.5 m depth 92 % relative humidity
+  PASS must_not: approved the 14 percent surcharge
+  PASS coverage_must_any: units: 9 of 9 read [matched: units: 9 of 9 read]
+==============================================================================
+ho-empty.pdf: HTTP 200 ok=true category=pdf body=655 chars
+  PASS accept_any_of: units: 0 of 2 read || no text layer || no parser + refused [matched: units: 0 of 2 read]
+==============================================================================
+ho-inventory.xlsx: HTTP 200 ok=true category=office body=1067 chars
+  PASS must: A1=Kestrel depot inventory (merged title spans three columns)
+  PASS must: [merged A1:C1]
+  PASS must: [merged B3:B4]
+  PASS must: C4=0
+  PASS must: E5=SUM(B5:C5) (cached 1234.5)
+  PASS must: Zürich
+  PASS must_not: C5=0
+  PASS must_not: B4=0
+  PASS must_not: C1=0
+  PASS coverage_must_any: units: 1 of 1 read [matched: units: 1 of 1 read]
+==============================================================================
+ho-corrupt.xlsx: HTTP 200 ok=true category=office body=912 chars
+  PASS must: only string
+  PASS must: could NOT read
+  PASS must_not: A1=only string
+  PASS must_not: A3=#REF!
+  PASS coverage_must_any: units: 1 of 1 read [matched: units: 1 of 1 read]
+==============================================================================
+ho-badxml.xlsx: HTTP 200 ok=true category=office body=847 chars
+  PASS accept_any_of: failed units: 1 || could not be read + corrupt || units: 0 of 1 read [matched: failed units: 1]
+==============================================================================
+ho-catalog.docx: HTTP 200 ok=true category=office body=1482 chars
+  PASS must: Morne-Rouge | Chantal
+  PASS must: Morne-Rouge | Quai | Ferme
+  PASS must: table 3 row 2
+  PASS must: Zürich West
+  PASS must: the timetable is re-tendered each spring
+  PASS coverage_must_any: units: 1 of 1 read [matched: units: 1 of 1 read]
+==============================================================================
+ho-slides.pptx: HTTP 200 ok=true category=office body=1087 chars
+  PASS must: the depot lease expires 1 June and the fare uplift was deferred
+  PASS must: Route closures:
+  PASS must: 日本語
+  PASS must: Étiquette
+  PASS coverage_must_any: units: 3 of 3 read [matched: units: 3 of 3 read]
+==============================================================================
+scored 8 fixture(s), 0 miss(es); evidence -> docs/overnight/logs/f09-heldout-2026-11-21T140535334Z.json

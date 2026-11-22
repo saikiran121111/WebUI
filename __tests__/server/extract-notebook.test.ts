@@ -129,3 +129,81 @@ describe("notebookText — I08 honest failure modes", () => {
       .toContain("[No cells found in this notebook]");
   });
 });
+
+describe("notebookText — F78 numbers keep the literal the file wrote", () => {
+  // Built as RAW JSON TEXT: JSON.stringify in a test would round the number
+  // BEFORE the reader ever sees it, hiding the very defect under test.
+  const RAW = '{"nbformat":4,"cells":[{"cell_type":"code","execution_count":9,'
+    + '"source":"metrics()","outputs":[{"output_type":"display_data",'
+    + '"data":{"application/json":{"fold":7,"recall":0.639,"exact_id":9007199254740993},'
+    + '"text/plain":"Fold metrics"}}]}]}';
+
+  it("2^53+1 in a JSON output survives exactly; round-tripping values are untouched", () => {
+    const t = notebookText(RAW);
+    expect(t).toContain('"exact_id":9007199254740993');
+    expect(t).not.toContain("9007199254740992");
+    expect(t).toContain('"fold":7');
+    expect(t).toContain('"recall":0.639');
+  });
+
+  it("protects every literal the double cannot carry, and leaks no placeholder", () => {
+    const t = notebookText('{"nbformat":4,"cells":[{"cell_type":"code","execution_count":9007199254740993,'
+      + '"source":"x = 12345678901234567890","outputs":[{"output_type":"execute_result",'
+      + '"data":{"application/json":{"a":1e3,"b":1e400,"c":-0}}}]}]}');
+    expect(t).toContain("#In[9007199254740993]");           // bare insertion (template)
+    expect(t).toContain("x = 12345678901234567890");        // code source: string content
+    expect(t).toContain('"a":1e3');                          // exponent token preserved
+    expect(t).toContain('"b":1e400');                        // not Infinity, not dropped
+    expect(t).toContain('"c":-0');
+    expect(t).not.toContain("");                           // placeholders restored, never leaked
+  });
+
+  it("the F78 fixture delivers the plan facts through the production reader", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const fixture = path.join(process.cwd(), "docs", "overnight", "fixtures", "f78",
+      "all-readers", "native", "exact.ipynb");
+    if (!fs.existsSync(fixture)) throw new Error(`F78 fixture missing: ${fixture}`);
+    const { extractFileFromPath } = await import("../../lib/server/extract");
+    const r = await extractFileFromPath("exact.ipynb", fixture);
+    expect(r.category).toBe("notebook");
+    expect(r.text).toContain("9007199254740993"); // native-plan.json expected fact
+    expect(r.text).toContain("0.639");
+    expect(r.text).not.toContain("9007199254740992");
+  });
+
+  it("review-docs/results.ipynb answers its key through the production reader", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const fixture = path.join(process.cwd(), "docs", "overnight", "fixtures", "f78",
+      "review-docs", "results.ipynb");
+    if (!fs.existsSync(fixture)) throw new Error(`F78 fixture missing: ${fixture}`);
+    const { extractFileFromPath } = await import("../../lib/server/extract");
+    const r = await extractFileFromPath("results.ipynb", fixture);
+    expect(r.category).toBe("notebook");
+    // Source score and stored stdout are BOTH kept, unreconciled (0.81 vs 0.72).
+    expect(r.text).toContain("score = 0.81");
+    expect(r.text).toContain("--- output (stdout) ---\n0.72");
+    // Structured output facts; execution counts visible for the "ran earliest" question.
+    expect(r.text).toContain('"fold":7');
+    expect(r.text).toContain('"recall":0.639');
+    expect(r.text).toContain("#In[9]");
+    expect(r.text).toContain("#In[3]");
+    // The plot payload is base64, LABELLED and never decoded: the key says the
+    // marker inside the image is not readable — the reader must not invent it.
+    expect(r.text).toContain("[image/png output: 4116 chars of base64");
+    // The exception and its key arrive verbatim.
+    expect(r.text).toContain("KeyError: amber_partition");
+  });
+
+  it("a notebook that never executes anything stays a read: code is shown, not run", () => {
+    // The reader's law: outputs are exactly what the file recorded. A cell whose
+    // stored stdout DISAGREES with its source (results.ipynb: 0.81 vs 0.72)
+    // must show both, unreconciled - proof nothing ran.
+    const t = notebookText('{"nbformat":4,"cells":[{"cell_type":"code","execution_count":9,'
+      + '"source":"score = 0.81\\nprint(score)","outputs":[{"output_type":"stream",'
+      + '"name":"stdout","text":["0.72\\n"]}]}]}');
+    expect(t).toContain("score = 0.81");
+    expect(t).toContain("0.72");
+  });
+});

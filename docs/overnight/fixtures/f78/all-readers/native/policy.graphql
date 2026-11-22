@@ -1,0 +1,2 @@
+type Limits { active: Int retired: Int }
+# current = 413, former = 917

@@ -16,6 +16,7 @@ Laws this module encodes:
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,43 @@ def _looks_encrypted(exc: BaseException) -> bool:
     """
     text = f"{type(exc).__name__}: {exc}".lower()
     return any(marker in text for marker in ("decrypt", "password", "encrypt"))
+
+
+_RECT_FILL = re.compile(
+    rb"([-+]?[0-9]*\.?[0-9]+)\s+([-+]?[0-9]*\.?[0-9]+)\s+([-+]?[0-9]*\.?[0-9]+)\s+([-+]?[0-9]*\.?[0-9]+)\s+re\b")
+_CURVE = re.compile(rb"\s([cvy])\b")
+
+
+def _visual_paint_ops(page: Any, media_area: float) -> int:
+    """Count the drawing operations in a page's own content streams.
+
+    Content-derived, never a name match: a rectangle fill counts when it is smaller
+    than the page (a full-page fill is a background, and the clip rect `re W* n` of
+    the same size is excluded by the same rule), and a Bezier curve (c/v/y) counts.
+    A page of only text operators returns 0; a drawn bar chart (two bars plus curves)
+    returns >= 2. The answer drives whether a rendered page image is offered as
+    visual evidence - the text layer of a chart page can never carry the drawn fact.
+    Best effort: an unparseable content stream counts as no visual content.
+    """
+    try:
+        contents = page.get("/Contents")
+        if contents is None:
+            return 0
+        obj = contents.get_object()
+        streams = list(obj) if isinstance(obj, list) else [obj]
+        data = b"".join(s.get_data() for s in streams)
+    except Exception:                                     # noqa: BLE001 - inspection is best effort
+        return 0
+    fills = 0
+    for m in _RECT_FILL.finditer(data):
+        try:
+            area = abs(float(m.group(3))) * abs(float(m.group(4)))
+        except ValueError:                                # noqa: BLE001 - malformed operand
+            continue
+        if media_area > 0 and area >= 0.8 * media_area:
+            continue                                      # background / clip, not content
+        fills += 1
+    return fills + len(_CURVE.findall(data))
 
 
 def stream_sha256(path: Path) -> str:
@@ -131,6 +169,7 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
         failed: list[dict[str, str]] = []
         rotations: dict[int, int] = {}
         images: dict[int, int] = {}
+        visual: dict[int, int] = {}
 
         for index, page in enumerate(reader.pages, start=1):
             try:
@@ -151,6 +190,17 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
                 image_count = -1
             if image_count > 0:
                 images[index] = image_count
+            try:
+                media_area = float(page.mediabox.width) * float(page.mediabox.height)
+            except Exception:                             # noqa: BLE001 - malformed optional geometry
+                media_area = 0.0
+            visual_ops = _visual_paint_ops(page, media_area)
+            if visual_ops >= 2:
+                # A page whose CONTENT is drawn, not written: filled rects and curves
+                # beyond a full-page background. The text layer of such a page (a bar
+                # chart reads as title + axis labels) can never carry the fact, so the
+                # page gets a rendered page image as on-demand visual evidence.
+                visual[index] = visual_ops
 
             stripped = text.strip()
             glyphs = sum(1 for ch in stripped if not ch.isspace())
@@ -200,6 +250,7 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
         "page_numbering": "1-based",
         "rotated_pages": rotations,
         "pages_with_images": images,
+        "pages_with_visual": visual,
         "page_failures": failed,
         "needs_ocr": sorted(needs_ocr),
         "metadata": _safe_metadata(pypdf, reader),

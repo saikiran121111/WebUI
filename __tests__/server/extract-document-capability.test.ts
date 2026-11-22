@@ -306,6 +306,7 @@ const doc = (over: Partial<CapabilityDoc>): CapabilityDoc => ({
   note: "2/3 pages produced a text layer",
   units: [],
   rendered: [],
+  visualPages: [],
   ocr: {
     ran: false, attempted: 0, recognized: 0, language: "", summary: "",
     reason: "engine not executable here", needsLanguage: false,

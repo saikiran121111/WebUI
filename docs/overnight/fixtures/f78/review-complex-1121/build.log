@@ -1,0 +1,11 @@
+  Γû▓ Next.js 14.2.35
+  - Experiments (use with caution):
+    ┬╖ instrumentationHook
+
+   Creating an optimized production build ...
+Failed to compile.
+
+Error: EPERM: operation not permitted, mkdir 'C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\review-complex-1121\validation-source\.next\types\app\api\documents\xlsx'
+
+
+> Build failed because of webpack errors

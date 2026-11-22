@@ -1,0 +1,1272 @@
+[
+  {
+    "f": "sample.txt",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 21,
+    "missing": []
+  },
+  {
+    "f": "sample.csv",
+    "cat": "text",
+    "status": 422,
+    "ms": 465,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_bcd61928f63a.csv -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_c1655b4cd3df.f32\n[mp3 @ 000001c7cae1c300] Invalid frame size (288): Could not seek to 288.\r\n[in#0 @ 000001c7cae1c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_bcd61928f63a.csv.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.tsv",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.md",
+    "cat": "text",
+    "status": 422,
+    "ms": 23,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_3352b3bcb72b.md -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_5b233105f3d5.f32\n[in#0 @ 00000146b7c8c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_3352b3bcb72b.md.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.json",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.jsonl",
+    "cat": "text",
+    "status": 422,
+    "ms": 23,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_988a923f212e.jsonl -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_73cdbd0c763e.f32\n[mp3 @ 000002092200c300] Invalid frame size (340): Could not seek to 340.\r\n[in#0 @ 000002092200c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_988a923f212e.jsonl.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.xml",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.html",
+    "cat": "text",
+    "status": 422,
+    "ms": 25,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_1fe6ca5336f1.html -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_67ad21ce11e3.f32\n[in#0 @ 000001c533b2c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_1fe6ca5336f1.html.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.htm",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.yaml",
+    "cat": "text",
+    "status": 422,
+    "ms": 22,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_80f1dc57939e.yaml -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_b83902ab8a5c.f32\n[mp3 @ 000001ee47bac300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 000001ee47bac1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_80f1dc57939e.yaml.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.yml",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.toml",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_c6f910ae779e.toml -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_cf8fad7457fd.f32\n[in#0 @ 000001d03605c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_c6f910ae779e.toml.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.ini",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.log",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_4529ecbc1ac4.log -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_f74a00154a2e.f32\n[mp3 @ 0000017e07a6c300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 0000017e07a6c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_4529ecbc1ac4.log.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.py",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.js",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2f8f7f048379.js -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_64bafe8db8fb.f32\n[in#0 @ 0000028b2f6cc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2f8f7f048379.js.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.jsx",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.ts",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_65cf14fb1796.ts -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_1279464f4889.f32\n[mp3 @ 0000021f0c3fc300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 0000021f0c3fc1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_65cf14fb1796.ts.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.tsx",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.java",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_a36e28f6c282.java -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_37c602d3d4d7.f32\n[in#0 @ 00000223efdbc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_a36e28f6c282.java.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.c",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.cpp",
+    "cat": "text",
+    "status": 422,
+    "ms": 18,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_915832e8b7dd.cpp -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_68afcaea125c.f32\n[mp3 @ 000002ad7620c300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 000002ad7620c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_915832e8b7dd.cpp.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.cc",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.h",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5edfadb20f53.h -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_9602ccf4b00c.f32\n[in#0 @ 0000021d04bcc1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5edfadb20f53.h.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.hpp",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.cs",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_383a4df28efb.cs -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_239100090ca5.f32\n[mp3 @ 00000215cf0fc300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 00000215cf0fc1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_383a4df28efb.cs.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.go",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.rs",
+    "cat": "text",
+    "status": 422,
+    "ms": 24,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_0dac5b999934.rs -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_87c8a3f02896.f32\n[sunrast @ 0000022582254dc0] this is not sunras encoded data\r\n[out#0/f32le @ 0000022582255680] Output file does not contain any stream\r\nError opening output file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_87c8a3f02896.f32.\r\nError opening output files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.php",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.rb",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_7c86fb3f6780.rb -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_a7cf690e10e5.f32\n[mp3 @ 0000018c2656c300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 0000018c2656c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_7c86fb3f6780.rb.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.swift",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.kt",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_0db84e1156d6.kt -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_6a746474bf76.f32\n[in#0 @ 000001e0d544c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_0db84e1156d6.kt.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.kts",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.scala",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_361583b3e245.scala -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_7d34a28f2aad.f32\n[mp3 @ 000001ca2441c300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 000001ca2441c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_361583b3e245.scala.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.sh",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.bash",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_926027e968aa.bash -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_32e6788e84f9.f32\n[in#0 @ 000001261094c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_926027e968aa.bash.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.zsh",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.ps1",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_3e51cdd14e1f.ps1 -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_e5d4e77ec013.f32\n[mp3 @ 000001948b4bc300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 000001948b4bc1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_3e51cdd14e1f.ps1.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.bat",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.cmd",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5c6c194833a0.cmd -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_53bf081dd18c.f32\n[in#0 @ 0000020e2970c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5c6c194833a0.cmd.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.sql",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.r",
+    "cat": "text",
+    "status": 422,
+    "ms": 16,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_7071b1a98411.r -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_1a909cfe6666.f32\n[mp3 @ 000002976c57c300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 000002976c57c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_7071b1a98411.r.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.m",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.tex",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_d247916e69bf.tex -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_ff704a99677e.f32\n[in#0 @ 00000206b294c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_d247916e69bf.tex.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.bib",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.diff",
+    "cat": "text",
+    "status": 422,
+    "ms": 19,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_68d6ebf9ff35.diff -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_cc9bfe90c1a0.f32\n[in#0 @ 000001df98d4c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_68d6ebf9ff35.diff.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.patch",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.env",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5b69625cb8fa.env -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_ce7d686f66b2.f32\n[in#0 @ 000002223df2c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5b69625cb8fa.env.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.conf",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "sample.cfg",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6292cfbb9f14.cfg -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_05aa5f70e4d6.f32\n[mp3 @ 00000200ea8bc300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 00000200ea8bc1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6292cfbb9f14.cfg.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.properties",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.graphql",
+    "cat": "text",
+    "status": 422,
+    "ms": 14,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_46866cc61b5a.graphql -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_8ab8d109f97e.f32\n[in#0 @ 000001e48257c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_46866cc61b5a.graphql.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.gql",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.proto",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_dcaa85f7a13d.proto -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_d5224edd7ec2.f32\n[mp3 @ 0000019cb9e7c300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 0000019cb9e7c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_dcaa85f7a13d.proto.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.dockerfile",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.makefile",
+    "cat": "text",
+    "status": 422,
+    "ms": 16,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_70ec2aae4b78.makefile -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_031f2faf3f1a.f32\n[in#0 @ 000001cc6b41c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_70ec2aae4b78.makefile.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.tf",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.hcl",
+    "cat": "text",
+    "status": 422,
+    "ms": 16,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5ce7e7575613.hcl -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_04f66e5df6b1.f32\n[mp3 @ 0000020cbff6c300] Failed to read frame size: Could not seek to 1257.\r\n[in#0 @ 0000020cbff6c1c0] Error opening input: Invalid argument\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_5ce7e7575613.hcl.\r\nError opening input files: Invalid argument\r\n"
+  },
+  {
+    "f": "sample.vue",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.svelte",
+    "cat": "text",
+    "status": 422,
+    "ms": 16,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6fd53a0a647a.svelte -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_e5f4750b3468.f32\n[in#0 @ 0000021a1b20c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6fd53a0a647a.svelte.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": "sample.astro",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.svg",
+    "cat": "text",
+    "status": 422,
+    "ms": 20,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_2dc2a77cf784.svg -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_ccb21cac4cac.f32\n[out#0/f32le @ 0000022f5d0c5b00] Output file does not contain any stream\r\nError opening output file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_ccb21cac4cac.f32.\r\nError opening output files: Invalid argument\r\n"
+  },
+  {
+    "f": "Dockerfile",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 3,
+    "missing": []
+  },
+  {
+    "f": "Makefile",
+    "cat": "text",
+    "status": 422,
+    "ms": 15,
+    "missing": [
+      "ALPHA-249",
+      "Δοκιμή",
+      "東京",
+      "FINAL-681",
+      "retired: 793; active: 349"
+    ],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6aac8d522084 -f f32le -ac 1 -ar 16000 C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_0d8cfedf6c76.f32\n[in#0 @ 0000023590b5c1c0] Error opening input: Invalid data found when processing input\r\nError opening input file C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_6aac8d522084.\r\nError opening input files: Invalid data found when processing input\r\n"
+  },
+  {
+    "f": ".env",
+    "cat": "text",
+    "status": 200,
+    "actual": "text",
+    "ms": 2,
+    "missing": []
+  },
+  {
+    "f": "sample.docx",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 5,
+    "missing": []
+  },
+  {
+    "f": "sample.pptx",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 3,
+    "missing": [
+      "61 litres",
+      "83",
+      "42"
+    ]
+  },
+  {
+    "f": "sample.xlsx",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 5901,
+    "indexed": true,
+    "missing": []
+  },
+  {
+    "f": "sample.epub",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 14,
+    "missing": []
+  },
+  {
+    "f": "sample.ipynb",
+    "cat": "notebook",
+    "status": 200,
+    "actual": "notebook",
+    "ms": 7,
+    "missing": []
+  },
+  {
+    "f": "sample.rtf",
+    "cat": "rtf",
+    "status": 200,
+    "actual": "rtf",
+    "ms": 4,
+    "missing": []
+  },
+  {
+    "f": "sample.pdf",
+    "cat": "pdf",
+    "status": 200,
+    "actual": "pdf",
+    "ms": 85,
+    "missing": [
+      "4,18,25,000"
+    ]
+  },
+  {
+    "f": "sample.odt",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 4,
+    "missing": []
+  },
+  {
+    "f": "sample.ods",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 6,
+    "missing": [
+      "Cash",
+      "Debt"
+    ]
+  },
+  {
+    "f": "sample.odp",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 4,
+    "missing": [
+      "Intake",
+      "Return"
+    ]
+  },
+  {
+    "f": "sample.xlsm",
+    "cat": "office",
+    "status": 200,
+    "actual": "office",
+    "ms": 5380,
+    "indexed": true,
+    "missing": []
+  },
+  {
+    "f": "sample.mat",
+    "cat": "legacy",
+    "status": 200,
+    "actual": "legacy",
+    "ms": 5,
+    "missing": [
+      "440.125",
+      "98.75"
+    ],
+    "tail": "[legacy binary format: text recovered by scanning raw bytes for printable runs — layout, formatting, and non-printable-encoded characters are lost; treat as a partial recovery]\n\nyields"
+  },
+  {
+    "f": "smoke.doc",
+    "cat": "legacy",
+    "status": 200,
+    "actual": "legacy",
+    "ms": 6,
+    "missing": [],
+    "tail": "啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕\nഀ圊扥䥕氠来捡⁹楦瑸牵⁥⸨潤⥣਍慍歲牥›䕒䑁䉁䕌䴭剁䕋ⵒ佄ⵃ儷㥘਍桔獩氠来捡⁹潤畣敭瑮挠牡楲獥椠獴琠硥⁴獡瀠慬湩爠湵⹳਍\nMarker: READABLE-MARKER-DOC-7QX9啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕"
+  },
+  {
+    "f": "smoke.xls",
+    "cat": "legacy",
+    "status": 200,
+    "actual": "legacy",
+    "ms": 4,
+    "missing": [],
+    "tail": "啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕\nഀ圊扥䥕氠来捡⁹楦瑸牵⁥⸨汸⥳਍慍歲牥›䕒䑁䉁䕌䴭剁䕋ⵒ䱘ⵓ儷㥘਍桔獩氠来捡⁹潤畣敭瑮挠牡楲獥椠獴琠硥⁴獡瀠慬湩爠湵⹳਍\nMarker: READABLE-MARKER-XLS-7QX9啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕"
+  },
+  {
+    "f": "smoke.ppt",
+    "cat": "legacy",
+    "status": 200,
+    "actual": "legacy",
+    "ms": 4,
+    "missing": [],
+    "tail": "啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕\nഀ圊扥䥕氠来捡⁹楦瑸牵⁥⸨灰⥴਍慍歲牥›䕒䑁䉁䕌䴭剁䕋ⵒ偐ⵔ儷㥘਍桔獩氠来捡⁹潤畣敭瑮挠牡楲獥椠獴琠硥⁴獡瀠慬湩爠湵⹳਍\nMarker: READABLE-MARKER-PPT-7QX9啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕啕"
+  },
+  {
+    "f": "audit.zip",
+    "cat": "archive",
+    "status": 200,
+    "actual": "archive",
+    "ms": 5,
+    "missing": []
+  },
+  {
+    "f": "audit.tar",
+    "cat": "archive",
+    "status": 200,
+    "actual": "archive",
+    "ms": 5,
+    "missing": []
+  },
+  {
+    "f": "audit.tgz",
+    "cat": "archive",
+    "status": 200,
+    "actual": "archive",
+    "ms": 5,
+    "missing": []
+  },
+  {
+    "f": "summary.csv.gz",
+    "cat": "archive",
+    "status": 200,
+    "actual": "archive",
+    "ms": 4,
+    "missing": []
+  },
+  {
+    "f": "summary.csv.bz2",
+    "cat": "archive",
+    "status": 200,
+    "actual": "archive",
+    "ms": 70,
+    "missing": []
+  },
+  {
+    "f": "summary.csv.xz",
+    "cat": "archive",
+    "status": 200,
+    "actual": "archive",
+    "ms": 28,
+    "missing": []
+  },
+  {
+    "f": "audit.7z",
+    "cat": "archive",
+    "status": 200,
+    "actual": "archive",
+    "ms": 31,
+    "missing": []
+  },
+  {
+    "f": "audit.rar",
+    "cat": "archive",
+    "status": 422,
+    "ms": 28,
+    "missing": [
+      "66719",
+      "45103",
+      "918"
+    ],
+    "err": "File read error"
+  },
+  {
+    "f": "panel.png",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 43,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        10,
+        10
+      ],
+      [
+        10,
+        25,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "panel.jpg",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 44,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        9,
+        9
+      ],
+      [
+        9,
+        24,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "panel.jpeg",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 30,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        9,
+        9
+      ],
+      [
+        9,
+        24,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "panel.gif",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 27,
+    "missing": [],
+    "frames": [
+      2
+    ],
+    "pixels": [
+      [
+        210,
+        10,
+        10
+      ],
+      [
+        10,
+        25,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "panel.webp",
+    "cat": "image",
+    "status": 422,
+    "ms": 21,
+    "missing": [],
+    "err": "Command failed: C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\node_modules\\ffmpeg-static\\ffmpeg.exe -hide_banner -loglevel error -y -i C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\u_1dfcc581c27b.webp -frames:v 8 -vf scale=w=min(iw\\,1280):h=min(ih\\,1280):force_original_aspect_ratio=decrease,format=rgb24 -vsync vfr C:\\Users\\Ruku\\Documents\\Codex\\2026-11-13\\few-issues-in-the-screenshot-even\\work\\all-readers\\.data\\tmp\\m_070545fe97a7_%03d.png\n[webp @ 0000015bf1b055c0] image data not found\r\n[webp @ 0000015bf1b05fc0] image data not found\r\n[vist#0:0/webp @ 0000015bf1b05a80] Decoding error: Invalid data found when processing input\r\nCannot determine format of input stream 0:0 after EOF\r\nError marking filters as finished\r\nError while filtering: Invalid data found when processing input\r\n[vist#0:0/webp @ 0000015bf1b05a80] Decode error rate 1 exceeds maximum 0.666667\r\n[out#0/image2 @ 0000015bf1afc840] Nothing was written into output file, because at least one of its streams received no packets.\r\n"
+  },
+  {
+    "f": "panel.bmp",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 31,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        10,
+        10
+      ],
+      [
+        10,
+        25,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "panel.tif",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 33,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        10,
+        10
+      ],
+      [
+        10,
+        25,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "panel.tiff",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 29,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        10,
+        10
+      ],
+      [
+        10,
+        25,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "panel.avif",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 46,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        9,
+        9
+      ],
+      [
+        9,
+        24,
+        212
+      ]
+    ]
+  },
+  {
+    "f": "panel.ico",
+    "cat": "image",
+    "status": 200,
+    "actual": "image",
+    "ms": 25,
+    "missing": [],
+    "pixels": [
+      [
+        210,
+        10,
+        10
+      ],
+      [
+        10,
+        25,
+        213
+      ]
+    ]
+  },
+  {
+    "f": "overlap.mp3",
+    "cat": "audio",
+    "status": 200,
+    "actual": "audio",
+    "ms": 2149,
+    "missing": [],
+    "tail": "transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kargon Monday, 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.wav",
+    "cat": "audio",
+    "status": 200,
+    "actual": "audio",
+    "ms": 1457,
+    "missing": [
+      "Monday"
+    ],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kago-Wanda is 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.m4a",
+    "cat": "audio",
+    "status": 200,
+    "actual": "audio",
+    "ms": 2311,
+    "missing": [
+      "Monday"
+    ],
+    "tail": "\n[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Nusbans 47 kg. The final destination is Toronto. The."
+  },
+  {
+    "f": "overlap.aac",
+    "cat": "audio",
+    "status": 200,
+    "actual": "audio",
+    "ms": 1438,
+    "missing": [],
+    "tail": "transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kargon Monday, 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.ogg",
+    "cat": "audio",
+    "status": 200,
+    "actual": "audio",
+    "ms": 1383,
+    "missing": [],
+    "tail": "anscribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kargon Monday is 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "overlap.flac",
+    "cat": "audio",
+    "status": 200,
+    "actual": "audio",
+    "ms": 1338,
+    "missing": [
+      "Monday"
+    ],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe harbor of the Kago-Wanda is 47 kg. The final destination is Toronto."
+  },
+  {
+    "f": "dual.mp4",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1188,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.2,
+      11.2
+    ]
+  },
+  {
+    "f": "dual.mpeg",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1197,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.2,
+      11.19
+    ]
+  },
+  {
+    "f": "dual.mpg",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1167,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.2,
+      11.19
+    ]
+  },
+  {
+    "f": "dual.mov",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1210,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.2,
+      11.2
+    ]
+  },
+  {
+    "f": "dual.avi",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1174,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.22,
+      11.26
+    ]
+  },
+  {
+    "f": "dual.mkv",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1251,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.21,
+      11.24
+    ]
+  },
+  {
+    "f": "dual.webm",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1449,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.2,
+      11.21
+    ]
+  },
+  {
+    "f": "dual.3gp",
+    "cat": "video",
+    "status": 200,
+    "actual": "video",
+    "ms": 1273,
+    "missing": [],
+    "tail": "[transcribed with the English-only speech model \"Xenova/whisper-base.en\" — speech in other languages may be missing or wrong; set WHISPER_MODEL to a multilingual checkpoint (e.g. \"Xenova/whisper-base\") to change this]\nThe cargo weighs 47 kg.",
+    "frames": [
+      3.2,
+      11.2
+    ]
+  }
+]

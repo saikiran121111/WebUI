@@ -99,6 +99,46 @@ def load_document(path: str | Path, max_entries: int = 4096) -> Document:
     source_id = p.name
     if suffix in (".xlsx", ".docx", ".pptx"):
         return _parse_ooxml(p, suffix, source_id, source_hash, src, max_entries)
+    if suffix in (".odt", ".ods", ".odp", ".epub"):
+        import io
+        from ..security import audit_zip_members
+        from . import opendoc
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(src))
+        except zipfile.BadZipFile as exc:
+            # Claims the format, is not a zip container: typed refusal, same law as
+            # OpendocRejected - never an exception at the job boundary.
+            return Document(source_id, source_hash, "unsupported", [],
+                            DocCoverage(0, 0, method="none",
+                                        note=f"not a readable {suffix} package: {exc}"))
+        audit_zip_members(zf)
+        if len(zf.infolist()) > max_entries:
+            raise ExtractionRejected("too many package parts")
+        try:
+            return opendoc.load_opendoc(zf, suffix, source_id, source_hash)
+        except opendoc.OpendocRejected as exc:
+            # The package claims the format but carries none of its required parts.
+            # An "unsupported" document with a stated reason is the typed refusal:
+            # the caller's byte-scan fallback stays labeled as a fallback.
+            return Document(source_id, source_hash, "unsupported", [],
+                            DocCoverage(0, 0, method="none",
+                                        note=f"not a readable {suffix} package: {exc}"))
+    if suffix == ".rtf":
+        from . import opendoc
+        return opendoc.rtf_document(src, source_id, source_hash)
+    if suffix in (".doc", ".ppt", ".xls", ".mat"):
+        # Real structured readers for the legacy binary formats, replacing the old
+        # "scan raw bytes for printable runs" path. A malformed file (truncated OLE
+        # header, garbage sector table) is a typed refusal, never a silent flattening.
+        from . import legacy
+        readers = {".doc": legacy._doc_document, ".ppt": legacy._ppt_document,
+                   ".xls": legacy._xls_document, ".mat": legacy._mat_document}
+        try:
+            return readers[suffix](src, source_id, source_hash)
+        except legacy.OleError as exc:
+            return Document(source_id, source_hash, "unsupported", [],
+                            DocCoverage(0, 0, method="none",
+                                        note=f"malformed legacy binary: {exc}"))
     if suffix in (".txt", ".md", ".log", ".csv", ".json"):
         text = src.decode("utf-8", "replace")
         blocks = [Block(t, "page_text", source_id, source_hash, {"line": i + 1})
@@ -112,7 +152,12 @@ def load_document(path: str | Path, max_entries: int = 4096) -> Document:
 def _parse_ooxml(p: Path, suffix: str, source_id: str, source_hash: str, src: bytes, max_entries: int) -> Document:
     import io
     from ..security import audit_zip_members
-    zf = zipfile.ZipFile(io.BytesIO(src))
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(src))
+    except zipfile.BadZipFile as exc:
+        return Document(source_id, source_hash, "unsupported", [],
+                        DocCoverage(0, 0, method="none",
+                                    note=f"not a readable {suffix} package: {exc}"))
     audit_zip_members(zf)
     if len(zf.infolist()) > max_entries:
         raise ExtractionRejected("too many OOXML parts")
@@ -272,6 +317,113 @@ def _xlsx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
                      "unit_numbering": "1-based sheet index"})
 
 
+_M_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+_PKG_R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_C_NS = "{http://schemas.openxmlformats.org/drawingml/2006/chart}"
+
+# A footnote of type separator/continuationSeparator IS the mark (a dash), not content.
+_DOCX_SEP_TYPES = frozenset({"separator", "continuationSeparator"})
+
+
+def _omml_text(el) -> str:
+    """Linearize one OMML math node. Fractions read (num)/(den); everything else
+    concatenates m:t. This keeps equations addressable — "(u+7)/(v-4)" survives as
+    text — without pretending the reader typesets math.
+    """
+    if el.tag == f"{_M_NS}f":
+        num = el.find(f"{_M_NS}num")
+        den = el.find(f"{_M_NS}den")
+        return f"({_omml_text(num) if num is not None else ''})/({_omml_text(den) if den is not None else ''})"
+    children = list(el)
+    if children:
+        return "".join(_omml_text(c) for c in children)
+    return el.text if el.tag == f"{_M_NS}t" else ""
+
+
+def _docx_text_of(el) -> str:
+    """Text of a w:p / w:tc / w:footnote in document order, with the revision view
+    preserved and OMML linearized.
+
+    w:delText — the text of a tracked deletion — is INVISIBLE to an iter(w:t) scan,
+    so the old reader silently dropped the struck-through figure and presented a
+    document whose visible text was "910 seats307 seats" as if the deletion had
+    never happened. Deletions stay inline, labeled; insertions are ordinary w:t.
+    """
+    parts: list[str] = []
+
+    def walk(node) -> None:
+        if node.tag == f"{_M_NS}oMath":
+            linear = _omml_text(node)
+            if linear.strip():
+                parts.append(f" {linear} ")
+            return
+        if node.tag == f"{_W_NS}t":
+            parts.append(node.text or "")
+            return
+        if node.tag == f"{_W_NS}delText":
+            t = (node.text or "").strip()
+            if t:
+                parts.append(f" [deleted revision: {t}] ")
+            return
+        for child in node:
+            walk(child)
+
+    walk(el)
+    return "".join(parts)
+
+
+def _docx_side_parts(zf: zipfile.ZipFile) -> list[tuple[str, str, dict[str, object]]]:
+    """Footnotes, endnotes, headers and footers — parts a body scan never sees.
+
+    The old reader declared them "not_extracted" and a model quoting the document
+    could not see the footnote deadline or the distribution group in the header.
+    Returns (text, part-label, loc) tuples; the caller attaches source identity.
+    """
+    blocks: list[tuple[str, str, dict[str, object]]] = []
+    for part, label, tag in (("word/footnotes.xml", "footnote", f"{_W_NS}footnote"),
+                             ("word/endnotes.xml", "endnote", f"{_W_NS}endnote")):
+        if part not in zf.namelist():
+            continue
+        try:
+            root = ET.fromstring(zf.read(part))
+        except ET.ParseError:
+            continue
+        for note in root.findall(tag):
+            if note.get(f"{_W_NS}type") in _DOCX_SEP_TYPES:
+                continue
+            text = _docx_text_of(note).strip()
+            if text:
+                blocks.append((text, label, {"part": label, "id": note.get(f"{_W_NS}id")}))
+    rels_part = "word/_rels/document.xml.rels"
+    if rels_part in zf.namelist():
+        try:
+            rels = ET.fromstring(zf.read(rels_part))
+        except ET.ParseError:
+            rels = None
+        if rels is not None:
+            wanted = []
+            for r in rels:
+                rtype = str(r.get("Type") or "")
+                if rtype.endswith("/header") or rtype.endswith("/footer"):
+                    label = "header" if rtype.endswith("/header") else "footer"
+                    target = str(r.get("Target") or "").lstrip("/")
+                    if target and not target.startswith("word/"):
+                        target = "word/" + target
+                    if target in zf.namelist():
+                        wanted.append((label, target))
+            for label, target in sorted(wanted, key=lambda w: (w[0], w[1])):
+                try:
+                    root = ET.fromstring(zf.read(target))
+                except (KeyError, ET.ParseError):
+                    continue
+                body = root.find(f"{_W_NS}hdr") if label == "header" else root.find(f"{_W_NS}ftr")
+                text = _docx_text_of(body if body is not None else root).strip()
+                if text:
+                    name = target.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                    blocks.append((text, label, {"part": label, "name": name}))
+    return blocks
+
+
 def _docx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
     root = ET.fromstring(zf.read("word/document.xml"))
     blocks: list[Block] = []
@@ -283,7 +435,7 @@ def _docx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
                         DocCoverage(0, 0, method="ooxml", note="document body is empty"))
     for el in body:
         if el.tag == f"{_W_NS}p":
-            text = "".join(t.text or "" for t in el.iter(f"{_W_NS}t"))
+            text = _docx_text_of(el)
             style = el.find(f"{_W_NS}pPr/{_W_NS}pStyle")
             name = (style.get(f"{_W_NS}val") or "") if style is not None else ""
             if not text.strip():
@@ -302,10 +454,7 @@ def _docx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
             table_no += 1
 
             for row_no, tr in enumerate(el.findall(f"{_W_NS}tr"), start=1):
-                cells = [
-                    "".join(t.text or "" for t in tc.iter(f"{_W_NS}t"))
-                    for tc in tr.findall(f"{_W_NS}tc")
-                ]
+                cells = [_docx_text_of(tc) for tc in tr.findall(f"{_W_NS}tc")]
 
                 blocks.append(Block(
                     " | ".join(cells),
@@ -318,23 +467,131 @@ def _docx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
             # count: interleaved paragraphs used to shift every later row's table number.
             # Nested tables, vertically merged cells (vMerge) and heading-in-cell content
             # are NOT reconstructed by this reader and stay declared limitations below.
-    cov = DocCoverage(1, 1, method="ooxml", note="heading hierarchy and table cells preserved")
+    side = _docx_side_parts(zf)
+    for text, _label, loc in side:
+        blocks.append(Block(text, "note", source_id, source_hash, loc))
+    deleted = sum(1 for b in blocks if "[deleted revision:" in b.text)
+    cov = DocCoverage(1, 1, method="ooxml",
+                      note="heading hierarchy and table cells preserved; tracked deletions kept "
+                           "inline labeled '[deleted revision: ...]'; footnotes/endnotes/headers/footers read")
     cov.units_succeeded = [1]
     return Document(source_id, source_hash, "docx", blocks, cov,
                     {"unit_numbering": "1-based block/paragraph index; tables are numbered "
                                        "by body order",
                      "tables": table_no,
+                     "revision_paragraphs": deleted,
+                     "side_parts": sorted({str(loc.get("part")) for _t, _l, loc in side}),
                      "not_extracted": ["nested tables", "vertically merged cells",
-                                       "footnotes/endnotes", "text boxes and drawing shapes",
-                                       "numbered-list restart state"]})
+                                       "text boxes and drawing shapes",
+                                       "numbered-list restart state",
+                                       "equation typesetting (OMML is linearized, not rendered)"]})
+
+
+def _slide_targets(zf: zipfile.ZipFile, slide_part: str) -> dict[str, str]:
+    """Relationship type-suffix -> resolved package path, for one slide part."""
+    import posixpath
+    rel_part = f"ppt/slides/_rels/{slide_part.rsplit('/', 1)[-1]}.rels"
+    out: dict[str, str] = {}
+    if rel_part not in zf.namelist():
+        return out
+    try:
+        rels = ET.fromstring(zf.read(rel_part))
+    except ET.ParseError:
+        return out
+    for r in rels:
+        rtype = str(r.get("Type") or "")
+        target = str(r.get("Target") or "")
+        if not rtype or not target or target.startswith(("http:", "https:")):
+            continue
+        # A leading "/" makes the target package-absolute; joining it onto the
+        # part's folder would invent "ppt/slides/ppt/charts/chart1.xml".
+        if target.startswith("/"):
+            resolved = posixpath.normpath(target.lstrip("/"))
+        else:
+            resolved = posixpath.normpath(posixpath.join("ppt/slides", target))
+        out[rtype.rsplit("/", 1)[-1]] = resolved
+    return out
+
+
+def _pptx_display_order(zf: zipfile.ZipFile, names: list[str]) -> tuple[list[str], str]:
+    """Slide parts in PRESENTATION order.
+
+    sldIdLst (via the presentation rels) is the display order; slideN.xml filenames
+    are package-creation order and disagree in real decks (a deck whose sldIdLst is
+    rId4,rId2,rId3 shows slide3.xml first). Numbering notes, charts and citations by
+    filename put every fact on the wrong slide.
+    """
+    byname = {n.rsplit("/", 1)[-1]: n for n in names}
+    try:
+        pres = ET.fromstring(zf.read("ppt/presentation.xml"))
+        rels = ET.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
+    except (KeyError, ET.ParseError):
+        return list(names), "slideN.xml order (no readable presentation.xml)"
+    rid2target = {r.get("Id"): str(r.get("Target") or "") for r in rels}
+    lst = pres.find(f"{_P_NS}sldIdLst")
+    if lst is None:
+        return list(names), "slideN.xml order (presentation.xml has no sldIdLst)"
+    order: list[str] = []
+    unresolved = 0
+    for sld in lst.findall(f"{_P_NS}sldId"):
+        target = rid2target.get(sld.get(f"{_PKG_R_NS}id"), "").lstrip("/")
+        if target and not target.startswith("ppt/"):
+            target = "ppt/" + target
+        part = byname.get(target.rsplit("/", 1)[-1])
+        if part and part not in order:
+            order.append(part)
+        else:
+            unresolved += 1
+    if unresolved:
+        # An sldId whose r:id has no relationship (or targets a non-slide part) makes the
+        # whole list untrustworthy as an ordering: applying the resolvable prefix silently
+        # MOVES the unresolvable slide's number (a title slide lands on slide 3). Fall back
+        # to the full filename order and say why.
+        return list(names), ("slideN.xml order (p:sldIdLst has unresolvable slide "
+                             f"references: {unresolved})")
+    order.extend(n for n in names if n not in order)  # parts outside sldIdLst stay visible
+    return order, "p:sldIdLst display order"
+
+
+def _chart_lines(chart_name: str, root) -> list[str]:
+    """Data-cached chart series as self-labeled text lines.
+
+    A chart's strCache/multiLvlStrCache (categories) and numCache (values) are the
+    numbers the deck SHOWS; a reader that skips charts loses "East=83 West=42"
+    entirely. Only CACHED values are emitted - nothing is recomputed.
+    """
+    lines: list[str] = []
+    for ser in root.iter(f"{_C_NS}ser"):
+        tx = ser.find(f"{_C_NS}tx")
+        name = "".join(v.text or "" for v in tx.iter(f"{_C_NS}v")).strip() if tx is not None else ""
+        def cached_values(where) -> list[str]:
+            if where is None:
+                return []
+            out = []
+            for pt in where.iter(f"{_C_NS}pt"):
+                # multiLvlStrCache nests one <c:v> per level; the leaf is the label.
+                vs = [(v.text or "").strip() for v in pt.iter(f"{_C_NS}v")]
+                out.append(next((v for v in reversed(vs) if v), ""))
+            return out
+        cats = cached_values(ser.find(f"{_C_NS}cat"))
+        vals = cached_values(ser.find(f"{_C_NS}val"))
+        pairs = ", ".join(f"{c}={v}" for c, v in zip(cats, vals))
+        if not pairs:
+            continue
+        label = f' [chart {chart_name} series "{name}"]' if name else f" [chart {chart_name}]"
+        lines.append(f"{label} {pairs}")
+    return lines
 
 
 def _pptx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
-    names = [n for n in zf.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")]
+    names = [n for n in zf.namelist()
+             if n.startswith("ppt/slides/slide") and n.endswith(".xml") and "/_rels/" not in n]
     names.sort(key=lambda n: int("".join(ch for ch in n if ch.isdigit()) or 0))
+    names, order_note = _pptx_display_order(zf, names)
     notes = {n for n in zf.namelist() if n.startswith("ppt/notesSlides/notesSlide")}
     blocks: list[Block] = []
     failed: list[int] = []
+    charts_seen: list[str] = []
     for i, n in enumerate(names, start=1):
         try:
             root = ET.fromstring(zf.read(n))
@@ -345,7 +602,15 @@ def _pptx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
             text = "\n".join(t.text or "" for t in shape.iter(f"{_A_NS}t"))
             if text.strip():
                 blocks.append(Block(text.strip(), "paragraph", source_id, source_hash, {"slide": i}))
-        note_file = f"ppt/notesSlides/notesSlide{i}.xml"
+        targets = _slide_targets(zf, n)
+        note_file = targets.get("notesSlide")
+        if note_file is None:
+            # Generators that omit the slide rels (minimal packages) keep the
+            # filename convention: slideN.xml <-> notesSlideN.xml. Keyed by the
+            # FILE number, not the display ordinal, because the pairing lives
+            # in the filenames.
+            fn = int("".join(ch for ch in n.rsplit("/", 1)[-1] if ch.isdigit()) or 0)
+            note_file = f"ppt/notesSlides/notesSlide{fn}.xml"
         if note_file in notes:
             try:
                 nroot = ET.fromstring(zf.read(note_file))
@@ -368,12 +633,28 @@ def _pptx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
                     blocks.append(Block(ntext, "note", source_id, source_hash, {"slide": i, "part": "notes"}))
             except (KeyError, ET.ParseError):
                 failed.append(i)
+        chart_part = targets.get("chart")
+        if chart_part and chart_part in zf.namelist():
+            try:
+                croot = ET.fromstring(zf.read(chart_part))
+            except (KeyError, ET.ParseError):
+                continue
+            chart_name = chart_part.rsplit("/", 1)[-1]
+            charts_seen.append(chart_name)
+            for line in _chart_lines(chart_name, croot):
+                # BLOCK_KINDS is a closed contract; a chart series is self-labeled
+                # paragraph text carrying its chart part in loc, not a new kind.
+                blocks.append(Block(line, "paragraph", source_id, source_hash,
+                                    {"slide": i, "chart": chart_name}))
     cov = DocCoverage(len(names), len(names) - len(failed), units_failed=failed, method="ooxml",
-                      note="slide text and speaker notes kept separate; charts/animations are not described by this reader")
+                      note=f"slide text, speaker notes (via slide rels) and chart data caches kept "
+                           f"separate; slide numbering is {order_note}; animations are not described")
     cov.units_succeeded = [i for i in range(1, len(names) + 1) if i not in set(failed)]
     return Document(source_id, source_hash, "pptx", blocks, cov,
-                    {"unit_numbering": "1-based slide ordinal (slideN.xml order, not r:id)",
+                    {"unit_numbering": f"1-based slide ordinal ({order_note})",
                      "slides": len(names),
                      "note_parts": sorted(notes),
-                     "not_extracted": ["charts", "SmartArt", "animations", "slide master text",
-                                       "hyperlink relationship targets"]})
+                     "charts": sorted(set(charts_seen)),
+                     "not_extracted": ["SmartArt", "animations", "slide master text",
+                                       "hyperlink relationship targets",
+                                       "chart styling and axis scaling (cached values only)"]})

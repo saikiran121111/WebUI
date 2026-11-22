@@ -1,0 +1,175 @@
+[20:04:59.163] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_b3303ec9cead.csv -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_e11cf5aec579.f32
+[in#0 @ 000001b91ac9c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_b3303ec9cead.csv.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.csv"}[39m
+[20:04:59.209] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_a86a1bb14236.md -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_a28d3e3f5475.f32
+[in#0 @ 0000026fcb0bc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_a86a1bb14236.md.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.md"}[39m
+[20:04:59.252] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_b5fe65a2c4b1.jsonl -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_63a649af23a0.f32
+[in#0 @ 000001d9d6b1c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_b5fe65a2c4b1.jsonl.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.jsonl"}[39m
+[20:04:59.292] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_4b0cd8ebebea.html -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_fac5f5954592.f32
+[in#0 @ 000001ce2ae8c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_4b0cd8ebebea.html.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.html"}[39m
+[20:04:59.335] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_9bff6bd00add.yaml -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_7dc4d51979f3.f32
+[in#0 @ 000002801552c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_9bff6bd00add.yaml.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.yaml"}[39m
+[20:04:59.374] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_aa848a5b6091.toml -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_b18b3fb5076d.f32
+[in#0 @ 000002511da9c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_aa848a5b6091.toml.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.toml"}[39m
+[20:04:59.417] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6da8d3cf2673.log -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_c17825bfc086.f32
+[in#0 @ 00000223d861c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6da8d3cf2673.log.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.log"}[39m
+[20:04:59.459] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_e80312117fee.js -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_1f8281323a46.f32
+[in#0 @ 000001ed69cdc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_e80312117fee.js.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.js"}[39m
+[20:04:59.501] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5761e1420b9e.ts -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_2d7496baec92.f32
+[in#0 @ 000001b07358c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5761e1420b9e.ts.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.ts"}[39m
+[20:04:59.540] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_4bd68d4c26c5.java -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_732bd0a9b2ad.f32
+[in#0 @ 000001907d61c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_4bd68d4c26c5.java.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.java"}[39m
+[20:04:59.582] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2c0040201800.cpp -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_84da4f227103.f32
+[in#0 @ 000001b9f8ffc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2c0040201800.cpp.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.cpp"}[39m
+[20:04:59.620] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_c1fc15a79b48.h -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_6096b53b3eda.f32
+[in#0 @ 0000021eed10c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_c1fc15a79b48.h.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.h"}[39m
+[20:04:59.662] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6ef39bd52181.cs -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_857eb1ecf15e.f32
+[in#0 @ 0000025ca7fbc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6ef39bd52181.cs.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.cs"}[39m
+[20:04:59.698] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_508407b41811.rs -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_26f2401447cf.f32
+[sunrast @ 0000021f16cb4dc0] this is not sunras encoded data
+[out#0/f32le @ 0000021f16cc36c0] Output file does not contain any stream
+Error opening output file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_26f2401447cf.f32.
+Error opening output files: Invalid argument
+[39m [90m{"file":"sample.rs"}[39m
+[20:04:59.741] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_3a535d5a4931.rb -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_1f33bb670dd9.f32
+[in#0 @ 0000017ce1d0c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_3a535d5a4931.rb.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.rb"}[39m
+[20:04:59.785] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_aeb1e1c8a1e8.kt -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_244f4d9d321d.f32
+[in#0 @ 0000021073b7c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_aeb1e1c8a1e8.kt.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.kt"}[39m
+[20:04:59.827] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2b0a26dff53b.scala -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_5e73c560318d.f32
+[in#0 @ 000002ad69d0c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2b0a26dff53b.scala.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.scala"}[39m
+[20:04:59.865] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_751eed886b76.bash -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_4cf759c45bee.f32
+[in#0 @ 000002018c48c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_751eed886b76.bash.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.bash"}[39m
+[20:04:59.911] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_8d2ae743e974.ps1 -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_42b79be5b47d.f32
+[in#0 @ 0000022f3035c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_8d2ae743e974.ps1.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.ps1"}[39m
+[20:04:59.950] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_c860f749868b.cmd -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_ecbf09b784fd.f32
+[in#0 @ 00000202e3ebc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_c860f749868b.cmd.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.cmd"}[39m
+[20:04:59.993] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_d03ac9eab7b5.r -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_8198ef98ed4d.f32
+[in#0 @ 00000269dad4c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_d03ac9eab7b5.r.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.r"}[39m
+[20:05:00.031] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_f2b14b11bbf2.tex -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_5e0222092b25.f32
+[in#0 @ 00000265fdabc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_f2b14b11bbf2.tex.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.tex"}[39m
+[20:05:00.071] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_ba9c68f3ccf0.diff -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_624de4fec3f8.f32
+[in#0 @ 000001acbf4ec1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_ba9c68f3ccf0.diff.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.diff"}[39m
+[20:05:00.110] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_fa0acbc6bce0.env -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_de4920215e29.f32
+[in#0 @ 0000019fb437c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_fa0acbc6bce0.env.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.env"}[39m
+[20:05:00.153] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_a8678fd63373.cfg -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_367a6f8a8841.f32
+[in#0 @ 0000024150ffc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_a8678fd63373.cfg.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.cfg"}[39m
+[20:05:00.192] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2796d58f2f10.graphql -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_03166e3b0d59.f32
+[in#0 @ 000001b08c39c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2796d58f2f10.graphql.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.graphql"}[39m
+[20:05:00.235] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6050cf717078.proto -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_ae1ef6f6a0f9.f32
+[in#0 @ 000001fb2567c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6050cf717078.proto.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.proto"}[39m
+[20:05:00.274] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_62408511549a.makefile -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_99d2fb0a3180.f32
+[in#0 @ 000001eef1a9c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_62408511549a.makefile.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.makefile"}[39m
+[20:05:00.315] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_eacdccbddb46.hcl -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_37a36055eb59.f32
+[in#0 @ 000001bc0429c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_eacdccbddb46.hcl.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.hcl"}[39m
+[20:05:00.353] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_f114d0d4b77b.svelte -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_4cb8af190247.f32
+[in#0 @ 000001c846b3c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_f114d0d4b77b.svelte.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.svelte"}[39m
+[20:05:00.389] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_b7b8c47632a8.svg -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_cd3d7358cc5c.f32
+[out#0/f32le @ 000001ffc15935c0] Output file does not contain any stream
+Error opening output file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_cd3d7358cc5c.f32.
+Error opening output files: Invalid argument
+[39m [90m{"file":"sample.svg"}[39m
+[20:05:00.427] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_729c49c45b3e -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_b10cb80b35be.f32
+[in#0 @ 0000014aa006c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_729c49c45b3e.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"Makefile"}[39m
+[20:05:11.492] [31mERROR[39m (api/files/extract): [36mextraction failed: File read error[39m [90m{"file":"audit.rar"}[39m
+[20:05:32.255] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_35f9074c1f9a.heic -frames:v 8 -vf scale=w=min(iw\,1280):h=min(ih\,1280):force_original_aspect_ratio=decrease,format=rgb24 -vsync vfr C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_d74cd8a0147e_%03d.png
+[mov,mp4,m4a,3gp,3g2,mj2 @ 00000290bf0dca40] moov atom not found
+[in#0 @ 00000290bf0dc8c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_35f9074c1f9a.heic.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"reference.heic"}[39m
+[20:05:32.335] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_7fa1b791e0ac.heif -frames:v 8 -vf scale=w=min(iw\,1280):h=min(ih\,1280):force_original_aspect_ratio=decrease,format=rgb24 -vsync vfr C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_c93678ace5e4_%03d.png
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000002109dd6ca40] moov atom not found
+[in#0 @ 000002109dd6c8c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_7fa1b791e0ac.heif.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"reference.heif"}[39m
+183

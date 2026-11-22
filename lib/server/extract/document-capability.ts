@@ -146,6 +146,14 @@ export interface CapabilityRenderedUnit {
   truncated: boolean;
 }
 
+export interface CapabilityVisualPage {
+  page: number;
+  /** The extractor's count of drawn paint operations on this page. */
+  ops: number;
+  /** Rendered page image, PNG data URL (the reader bounded pages and total bytes). */
+  dataUrl: string;
+}
+
 export interface CapabilityDoc {
   kind: string;
   /** The extractor's own method string, e.g. "pypdf-7.1.0-plain". */
@@ -162,6 +170,12 @@ export interface CapabilityDoc {
   units: CapabilityUnit[];
   /** Structure-preserving per-unit rendering, when the reader provided one. */
   rendered: CapabilityRenderedUnit[];
+  /**
+   * Pages the extractor flagged as DRAWN content (vector chart/diagram paint operations
+   * the text layer cannot carry), rendered to PNG by the reader on demand. A chart answer
+   * routes through these page images; the flag is content-derived, never a name match.
+   */
+  visualPages: CapabilityVisualPage[];
   ocr: CapabilityOcrReport;
   meta: Record<string, unknown>;
 }
@@ -303,6 +317,14 @@ export function normalizeDocument(result: unknown): CapabilityDoc | null {
   const engines = Array.isArray(ocrRaw.engines)
     ? (ocrRaw.engines as unknown[]).map((engine) => asString(engine)).filter(Boolean)
     : [];
+  const visualPages: CapabilityVisualPage[] = [];
+  for (const raw of Array.isArray(p.visual_pages) ? p.visual_pages : []) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const v = raw as Record<string, unknown>;
+    const page = asNumber(v.page, 0);
+    const png = asString(v.png_base64);
+    if (page > 0 && png) visualPages.push({ page, ops: asNumber(v.ops, 0), dataUrl: `data:image/png;base64,${png}` });
+  }
   const doc: CapabilityDoc = {
     kind: asString(rawDoc.kind, "unknown"),
     engine: asString(coverage.method, `${asString(rawDoc.kind)} reader`),
@@ -316,6 +338,7 @@ export function normalizeDocument(result: unknown): CapabilityDoc | null {
     note: asString(coverage.note) || asString((outer.coverage as Record<string, unknown> | undefined)?.note),
     units: grouped,
     rendered,
+    visualPages,
     ocr: {
       ran,
       attempted: asNumber(ocrRaw.attempted, 0),

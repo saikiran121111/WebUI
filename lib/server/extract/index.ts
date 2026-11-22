@@ -21,6 +21,7 @@ import { pdfText, type PdfText } from "./pdf";
 // deployment has no capability route (`state: "none"`), behaviour is byte-for-byte
 // the pre-F05 path, which is what __tests__/server/extract-pdf-coverage.test.ts locks.
 import {
+  DOCUMENT_PARSE_CAPABILITY,
   readDocumentViaCapability,
   mergePdfUnits,
   mergeOfficeText,
@@ -31,12 +32,15 @@ import { sniffMagic } from "./sniff";
 import { decodeText, type DecodedText } from "../../files/encoding";
 import {
   decodeAudioPcmFile,
+  decodeAudioPcmFileChannel,
   imageToDataUrlFromPath,
+  probeAudioChannels,
   probeInfo,
   readPcmRange,
   videoFramesFromPath,
   videoKeyframesFromPath,
 } from "./ffmpeg";
+import { fmtStamp } from "../attachindex/format";
 import {
   asrCapabilityNote,
   transcribePcmFile,
@@ -113,6 +117,164 @@ const PREVIEW_CHARS = 4000;
 
 function asSegments(segments: AsrSegment[]): TranscriptSegment[] {
   return segments.map(s => ({ text: s.text, start: s.start, end: s.end }));
+}
+
+/**
+ * F78 (2026-11-22): the short-transcript deliveries used to hand back the
+ * merged whisper text, dropping every segment time the ASR produced — "when
+ * is 47 kg said?" became unanswerable from the evidence the model can
+ * actually see. The indexed path cites `[HH:MM:SS - HH:MM:SS]` headers (the
+ * form the per-turn rules tell the model to cite); the same law rides the
+ * inline transcript. Returns "" when there are no usable segments.
+ */
+export function timedTranscriptText(segments: AsrSegment[]): string {
+  return segments
+    .map(s => {
+      const t = s.text.trim();
+      return t ? `[${fmtStamp(s.start)} - ${fmtStamp(s.end ?? s.start)}] ${t}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * F78: pair per-channel ASR into ONE honest transcript. Each channel's
+ * segments keep their channel label + times; time ranges where two channels
+ * carry speech SIMULTANEOUSLY are stated explicitly — inside an overlap the
+ * words of one recording bleed into the other's transcription, and an honest
+ * record says so instead of presenting a merged mono word salad.
+ */
+export function composeChannelTranscript(
+  perChannel: { ch: number; segments: AsrSegment[] }[],
+): { body: string; segments: AsrSegment[] } {
+  const rows: { ch: number; start: number; end: number; line: string; seg: AsrSegment }[] = [];
+  for (const pc of perChannel) {
+    for (const s of pc.segments) {
+      const t = s.text.trim();
+      if (!t) continue;
+      rows.push({
+        ch: pc.ch,
+        start: s.start,
+        end: s.end ?? s.start,
+        line: `[channel ${pc.ch}] [${fmtStamp(s.start)} - ${fmtStamp(s.end ?? s.start)}] ${t}`,
+        seg: { text: `[channel ${pc.ch}] ${t}`, start: s.start, end: s.end },
+      });
+    }
+  }
+  rows.sort((a, b) => a.start - b.start);
+
+  // Overlap ranges per channel PAIR, merged and capped (a long two-speaker
+  // recording can pair every segment against every other).
+  const pairs = new Map<string, { a: number; b: number; ranges: [number, number][] }>();
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const ra = rows[i], rb = rows[j];
+      if (ra.ch === rb.ch) continue;
+      const lo = Math.max(ra.start, rb.start), hi = Math.min(ra.end, rb.end);
+      if (hi - lo < 0.5) continue;
+      const key = `${ra.ch}:${rb.ch}`;
+      const slot = pairs.get(key) ?? { a: ra.ch, b: rb.ch, ranges: [] };
+      slot.ranges.push([lo, hi]);
+      pairs.set(key, slot);
+    }
+  }
+  const overlapParts: string[] = [];
+  for (const slot of pairs.values()) {
+    slot.ranges.sort((x, y) => x[0] - y[0]);
+    const merged: [number, number][] = [];
+    for (const [lo, hi] of slot.ranges) {
+      const last = merged[merged.length - 1];
+      if (last && lo - last[1] <= 1) last[1] = Math.max(last[1], hi);
+      else merged.push([lo, hi]);
+    }
+    for (const [lo, hi] of merged.slice(0, 12)) {
+      overlapParts.push(
+        `channel ${slot.a} and channel ${slot.b} carry speech simultaneously between ${fmtStamp(lo)} and ${fmtStamp(hi)}`,
+      );
+    }
+  }
+  const head =
+    `[This recording carries ${perChannel.length} separate audio channels; each channel was transcribed on its own, and every line is labeled with the channel it came from. ` +
+    (overlapParts.length
+      ? `Where two lines share a time range the two speakers talk OVERLAPPING: ${overlapParts.join("; ")}. Inside those ranges the words of one recording bleed into the other's transcription, so exact words there cannot be attributed with confidence.]`
+      : `No time range carries speech on more than one channel at once.]`);
+  return {
+    body: `${head}\n${rows.map(r => r.line).join("\n")}`,
+    segments: rows.map(r => r.seg),
+  };
+}
+
+/** Ceiling on per-channel sequential ASR — 8 channels is the widest common
+ *  layout (octal); wider layouts keep the proven mono path. */
+const MAX_ASR_CHANNELS = 8;
+
+/**
+ * Transcribe every channel of a multi-channel recording SEPARATELY
+ * (decode → transcribe, one channel at a time: the whisper slot and the
+ * scratch-file RAM law are unchanged — a channel costs exactly what the
+ * mono path costs). Channels whose speech is empty are dropped.
+ */
+async function transcribeChannelsTs(
+  srcPath: string,
+  chans: number,
+  signal?: AbortSignal,
+): Promise<{ perChannel: { ch: number; segments: AsrSegment[] }[]; durationSec: number }> {
+  const perChannel: { ch: number; segments: AsrSegment[] }[] = [];
+  let durationSec = 0;
+  for (let k = 0; k < chans; k++) {
+    const dec = await decodeAudioPcmFileChannel(srcPath, k, { ...(signal ? { signal } : {}) });
+    try {
+      const d = dec.samples / 16000;
+      if (d > durationSec) durationSec = d;
+      const r = d <= 90
+        ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { ...(signal ? { signal } : {}) })
+        : await transcribePcmFile(dec.file, dec.samples, { ...(signal ? { signal } : {}) });
+      if (r.text.trim()) perChannel.push({ ch: k + 1, segments: r.segments });
+    } finally {
+      try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
+    }
+  }
+  return { perChannel, durationSec };
+}
+
+/**
+ * F78 (2026-11-22): the short-video path deleted the eagerly-extracted
+ * keyframes and shipped only the 20%/70% previews — a spoken fact at 61 s
+ * and the saved moment showing the screen at 60 s never reached the same
+ * turn, so the A/V alignment question could not be answered. The keyframes
+ * were paid for; ship a TIME-SPREAD of them inline (greedily maximizing the
+ * gap to what is already shown, bounded by INLINE_FRAME_CAP), then keep the
+ * directory cleanup. Generic law: spacing + cap, no content inspection.
+ */
+const INLINE_FRAME_CAP = 6;
+
+function spreadKeyframes(
+  existingAts: number[],
+  key: { at: number; name: string }[],
+  dir: string,
+  cap: number,
+): { dataUrl: string; at: number }[] {
+  const out: { dataUrl: string; at: number }[] = [];
+  const ats = [...existingAts];
+  const pool = key.slice().sort((a, b) => a.at - b.at);
+  while (out.length < cap && pool.length) {
+    let bi = -1;
+    let bd = -1;
+    pool.forEach((f, i) => {
+      const d = ats.length ? Math.min(...ats.map(a => Math.abs(a - f.at))) : 0;
+      if (d > bd) { bd = d; bi = i; }
+    });
+    if (bi < 0) break;
+    const f = pool.splice(bi, 1)[0];
+    if (bd < 15) break; // every remaining keyframe duplicates a shown moment
+    try {
+      const buf = fs.readFileSync(path.join(dir, f.name));
+      if (!buf.length) continue;
+      out.push({ dataUrl: "data:image/jpeg;base64," + buf.toString("base64"), at: f.at });
+      ats.push(f.at);
+    } catch { /* unreadable spot — skip */ }
+  }
+  return out;
 }
 
 /**
@@ -233,7 +395,10 @@ async function deliverSpoken(
     : `\n[speech coverage: ${asr.examined.length} decoded span(s) over ${
         asr.durationSec.toFixed(1)
       }s; ${asr.unexamined.length} interval(s) were never decoded, so the absence of speech there is unproven]`;
-  const transcript = `${note}\n${asr.text}${coverage}`;
+  // F78: segments keep their times on the inline transcript too, not only in
+  // the index — the timed header is the citation law the per-turn rules use.
+  const body = timedTranscriptText(asr.segments as AsrSegment[]) || asr.text;
+  const transcript = `${note}\n${body}${coverage}`;
   const durationSec = asr.durationSec;
   if (att && transcript.length > TEXT_CHAR_LIMIT) {
     const indexed = await indexContent(
@@ -362,7 +527,9 @@ export async function extractFileFromPath(
   // weak container magic only rescues names that told us nothing ("unknown")
   // or a .txt that is really a ZIP. Office extensions already mean "ZIP
   // container", so weak PK never overrides them.
-  const sniffed = sniffMagic(readHead(srcPath, 64).buf);
+  // 2 KB head: MP3 frame validation (F78-A) must reach the SECOND frame header,
+  // which sits ~0.4–1.1 KB in for legal CBR bitrates — 64 bytes never could.
+  const sniffed = sniffMagic(readHead(srcPath, 2048).buf);
   if (sniffed && sniffed.category !== category) {
     if (
       sniffed.strong ||
@@ -444,7 +611,20 @@ export async function extractFileFromPath(
           const merged = mergePdfUnits(ts ?? { pages: 0, perPage: [], pagesWithoutText: [] }, cap.doc);
           if (merged.refusal) throw new Error(`${name}: ${merged.refusal}`);
           const mergedResult = await cappedOrIndexed(name, category, att, merged.text, signal);
-          return { ...mergedResult, pages: merged.pages, coverageNote: merged.coverageNote };
+          // Pages whose CONTENT is drawn (vector chart/diagram marks) ride to the model
+          // as page-image frames: the text layer of a chart page carries only its labels,
+          // so a chart question needs the rendered page. `at` is the 1-based PDF page
+          // number here (frames' `at` is polymorphic by design - consumers pair frames
+          // with time windows only for media categories, checked before use).
+          const visual = cap.doc.visualPages;
+          return {
+            ...mergedResult,
+            pages: merged.pages,
+            coverageNote: merged.coverageNote,
+            ...(visual.length
+              ? { frames: visual.map((v) => ({ dataUrl: v.dataUrl, at: v.page })) }
+              : {}),
+          };
         }
         if (!ts) {
           // pdf.js could not open the file and the capability engine gave no usable
@@ -540,12 +720,46 @@ export async function extractFileFromPath(
         const arcExt = sniffed && sniffed.category === "archive" ? "zip" : ext;
         return await cappedOrIndexed(name, category, att, await archiveText(buf, arcExt, name), signal);
       }
-      // Legacy .doc/.xls/.ppt/.mat have no public parser here — recover the
-      // printable runs, which is what those formats store text as anyway.
+      // Legacy .doc/.xls/.ppt/.mat: the capability backend carries the real
+      // structured readers (Word97 WordDocument, PPT atom walk, BIFF8, MAT v4).
+      // A real structured parse always serves over a printable-run scan: this is
+      // deliberately NOT mergeOfficeText's measurement - the byte scan is not a
+      // comparable reader body, and its junk tokens would register as "lost
+      // content" and permanently protect the weaker reader (the F12-3 lesson,
+      // reversed). The scan stays as the labeled fallback for a typed refusal
+      // (malformed OLE -> normalizeDocument null -> state "unavailable") or an
+      // offline backend (state "none").
       // I10: byte-scanning is a LOSSY recovery; the label says so inside the
       // text so neither the model nor the user reads it as a faithful extract.
+      const cap = await readDocumentViaCapability(srcPath, {
+        ...(opts?.runJob ? { runJob: opts.runJob } : {}),
+        ...(signal ? { signal } : {}),
+      });
+      if (cap.state === "ready") {
+        const source = cap.doc.rendered.length ? cap.doc.rendered : cap.doc.units;
+        const capText = source
+          .slice()
+          .sort((a, b) => a.unit - b.unit)
+          .map((u) => u.text.trim())
+          .filter(Boolean)
+          .join("\n\n");
+        if (capText.trim()) {
+          const note =
+            `[document capability ${DOCUMENT_PARSE_CAPABILITY} (${cap.doc.engine}) reads the legacy ` +
+            `binary structure; body_source: capability:${cap.doc.engine}; units: ` +
+            `${cap.doc.unitsSucceeded.length} of ${cap.doc.unitsTotal} read]`;
+          return await cappedOrIndexed(name, category, att, `${note}\n\n${capText}`, signal);
+        }
+      }
       const text = extractStrings(buf);
-      if (!text.trim()) throw new Error("No readable text found in this file");
+      if (!text.trim()) {
+        // The scan found nothing AND the structured reader declined: name both
+        // facts, as every other family does, instead of a bare "no readable text".
+        throw new Error(
+          "No readable text found in this file" +
+          (cap.state === "unavailable" ? ` ${capabilityBlockerLine(cap)}` : ""),
+        );
+      }
       return await cappedOrIndexed(
         name, category, att,
         "[legacy binary format: text recovered by scanning raw bytes for printable runs — layout, formatting, and non-printable-encoded characters are lost; treat as a partial recovery]\n\n" +
@@ -590,44 +804,70 @@ export async function extractFileFromPath(
       // when the capability backend is absent, unprepared or failed for a retryable
       // reason. The blocker line is surfaced so the user knows which engine answered.
       try {
-        const dec = await decodeAudioPcmFile(srcPath, { signal });
-        try {
-          const durationSec = dec.samples / 16000;
-          // Short clips still go through in one call; only long recordings
-          // pay the windowed file-based path.
-          const { text, segments } = durationSec <= 90
-            ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
-            : await transcribePcmFile(dec.file, dec.samples, { signal });
-          // I14: the default whisper checkpoint is English-only — a Hindi
-          // recording used to read as "no speech" with no hint why. The note
-          // rides on the transcript AND on the no-speech error.
-          const note = asrCapabilityNote();
-          const blocker =
-            sp.state === "unavailable" ? speechBlockerLine(sp) + " " : "";
-          if (!text) {
-            // The outer catch appends the primary backend's typed reason, so it is
-            // not repeated here.
+        // I14: the default whisper checkpoint is English-only — a Hindi
+        // recording used to read as "no speech" with no hint why. The note
+        // rides on the transcript AND on the no-speech error.
+        const note = asrCapabilityNote();
+        const blocker =
+          sp.state === "unavailable" ? speechBlockerLine(sp) + " " : "";
+        let durationSec = 0;
+        let body: string;
+        let segments: AsrSegment[];
+        const chans = Math.min(MAX_ASR_CHANNELS, await probeAudioChannels(srcPath, { signal }));
+        if (chans >= 2) {
+          // F78 (2026-11-22): two speakers recorded on SEPARATE channels merge
+          // into one unattributable word salad under `-ac 1`. Decode +
+          // transcribe each channel on its own (sequential — the whisper slot
+          // and the scratch-file RAM law are unchanged), label every line with
+          // its channel, and state the time ranges where two channels speak at
+          // once: inside an overlap the words of one recording bleed into the
+          // other's transcription and cannot be attributed with confidence.
+          const r = await transcribeChannelsTs(srcPath, chans, signal);
+          if (!r.perChannel.length) {
             throw new Error(
               "No speech detected in this audio file" + (note ? ` ${note}` : ""),
             );
           }
-          const transcript = [blocker, note, text].filter(Boolean).join("\n");
-          if (att && transcript.length > TEXT_CHAR_LIMIT) {
-            const indexed = await indexContent(name, category, att, transcript, {
-              segments: asSegments(segments),
-              durationSec,
-            }, signal);
-            return {
-              name, category, ...indexed,
-              transcript: transcript.slice(0, PREVIEW_CHARS),
-              truncated: true,
-              durationSec,
-            };
+          const composed = composeChannelTranscript(r.perChannel);
+          body = composed.body;
+          segments = composed.segments;
+          durationSec = r.durationSec;
+        } else {
+          const dec = await decodeAudioPcmFile(srcPath, { signal });
+          try {
+            durationSec = dec.samples / 16000;
+            // Short clips still go through in one call; only long recordings
+            // pay the windowed file-based path.
+            const r = durationSec <= 90
+              ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
+              : await transcribePcmFile(dec.file, dec.samples, { signal });
+            if (!r.text) {
+              // The outer catch appends the primary backend's typed reason, so it is
+              // not repeated here.
+              throw new Error(
+                "No speech detected in this audio file" + (note ? ` ${note}` : ""),
+              );
+            }
+            body = timedTranscriptText(r.segments) || r.text;
+            segments = r.segments;
+          } finally {
+            try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
           }
-          return { name, category, transcript, ...cap(transcript), durationSec };
-        } finally {
-          try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
         }
+        const transcript = [blocker, note, body].filter(Boolean).join("\n");
+        if (att && transcript.length > TEXT_CHAR_LIMIT) {
+          const indexed = await indexContent(name, category, att, transcript, {
+            segments: asSegments(segments),
+            durationSec,
+          }, signal);
+          return {
+            name, category, ...indexed,
+            transcript: transcript.slice(0, PREVIEW_CHARS),
+            truncated: true,
+            durationSec,
+          };
+        }
+        return { name, category, transcript, ...cap(transcript), durationSec };
       } catch (err: unknown) {
         if (signal?.aborted) throw err as Error; // cancellation is not a media defect
         // The retained engine's own failure stays the headline, but the primary
@@ -644,7 +884,9 @@ export async function extractFileFromPath(
     }
 
     case "video": {
-      const { frames, durationSec } = await videoFramesFromPath(srcPath, { signal });
+      const sampled = await videoFramesFromPath(srcPath, { signal });
+      let frames = sampled.frames;
+      const { durationSec } = sampled;
       // F13/S60: one probe per upload, reused by the audio-failure classifier
       // and by the durable media baseline. Lazy: the frames-only path with no
       // attachment never pays for it.
@@ -760,6 +1002,11 @@ export async function extractFileFromPath(
       // The English-only warning describes the TypeScript checkpoint, so it is only
       // allowed on a transcript that engine actually produced. Attaching it to a
       // multilingual backend's transcript would be a false claim about the evidence.
+      // F78 (2026-11-22): the inline/preview transcript keeps the segment
+      // times the ASR produced (the merged text alone cannot answer "when",
+      // and the indexed path already cites [HH:MM:SS - HH:MM:SS] headers).
+      const timed = timedTranscriptText(segments);
+      if (transcript && timed) transcript = timed;
       const note = speechEngine === "typescript" ? asrCapabilityNote() : "";
       if (transcript && note) transcript = `${note}\n${transcript}`;
       if (transcript && pythonAsr) {
@@ -824,7 +1071,18 @@ export async function extractFileFromPath(
           truncated: true,
         };
       }
-      // Small transcript: the eagerly-extracted keyframes are not needed.
+      // Small transcript: the index will not carry the eagerly-extracted
+      // keyframes — F78 (2026-11-22) ships a TIME-SPREAD of them inline
+      // BEFORE deleting the directory. The 20%/70% previews alone leave a
+      // spoken fact at 61 s and the saved moment showing the screen at ~60 s
+      // in different turns, so the A/V alignment question is unanswerable
+      // from the evidence the model receives.
+      if (att && key && key.length) {
+        try {
+          frames = [...frames, ...spreadKeyframes(frames.map(f => f.at), key, framesDir(att),
+            Math.max(0, INLINE_FRAME_CAP - frames.length))];
+        } catch { /* inline merge is best-effort; the transcript stands */ }
+      }
       if (att) try { fs.rmSync(framesDir(att), { recursive: true, force: true }); } catch { /* ignore */ }
       const capped = cap(transcript);
       return { name, category, frames, durationSec, transcript: capped.text, truncated: capped.truncated };

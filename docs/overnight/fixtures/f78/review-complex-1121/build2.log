@@ -1,0 +1,59 @@
+  Γû▓ Next.js 14.2.35
+  - Experiments (use with caution):
+    ┬╖ instrumentationHook
+
+   Creating an optimized production build ...
+ Γ£ô Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+(node:13900) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+   Generating static pages (0/25) ...
+   Generating static pages (6/25) 
+   Generating static pages (12/25) 
+   Generating static pages (18/25) 
+ Γ£ô Generating static pages (25/25)
+(node:21328) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+Γöî Γùï /                                    299 kB          391 kB
+Γö£ Γùï /_not-found                          880 B          92.7 kB
+Γö£ ╞Æ /api/attach/[id]/notes               0 B                0 B
+Γö£ ╞Æ /api/browser                         0 B                0 B
+Γö£ ╞Æ /api/browser/policy                  0 B                0 B
+Γö£ ╞Æ /api/browser/ticket                  0 B                0 B
+Γö£ ╞Æ /api/chat                            0 B                0 B
+Γö£ ╞Æ /api/conversations                   0 B                0 B
+Γö£ ╞Æ /api/conversations/[id]              0 B                0 B
+Γö£ ╞Æ /api/conversations/[id]/title        0 B                0 B
+Γö£ ╞Æ /api/decision                        0 B                0 B
+Γö£ ╞Æ /api/documents/docx                  0 B                0 B
+Γö£ ╞Æ /api/documents/pdf                   0 B                0 B
+Γö£ ╞Æ /api/documents/powerbi               0 B                0 B
+Γö£ ╞Æ /api/documents/pptx                  0 B                0 B
+Γö£ ╞Æ /api/documents/resume                0 B                0 B
+Γö£ ╞Æ /api/documents/xlsx                  0 B                0 B
+Γö£ ╞Æ /api/files/extract                   0 B                0 B
+Γö£ ╞Æ /api/internal/embed                  0 B                0 B
+Γö£ ╞Æ /api/internal/web-research           0 B                0 B
+Γö£ ╞Æ /api/internal/web-tools              0 B                0 B
+Γö£ ╞Æ /api/model-stats                     0 B                0 B
+Γö£ ╞Æ /api/search                          0 B                0 B
+Γö£ ╞Æ /api/search-more                     0 B                0 B
+Γö£ ╞Æ /api/settings                        0 B                0 B
+Γö£ Γùï /api/skills                          0 B                0 B
+Γö£ ╞Æ /api/skills/[skillName]              0 B                0 B
+Γö£ ╞Æ /api/skills/[skillName]/scenario     0 B                0 B
+Γöö ╞Æ /api/skills/install                  0 B                0 B
++ First Load JS shared by all            91.8 kB
+  Γö£ chunks/2117-0dd4b3d844f5fdb5.js      31.9 kB
+  Γö£ chunks/fd9d1056-c84ab3640ce130e3.js  53.6 kB
+  Γöö other shared chunks (total)          6.25 kB
+
+
+Γùï  (Static)   prerendered as static content
+╞Æ  (Dynamic)  server-rendered on demand
+

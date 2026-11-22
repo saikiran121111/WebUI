@@ -12,6 +12,69 @@
 
 const MAX_OUTPUT_CHARS = 20_000; // per output block; announced when applied
 
+/**
+ * F78: JSON.parse rounds every number literal to a double, so a stored
+ * result like exact_id 9007199254740993 (2^53+1) re-renders as
+ * 9007199254740992 — a number the file never contained, and in recorded
+ * run results the exact integer IS the fact being asked about.
+ * Law: keep the literal the file wrote. A string-aware scan replaces
+ * literals whose canonical double form differs from the file's token
+ * (big integers, 1e3-style exponents, 1e400, -0) with a per-parse
+ * placeholder; after rendering, the placeholder is replaced by the
+ * saved literal text — quoted (inside stringified JSON payloads) and
+ * bare (template-inserted, e.g. a huge execution_count). Code cell
+ * sources are string content and are never touched.
+ */
+function protectNumberLiterals(json: string): { text: string; nonce: string; saved: string[] } {
+  const saved: string[] = [];
+  const nonce = Math.random().toString(36).slice(2, 10);
+  const NUM = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+  let out = "";
+  let i = 0;
+  let inString = false;
+  let escaped = false;
+  while (i < json.length) {
+    const ch = json[i];
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') { inString = true; out += ch; i += 1; continue; }
+    if (ch === "-" || (ch >= "0" && ch <= "9")) {
+      NUM.lastIndex = i;
+      const m = NUM.exec(json);
+      if (m && m.index === i) {
+        const literal = m[0];
+        const n = Number(literal);
+        if (!Number.isFinite(n) || String(n) !== literal) {
+          out += `"\\u0001${nonce}:${saved.length}\\u0001"`;
+          saved.push(literal);
+          i += literal.length;
+          continue;
+        }
+      }
+    }
+    out += ch;
+    i += 1;
+  }
+  return { text: out, nonce, saved };
+}
+
+function restoreNumberLiterals(text: string, nonce: string, saved: string[]): string {
+  if (!saved.length) return text;
+  // Quoted form: JSON.stringify escaped the placeholder's control chars.
+  let out = text.replace(new RegExp(`"\\\\u0001${nonce}:(\\d+)\\\\u0001"`, "g"),
+    (all, id) => saved[Number(id)] ?? all);
+  // Bare form: the placeholder string was inserted into text directly.
+  out = out.replace(new RegExp(`\\u0001${nonce}:(\\d+)\\u0001`, "g"),
+    (all, id) => saved[Number(id)] ?? all);
+  return out;
+}
+
 function joinSource(src: unknown): string {
   if (Array.isArray(src)) return src.map((s) => String(s)).join("");
   return String(src ?? "");
@@ -91,9 +154,10 @@ function capBlock(s: string): string {
 }
 
 export function notebookText(json: string): string {
+  const guarded = protectNumberLiterals(json);
   let nb: any;
   try {
-    nb = JSON.parse(json);
+    nb = JSON.parse(guarded.text);
   } catch {
     return "[Notebook not readable: the file is not valid JSON. It may be truncated or corrupted.]";
   }
@@ -103,9 +167,10 @@ export function notebookText(json: string): string {
   const major = Number(nb.nbformat);
   if (Number.isFinite(major) && major < 4) {
     // v3 nested "output" objects have a different shape; parse conservatively.
-    return renderNotebook(nb, `[notebook format v${major} — pre-v4 layout, converted best-effort]`);
+    return restoreNumberLiterals(renderNotebook(nb, `[notebook format v${major} — pre-v4 layout, converted best-effort]`),
+      guarded.nonce, guarded.saved);
   }
-  return renderNotebook(nb, "");
+  return restoreNumberLiterals(renderNotebook(nb, ""), guarded.nonce, guarded.saved);
 }
 
 function renderNotebook(nb: any, header: string): string {

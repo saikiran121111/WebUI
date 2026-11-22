@@ -1,0 +1,121 @@
+[20:02:21.107] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.csv"}[39m
+[20:02:21.115] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.md"}[39m
+[20:02:21.121] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.jsonl"}[39m
+[20:02:21.126] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.html"}[39m
+[20:02:21.131] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.yaml"}[39m
+[20:02:21.136] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.toml"}[39m
+[20:02:21.141] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.log"}[39m
+[20:02:21.146] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.js"}[39m
+[20:02:21.151] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.ts"}[39m
+[20:02:21.156] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.java"}[39m
+[20:02:21.161] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.cpp"}[39m
+[20:02:21.166] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.h"}[39m
+[20:02:21.171] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.cs"}[39m
+[20:02:21.175] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.rs"}[39m
+[20:02:21.183] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.rb"}[39m
+[20:02:21.188] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.kt"}[39m
+[20:02:21.193] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.scala"}[39m
+[20:02:21.198] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.bash"}[39m
+[20:02:21.203] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.ps1"}[39m
+[20:02:21.208] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.cmd"}[39m
+[20:02:21.213] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.r"}[39m
+[20:02:21.217] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.tex"}[39m
+[20:02:21.222] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.diff"}[39m
+[20:02:21.227] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.env"}[39m
+[20:02:21.232] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.cfg"}[39m
+[20:02:21.237] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.graphql"}[39m
+[20:02:21.241] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.proto"}[39m
+[20:02:21.246] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.makefile"}[39m
+[20:02:21.251] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.hcl"}[39m
+[20:02:21.255] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.svelte"}[39m
+[20:02:21.261] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"sample.svg"}[39m
+[20:02:21.265] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"Makefile"}[39m
+[20:02:21.506] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package '7zip-bin' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "7zip-bin/index.js"?[39m [90m{"file":"summary.csv.bz2"}[39m
+[20:02:21.509] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package '7zip-bin' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "7zip-bin/index.js"?[39m [90m{"file":"summary.csv.xz"}[39m
+[20:02:21.511] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package '7zip-bin' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "7zip-bin/index.js"?[39m [90m{"file":"audit.7z"}[39m
+[20:02:21.519] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'node-unrar-js' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "node-unrar-js/dist/index.js"?[39m [90m{"file":"audit.rar"}[39m
+[20:02:21.521] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.png"}[39m
+[20:02:21.524] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.jpg"}[39m
+[20:02:21.526] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.jpeg"}[39m
+[20:02:21.529] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.gif"}[39m
+[20:02:21.531] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.webp"}[39m
+[20:02:21.534] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.bmp"}[39m
+[20:02:21.537] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.tif"}[39m
+[20:02:21.541] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.tiff"}[39m
+[20:02:21.543] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.avif"}[39m
+[20:02:21.545] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"panel.ico"}[39m
+[20:02:21.548] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"overlap.mp3"}[39m
+[20:02:21.552] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"overlap.wav"}[39m
+[20:02:21.555] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"overlap.m4a"}[39m
+[20:02:21.557] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"overlap.aac"}[39m
+[20:02:21.561] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"overlap.ogg"}[39m
+[20:02:21.563] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"overlap.flac"}[39m
+[20:02:21.566] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.mp4"}[39m
+[20:02:21.569] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.mpeg"}[39m
+[20:02:21.571] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.mpg"}[39m
+[20:02:21.574] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.mov"}[39m
+[20:02:21.577] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.avi"}[39m
+[20:02:21.579] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.mkv"}[39m
+[20:02:21.582] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.webm"}[39m
+[20:02:21.584] [31mERROR[39m (api/files/extract): [36mextraction failed: Cannot find package 'ffmpeg-static' imported from C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\handler.cjs
+Did you mean to import "ffmpeg-static/index.js"?[39m [90m{"file":"dual.3gp"}[39m
+complete 112

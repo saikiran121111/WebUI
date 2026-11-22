@@ -1,0 +1,3 @@
+I can't answer that. The extracted content of `plot-b.pdf` contains only the title "Reservoir measurements" and the two labels "West" and "East" — no bar heights, values, axis scale, or any other information that would let me compare the two bars. The text layer of the single page carries nothing beyond that, so the supplied material does not support a comparison between East and West.
+
+If you can provide the chart's numeric values (or a version of the file where the plot's data/axis labels are extractable), I can compare them directly.

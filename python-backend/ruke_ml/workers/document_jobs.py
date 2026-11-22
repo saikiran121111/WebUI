@@ -13,6 +13,7 @@ Laws enforced here (each one was a reproduced defect at some point):
 """
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from ..contracts import Coverage
@@ -20,6 +21,10 @@ from ..models.registry import catalog
 from .jobs import JobContext
 
 DEFAULT_OCR_DPI = 200
+MAX_VISUAL_PAGES = 12
+MAX_VISUAL_PAGE_B64 = 400_000
+MAX_VISUAL_TOTAL_B64 = 1_500_000
+VISUAL_DPI = 150
 
 
 def _resolve(ctx: JobContext, capability_note: str) -> Any:
@@ -92,10 +97,49 @@ def parse_job(ctx: JobContext) -> Any:
         return ctx.cancelled()
 
     ocr_payload = run_ocr_stage(ctx, doc, target, assessment)
-    return _parse_result(ctx, doc, assessment, ocr_payload)
+    return _parse_result(ctx, doc, assessment, ocr_payload, target)
 
 
-def _parse_result(ctx: JobContext, doc: Any, assessment: Any, ocr_payload: dict[str, Any]) -> Any:
+def _visual_pages(doc: Any, target: Any) -> dict[str, Any]:
+    """Rendered page images for pages whose CONTENT is drawn (vector charts/diagrams).
+
+    Driven by the extractor's content-derived flag (meta["pages_with_visual"], paint
+    operations counted in the page's own content streams - never a name, topic or phrase
+    match). The text layer of a chart page reads as a title plus axis labels; the drawn
+    fact (which bar is taller) exists only in the page image, so the flagged pages are
+    rendered on demand and carried to the reader as frames. Bounded: a page cap and a
+    total cap keep the payload inside the worker memory budget, and a page that fails to
+    render is omitted, never replaced.
+    """
+    pages = (getattr(doc, "meta", {}) or {}).get("pages_with_visual") or {}
+    if doc.kind != "pdf" or not pages:
+        return {"pages": [], "note": ""}
+    from ..documents import ocr_tesseract
+    rotations = {int(k): int(v) for k, v in (doc.meta.get("rotated_pages") or {}).items()}
+    ranked = sorted(((int(k), int(v)) for k, v in pages.items()),
+                    key=lambda kv: (-kv[1], kv[0]))[:MAX_VISUAL_PAGES]
+    out: list[dict[str, Any]] = []
+    total = 0
+    for page, ops in sorted(ranked):
+        try:
+            png, info = ocr_tesseract.render_page_png(str(target), page, dpi=VISUAL_DPI,
+                                                       rotation=rotations.get(page, 0))
+        except ocr_tesseract.OcrUnavailable:
+            continue                                      # omitted, not replaced
+        encoded = base64.b64encode(png).decode("ascii")
+        if len(encoded) > MAX_VISUAL_PAGE_B64 or total + len(encoded) > MAX_VISUAL_TOTAL_B64:
+            continue
+        total += len(encoded)
+        out.append({"page": page, "ops": ops, "png_base64": encoded,
+                    "width": info["width"], "height": info["height"], "dpi": info["dpi"]})
+    note = (f"{len(out)} page image(s) rendered for pages whose content is drawn "
+            "(vector chart/diagram marks the text layer cannot carry); `page` is the "
+            "1-based PDF page index" if out else "")
+    return {"pages": out, "note": note}
+
+
+def _parse_result(ctx: JobContext, doc: Any, assessment: Any, ocr_payload: dict[str, Any],
+                  target: Any) -> Any:
     units = doc.coverage.units_total or len(doc.blocks)
     units_name = "pages" if doc.kind == "pdf" else "units"
     note = doc.coverage.note or "non-empty text is not proof that every unit was understood"
@@ -109,10 +153,15 @@ def _parse_result(ctx: JobContext, doc: Any, assessment: Any, ocr_payload: dict[
     # genuinely parsed - and then measures its own output as worse than the TS reader's.
     from ..documents import render as render_mod
     rendered = render_mod.render_units(doc)
+    visual = _visual_pages(doc, target)
+    if visual["pages"]:
+        note = f"{note} | {visual['note']}"
     return ctx.ready(
         {"document": doc.to_dict(), "ocr_route": assessment.route,
          "ocr_reasons": assessment.reasons, "ocr_units": assessment.units,
          "ocr": ocr_payload,
+         "visual_pages": visual["pages"],
+         "visual_note": visual["note"],
          "coverage_complete": doc.coverage.complete,
          "units_succeeded": doc.coverage.units_succeeded,
          "units_needing_ocr": doc.coverage.units_needing_ocr,
@@ -160,8 +209,31 @@ def run_ocr_stage(ctx: JobContext, doc: Any, target: Any, assessment: Any) -> di
         return report
     language, source = _ocr_language(ctx, doc)
     if not language:
-        report["reason"] = ("no document language was given or declared; the engine's language "
-                            "data is chosen explicitly and is never defaulted to English")
+        # Nobody declared a language. Before the refusal, the engine may answer - validated,
+        # not defaulted: its own script estimate on the raster of the first flagged page,
+        # mapped by the general script table, then required to READ that page within the
+        # measured quality bounds (ocr_tesseract constants). Every failed step names its
+        # reason, and the typed refusal below is unchanged when detection refuses too.
+        from ..documents import ocr_tesseract
+        rotations = {int(k): int(v) for k, v in (doc.meta.get("rotated_pages") or {}).items()}
+        try:
+            detection = ocr_tesseract.detect_language(
+                str(target), units[0], rotation=rotations.get(units[0], 0))
+        except ocr_tesseract.OcrUnavailable as exc:
+            detection = {"verified": False,
+                         "reason": f"detection raster failed: {exc.kind}: {exc.detail}"}
+        report["language_detection"] = detection
+        if detection.get("verified"):
+            language = str(detection.get("language", ""))
+            source = (f"detected: the engine's script analysis of page {units[0]} "
+                      f"({detection.get('script', '')}), validated by a verification OCR pass")
+    if not language:
+        reason = ("no document language was given or declared; the engine's language "
+                  "data is chosen explicitly and is never defaulted to English")
+        detection = report.get("language_detection")
+        if detection:
+            reason += f"; validated detection on page {units[0]} refused: {detection['reason']}"
+        report["reason"] = reason
         report["needs_language"] = True
         return report
     report.update(language=language, language_source=source)

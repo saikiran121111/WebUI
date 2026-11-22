@@ -1,4 +1,5 @@
 import type { FileCategory } from "../../files/extensions";
+import { detectBom } from "../../files/encoding";
 
 /**
  * I09 — magic-byte sniffing for the identity contract.
@@ -63,8 +64,71 @@ export function sniffMagic(head: Buffer): Sniffed | null {
   if (head.length >= 4 && (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33)) {
     return { category: "audio", strong: true }; // ID3-tagged MP3
   }
+  // F78-A: UTF-16LE/UTF-32LE text begins FF FE — byte-identical to an MP3
+  // frame-sync pair — and large BOM'd text (> the browser's inline limit) was
+  // "strong audio", fed to ffmpeg and lost. The BOM table is SHARED with
+  // decodeText so detection and decoding can never disagree. Text BOMs are
+  // never media; the text branch decodes them correctly.
+  if (detectBom(head)) return null;
   if (head.length >= 2 && head[0] === 0xff && (head[1] & 0xe0) === 0xe0) {
-    return { category: "audio", strong: true }; // untagged MP3 frame sync
+    // Untagged MP3 frame sync. A 4-byte header check is NOT enough: FF FE 69 00
+    // (BOM + text) decodes as a legal MPEG-1 Layer I header. Require the whole
+    // header to be self-consistent AND the NEXT frame's sync to sit at the
+    // computed frame stride — real encoders emit back-to-back frames; text
+    // landing on that offset does not start with 0xFF sync.
+    return mp3FrameSync(head) ? { category: "audio", strong: true } : null;
   }
   return null;
+}
+
+/** Bitrate tables in kbps, indexed by header bitrate index 1..14. */
+const MPEG_BITRATES = {
+  m1l1: [32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
+  m1l2: [32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448],
+  m1l3: [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 448],
+  m2l1: [32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+  m2l23: [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+};
+const MPEG_FREQS = {
+  m1: [44100, 48000, 32000],
+  m2: [22050, 24000, 16000],
+  m25: [11025, 12000, 8000],
+};
+
+/**
+ * True when `head` starts with a valid MPEG audio frame whose successor frame
+ * header sits at the computed stride. Needs a head larger than one frame
+ * (~1 KB covers every legal CBR frame), which is why the sniff head is 2 KB.
+ */
+export function mp3FrameSync(head: Buffer): boolean {
+  if (head.length < 4) return false;
+  const version = (head[1] >> 3) & 3; // 0 MPEG-2.5, 1 reserved, 2 MPEG-2, 3 MPEG-1
+  const layer = (head[1] >> 1) & 3; // 3 L1, 2 L2, 1 L3, 0 invalid
+  const bitrateIdx = (head[2] >> 4) & 0x0f;
+  const freqIdx = (head[2] >> 2) & 3;
+  const padding = (head[2] >> 1) & 1;
+  if (version === 1 || layer === 0 || bitrateIdx === 0 || bitrateIdx === 15 || freqIdx === 3) {
+    return false;
+  }
+  const m1 = version === 3;
+  const kbps = (layer === 3
+    ? (m1 ? MPEG_BITRATES.m1l1 : MPEG_BITRATES.m2l1)
+    : layer === 2
+      ? (m1 ? MPEG_BITRATES.m1l2 : MPEG_BITRATES.m2l23)
+      : (m1 ? MPEG_BITRATES.m1l3 : MPEG_BITRATES.m2l23))[bitrateIdx - 1];
+  const freq = (m1 ? MPEG_FREQS.m1 : version === 2 ? MPEG_FREQS.m2 : MPEG_FREQS.m25)[freqIdx];
+  const bps = kbps * 1000;
+  const core = layer === 3
+    ? (m1 ? 48 : 24) * 4 * bps / freq // Layer I (MPEG-2 halves the samples)
+    : layer === 2
+      ? 144 * bps / freq // Layer II, both versions
+      : (m1 ? 144 : 72) * bps / freq; // Layer III
+  for (const pad of [0, 1]) {
+    const stride = Math.floor(core) + pad;
+    if (stride >= 24 && stride + 1 < head.length &&
+        head[stride] === 0xff && (head[stride + 1] & 0xe0) === 0xe0) {
+      return true;
+    }
+  }
+  return false;
 }

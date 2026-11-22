@@ -18,6 +18,7 @@ Laws:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -156,6 +157,50 @@ ISO_TO_TESSERACT: dict[str, str] = {
     "vi": "vie", "ja": "jpn", "ko": "kor", "zh": "chi_sim", "sa": "san", "ne": "nep",
 }
 
+# Script name (the engine's own OSD word, lowercased) -> general language-data name.
+# Same general-naming family as ISO_TO_TESSERACT: it maps SCRIPTS, not documents, and
+# anything absent is reported as unsupported rather than guessed at. A script that maps
+# to a language the engine has no data for is an honest refusal, never an English swap.
+SCRIPT_TO_TESSERACT: dict[str, str] = {
+    "latin": "eng", "cyrillic": "rus", "greek": "ell", "arabic": "ara", "hebrew": "heb",
+    "devanagari": "hin", "bengali": "ben", "gurmukhi": "pan", "gujarati": "guj",
+    "oriya": "ory", "tamil": "tam", "telugu": "tel", "kannada": "kan", "malayalam": "mal",
+    "sinhala": "sin", "thai": "tha", "lao": "lao", "myanmar": "mya", "khmer": "khm",
+    "georgian": "kat", "armenian": "hyw", "ethiopic": "amh", "hangul": "kor",
+    "hiragana": "jpn", "katakana": "jpn", "hann": "chi_sim", "han": "chi_sim",
+}
+
+# Validated detection bounds, measured on this host (2026-11-21, tesseract v5.5.3,
+# this engine family): the genuine scan page mixed.pdf p92 gives OSD Script "Latin" at
+# confidence 3.9 (a clean chart page 10.0) and verification OCR of 3 lines, mean line
+# confidence 0.963, 142 non-space glyphs, 28 words of 2+ characters. The bounds sit
+# with margin below the genuine page and far above what a page of the wrong language
+# (or a blank raster) produces, so passing them is evidence, not a formality.
+OSD_MIN_SCRIPT_CONFIDENCE = 2.0
+DETECT_MIN_LINES = 2
+DETECT_MIN_MEAN_CONF = 0.60
+DETECT_MIN_GLYPHS = 80
+DETECT_MIN_WORDS = 12
+
+_OSD_SCRIPT = re.compile(r"Script:\s*([A-Za-z][A-Za-z -]{0,40}?)\s*\r?\n\s*Script confidence:\s*([0-9.]+)")
+
+
+def parse_osd(stdout: str) -> tuple[str, float] | None:
+    """(script, confidence) from the engine's orientation/script analyser output.
+
+    Measured format of this build (v5.5.3): "Page number: 0 / Orientation in degrees: 0 /
+    Rotate: 0 / Orientation confidence: 9.55 / Script: Latin / Script confidence: 3.89" -
+    this build reports a SCRIPT estimate with confidence, no language estimate.
+    """
+    m = _OSD_SCRIPT.search(stdout or "")
+    if not m:
+        return None
+    try:
+        conf = float(m.group(2))
+    except ValueError:
+        return None
+    return m.group(1).strip().lower(), conf
+
 
 # ------------------------------------------------------------------ rasterize + encode
 def encode_png(width: int, height: int, channels: int, rows: bytes) -> bytes:
@@ -293,6 +338,92 @@ def ocr_png(png: bytes, *, language: str, engine_exe: str = "") -> tuple[list[di
                              f"{(done.stderr or b'')[-400:]!r}", "check the language data and the image")
     tsv = (done.stdout or b"").decode("utf-8", "replace")[:MAX_TSV_BYTES]
     return parse_tsv(tsv), code
+
+
+def run_osd(png: bytes, *, engine_exe: str = "") -> tuple[str, float] | None:
+    """The engine's own script analysis over one PNG. None when the output is unparsable."""
+    exe = engine_exe or binaries.path_for(BINARY)
+    if not exe:
+        raise OcrUnavailable("engine_missing", "no validated tesseract copy was found",
+                             f"install {BINARY} or set {binaries.env_var(BINARY)} to a validated copy")
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    try:
+        tmp.write(png[:64 << 20])
+        tmp.close()
+        done = processes.run_captured([exe, tmp.name, "stdout", "--psm", "0", "osd"],
+                                      timeout=OCR_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        raise OcrUnavailable("ocr_timeout", f"the script analyser exceeded {OCR_TIMEOUT_S}s",
+                             "lower the DPI") from exc
+    except (OSError, ValueError) as exc:
+        raise OcrUnavailable("engine_spawn_failed", f"{type(exc).__name__}: {exc}",
+                             "the resolved engine could not be started") from exc
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+    if done.returncode != 0:
+        # The analyser needs the osd data file; its absence is a typed engine gap,
+        # not a silent "no script" answer.
+        raise OcrUnavailable("engine_failed",
+                             f"osd exited {done.returncode}: {(done.stderr or b'')[-400:]!r}",
+                             "install the engine's osd language data")
+    return parse_osd((done.stdout or b"").decode("utf-8", "replace"))
+
+
+def detect_language(pdf_path: str | Path, page_1based: int, *, rotation: int = 0,
+                    dpi: int = DEFAULT_DPI, engine_exe: str = "") -> dict[str, Any]:
+    """Validated language detection from a page raster: the engine's script estimate,
+    gated by a verification OCR pass at the mapped language.
+
+    The result is NEVER a default: each refusal names what failed, and only a page
+    whose verification pass reaches the measured quality bounds (module constants,
+    recorded from the genuine scan page on this host) is `verified`. A page that is a
+    scan of the mapped language verifies; a blank raster, a page of an unmapped script,
+    or a page the mapped language reads as garbage all return verified=False with a
+    reason. This is the last honest step before a scan is transcribed in a language
+    nobody declared.
+    """
+    png, info = render_page_png(pdf_path, page_1based, dpi=dpi, rotation=rotation)
+    result: dict[str, Any] = {"verified": False, "page": int(page_1based), "dpi": info["dpi"]}
+    osd = run_osd(png, engine_exe=engine_exe)
+    if osd is None:
+        result["reason"] = "the engine's script analyser produced no parsable result"
+        return result
+    script, confidence = osd
+    result.update(script=script, script_confidence=confidence)
+    if confidence < OSD_MIN_SCRIPT_CONFIDENCE:
+        result["reason"] = (f"the script estimate {script!r} scored {confidence}, below the "
+                            f"validated bound {OSD_MIN_SCRIPT_CONFIDENCE}")
+        return result
+    code = SCRIPT_TO_TESSERACT.get(script)
+    if not code:
+        result["reason"] = f"no general language naming exists for the detected script {script!r}"
+        return result
+    ok, lang, why = language_is_addressable(code)
+    if not ok:
+        result["reason"] = f"the detected script {script!r} maps to {code!r}, which the engine cannot run: {why}"
+        return result
+    lines, _ = ocr_png(png, language=lang, engine_exe=engine_exe)
+    confs = [ln["confidence"] for ln in lines if isinstance(ln.get("confidence"), float)]
+    mean = sum(confs) / len(confs) if confs else 0.0
+    text = " ".join(ln.get("text", "") for ln in lines)
+    glyphs = sum(1 for ch in text if not ch.isspace())
+    words = len(re.findall(r"\b\w{2,}\b", text))
+    result.update(language=lang, lines=len(lines), mean_conf=round(mean, 4),
+                  glyphs=glyphs, words=words)
+    if (len(lines) >= DETECT_MIN_LINES and mean >= DETECT_MIN_MEAN_CONF
+            and glyphs >= DETECT_MIN_GLYPHS and words >= DETECT_MIN_WORDS):
+        result["verified"] = True
+        result["reason"] = (f"verification passed: {len(lines)} lines, mean line confidence "
+                            f"{mean:.3f}, {glyphs} glyphs, {words} words")
+    else:
+        result["reason"] = (f"verification did not reach the quality bounds "
+                            f"(lines {len(lines)}/{DETECT_MIN_LINES}, mean conf {mean:.3f}/"
+                            f"{DETECT_MIN_MEAN_CONF}, glyphs {glyphs}/{DETECT_MIN_GLYPHS}, "
+                            f"words {words}/{DETECT_MIN_WORDS})")
+    return result
 
 
 def parse_tsv(text: str) -> list[dict[str, Any]]:

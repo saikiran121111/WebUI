@@ -1,0 +1,36 @@
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 D:/Projects/WebUI/WebUI
+
+[19:34:10.988] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ Γ£ô __tests__/documents/xlsxEngine.test.ts (11 tests) 8636ms
+   Γ£ô UI_Stress_Test.xlsx (PART 2 extreme workbook) > builds the 6-sheet workbook: 500 rows, 0 nulls, 0 recalc errors, validations, CF, 3 chart images 3713ms
+   Γ£ô UI_Stress_Test.xlsx (PART 2 extreme workbook) > deterministic generator: two builds produce identical Transactions data 4791ms
+[19:34:19.372] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ Γ£ô __tests__/documents/pptxEngine.test.ts (10 tests) 3498ms
+   Γ£ô pptx engine (PHASE 5A: native motion via @office-kit/pptx) > emits native Morph transitions + animations + structural pairs, and the package re-validates 1469ms
+   Γ£ô pptx engine (PHASE 5A: native motion via @office-kit/pptx) > motion.reveal:"none" drops every entrance animation while the transition survives 984ms
+   Γ£ô pptx engine (PHASE 5A: native motion via @office-kit/pptx) > the exported file carries EXACTLY the plan the preview plays (durations + click gates) 1009ms
+(node:12152) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[19:34:23.264] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ Γ£ô __tests__/documents/docxEngine.test.ts (1 test) 2019ms
+   Γ£ô docx engine > embeds 2 chart screenshots, keeps heading hierarchy and deletes every temp file 2018ms
+[19:34:25.871] [34mDEBUG[39m (documents/browser): [36mdocument render browser lifecycle[39m [90m{"resource":"document-browser","kind":"created","failures":0}[39m
+ Γ£ô __tests__/documents/pdfEngine.test.ts (2 tests) 2128ms
+   Γ£ô pdf engine > renders a multi-page A4 PDF with the mandatory print CSS applied 1345ms
+   Γ£ô pdf engine > chart screenshot returns a real PNG at 2x scale and cleans up its temp html 782ms
+
+ Test Files  4 passed (4)
+      Tests  24 passed (24)
+   Start at  19:34:06
+   Duration  20.14s (transform 253ms, setup 101ms, collect 2.19s, tests 16.28s, environment 1ms, prepare 642ms)
+
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Unhandled Error ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+Error: EPERM: operation not permitted, open 'D:\Projects\WebUI\WebUI\node_modules\.vite\vitest\results.json'
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+Serialized Error: { errno: -4048, code: 'EPERM', syscall: 'open', path: 'D:\Projects\WebUI\WebUI\node_modules\.vite\vitest\results.json' }
+
+
+

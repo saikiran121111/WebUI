@@ -675,18 +675,25 @@ mod tests {
     async fn an_unreadable_record_ages_out_so_a_broken_lease_cannot_park_forever() {
         // The BOUND: an unusable record is held while it is young, and becomes
         // provably abandoned once its OWN file age passes the window.
+        // The window is deliberately NOT 1s: record_age_secs() is a difference of
+        // floored wall-clock seconds, so a record's measured age is up to a whole
+        // second COARSER than its true elapsed time. A 1s window puts the
+        // "young" assertions exactly on that quantum - a write at X.999 read at
+        // X+1.000 already measures age 1, and a load spike in the full-suite run
+        // does the same. 3s leaves a 2s margin for the young checks, and a 3.5s
+        // real sleep guarantees age >= 3 for the aged-out checks.
         let dir = tempfile::tempdir().unwrap();
         let lease = dir.path().join("llm-handoff.lock");
         std::fs::write(&lease, b"{" ).unwrap();
         let a = UpstreamAdmission::new()
             .with_lease(&lease, Duration::from_millis(50))
-            .with_lease_stale(Duration::from_secs(1));
+            .with_lease_stale(Duration::from_secs(3));
         assert!(a.handoff_held(), "a fresh corrupt record is not evidence of a free endpoint");
         assert_eq!(
             a.acquire(&CancellationToken::new()).await.unwrap_err(),
             AdmissionError::HandoffHeld
         );
-        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        tokio::time::sleep(Duration::from_millis(3_500)).await;
         assert!(!a.handoff_held(), "its own age is now proof it was abandoned");
         assert!(
             a.acquire(&CancellationToken::new()).await.is_ok(),

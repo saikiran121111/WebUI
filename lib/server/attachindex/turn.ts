@@ -16,6 +16,7 @@ import {
   type RetrieveOpts,
 } from "./retrieve";
 import { makeRerankStage, rerankWindow } from "./rerank";
+import { fmtStamp } from "./format";
 import { indexDir, readIndex, readNotes, readShownEntry, writeShown } from "./store";
 import type { LoadedIndex } from "./types";
 
@@ -116,6 +117,61 @@ function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; a
     if (out.length >= MAX_FRAMES) break;
   }
   return out;
+}
+
+/**
+ * F14: machine-readable COVERAGE, inside the block the model actually
+ * reads. Every number is read off THIS turn's retrieval (never inferred),
+ * and the ranking mode is reported honestly: a lexical-only pass must not
+ * be dressed up as semantic retrieval. The selection law stays intact --
+ * a file that exists locally is not evidence that any given part of it was
+ * READ. New text is ASCII-only so the Rust mirror can be byte-identical.
+ * F78: a builder so the frames-only time_range path reports the same
+ * numbers as the passage path; the template bytes are unchanged.
+ */
+function coverageMarker(
+  ev: RankedEvidence,
+  framesShown: number,
+  name: string,
+  totalChunks: number,
+  totalFrames: number,
+): string {
+  return (
+    `\n[coverage: ${ev.chunkIdxs.length} of ${totalChunks} indexed passages of "${name}" were shown this turn` +
+    (ev.dropped > 0
+      ? `; ${ev.dropped} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)`
+      : ev.truncated
+        ? "; more passages matched than this turn's budget could show"
+        : "; no matched passage was withheld from this turn") +
+    `; ranking mode: ${ev.vectorMode === "hybrid" ? "semantic + lexical" : "lexical only"}` +
+    (ev.vectorReason ? ` (${ev.vectorReason})` : "") +
+    (totalFrames > 0 ? `; ${framesShown} of ${totalFrames} saved keyframes shown` : "") +
+    " -- anything outside this selection was NOT read this turn]"
+  );
+}
+
+/**
+ * D-058: the reranker's own honesty line, kept OUT of the mirrored
+ * [coverage: ...] marker so the Rust mirror of that marker stays
+ * byte-identical. ASCII-only. It names the ranker the ENGINE reported,
+ * how many passages it actually scored, and never implies a ranker ran
+ * when the stage was skipped, refused or unreachable.
+ */
+function rankingMarker(ev: RankedEvidence): string {
+  const rk = ev.rerank;
+  return (
+    `\n[ranking: ` +
+    (rk.mode === "neural"
+      ? `${rk.engine ?? "neural reranker"} re-ordered ${rk.scored} of the ${rk.candidates} passages the retrieval ranked for it; ${rk.changed} position(s) changed`
+      : rk.mode === "structural_selection"
+        ? `no neural rerank (${rk.reason ?? "this selection is ordered by the source's own structure"})`
+        : `the fused ${ev.vectorMode === "hybrid" ? "semantic + lexical" : "lexical"} order stands; no neural rerank ran (${rk.reason ?? "not attempted"})`) +
+    (rk.mode === "neural" && rk.unscored > 0
+      ? `; ${rk.unscored} passage(s) in the window were never scored and kept their fused position below the scored ones`
+      : "") +
+    (rk.note ? `; ${rk.note}` : "") +
+    " -- passages the retrieval did not rank were never seen by the reranker]"
+  );
 }
 
 // Record-honesty law (P3a 2026-11-05): the model is handed the attachment's
@@ -378,47 +434,79 @@ export async function buildAttachmentTurn(
         window,
       );
     }
+
+    // F78 (2026-11-22): a video whose speech could not be read indexes its
+    // keyframes + one coverage note — there is NO timed passage for a routed
+    // time_range question to retrieve, so `!ev.text` below fires and the
+    // model receives NOTHING for the exact-time question the router aimed at
+    // the frames (reproduced: "What is on screen at 01:31:00?" over a
+    // frames-only index → zero evidence delivered). The saved frames ARE
+    // this record's only evidence for the asked moment: serve the nearest
+    // ones with the requested-vs-sampled attribution law (FRAME_WINDOW_SEC
+    // honesty intact — nearestFrames already refuses a far moment) and the
+    // unconfirmable-between law. Generic: routed window + index meta only,
+    // never content inspection.
+    if (!ev.text && routed.mode === "time_range" && (index.meta.frames?.length ?? 0) > 0) {
+      // The router builds each cue window as [c-180, c+180] CLIPPED to the
+      // video's length; midpoint of a clipped window is NOT the asked instant
+      // (a cue at 00:00:45 → window [0, 225] → midpoint 00:01:53 would
+      // mislabel what the user asked). Un-clip from the edge that was
+      // clipped; midpoint only when the window is full width.
+      const dur = index.meta.durationSec ?? 0;
+      const cueAt = (w: { fromSec: number; toSec: number }): number => {
+        const mid = (w.fromSec + w.toSec) / 2;
+        if (w.toSec - w.fromSec >= 2 * FRAME_WINDOW_SEC) return mid;
+        if (w.fromSec <= 0.5) return Math.max(0, w.toSec - FRAME_WINDOW_SEC);
+        if (dur > 0 && w.toSec >= dur - 0.5) return w.fromSec + FRAME_WINDOW_SEC;
+        return mid;
+      };
+      const cues = (
+        routed.windows?.length
+          ? routed.windows.map(cueAt)
+          : [cueAt({ fromSec: routed.fromSec ?? 0, toSec: routed.toSec ?? 0 })]
+      ).slice(0, MAX_FRAMES);
+      const perCue = cues.map(cue => ({ cue, frames: nearestFrames(index, [cue]) }));
+      const shownFrames: { url: string; at: number }[] = [];
+      for (const pc of perCue) {
+        for (const f of pc.frames) {
+          if (!shownFrames.some(x => x.at === f.at && x.url === f.url)) shownFrames.push(f);
+        }
+      }
+      if (shownFrames.length) {
+        const totalChunks = index.meta.chunkCount || index.chunks.length;
+        const totalFrames = index.meta.frames.length;
+        const lines = perCue
+          .map(({ cue, frames }) =>
+            frames.length
+              ? `Asked time ${fmtStamp(cue)}: the saved moment${frames.length > 1 ? "s" : ""} nearest ${fmtStamp(cue)} ${frames.length > 1 ? "are" : "is"} at ${frames.map(f => fmtStamp(f.at)).join(", ")} (the record holds no saved moment closer).`
+              : `Asked time ${fmtStamp(cue)}: NO saved moment lies within this turn's time window, so what is on screen at that time was never captured.`,
+          )
+          .join("\n");
+        const block =
+          `<knowledge_index name="${ref.name}">\n` +
+          `The question asks about a moment on this video's timeline. Its saved record carries no readable speech, so the visual record is the evidence served for the asked time.\n` +
+          lines +
+          "\n" +
+          `The saved moments are isolated points: the record holds NO evidence about the time between, before or after them. Answer about the asked moment from the saved moment nearest it, give its time, and state that what happens between saved moments cannot be confirmed.\n` +
+          coverageMarker(ev, shownFrames.length, ref.name, totalChunks, totalFrames) +
+          rankingMarker(ev) +
+          `\n${rules(ref)}\n</knowledge_index>`;
+        blocks.push(block);
+        turnUsed += block.length;
+        images.push(...shownFrames);
+        continue;
+      }
+    }
     if (!ev.text) continue;
 
-    // F14: machine-readable COVERAGE, inside the block the model actually
-    // reads. Every number is read off THIS turn's retrieval (never inferred),
-    // and the ranking mode is reported honestly: a lexical-only pass must not
-    // be dressed up as semantic retrieval. The selection law stays intact --
-    // a file that exists locally is not evidence that any given part of it was
-    // READ. New text is ASCII-only so the Rust mirror can be byte-identical.
+    // F14: machine-readable COVERAGE + D-058 ranking line (see the builders
+    // below — the byte templates live there so the frames-only path can
+    // report the same honest numbers).
     const frames = nearestFrames(index, ev.frameAts);
     const totalChunks = index.meta.chunkCount || index.chunks.length;
     const totalFrames = index.meta.frames?.length ?? 0;
-    const covered =
-      `\n[coverage: ${ev.chunkIdxs.length} of ${totalChunks} indexed passages of "${ref.name}" were shown this turn` +
-      (ev.dropped > 0
-        ? `; ${ev.dropped} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)`
-        : ev.truncated
-          ? "; more passages matched than this turn's budget could show"
-          : "; no matched passage was withheld from this turn") +
-      `; ranking mode: ${ev.vectorMode === "hybrid" ? "semantic + lexical" : "lexical only"}` +
-      (ev.vectorReason ? ` (${ev.vectorReason})` : "") +
-      (totalFrames > 0 ? `; ${frames.length} of ${totalFrames} saved keyframes shown` : "") +
-      " -- anything outside this selection was NOT read this turn]";
-
-    // D-058: the reranker's own honesty line, kept OUT of the mirrored
-    // [coverage: ...] marker so the Rust mirror of that marker stays
-    // byte-identical. ASCII-only. It names the ranker the ENGINE reported,
-    // how many passages it actually scored, and never implies a ranker ran
-    // when the stage was skipped, refused or unreachable.
-    const rk = ev.rerank;
-    const rankLine =
-      `\n[ranking: ` +
-      (rk.mode === "neural"
-        ? `${rk.engine ?? "neural reranker"} re-ordered ${rk.scored} of the ${rk.candidates} passages the retrieval ranked for it; ${rk.changed} position(s) changed`
-        : rk.mode === "structural_selection"
-          ? `no neural rerank (${rk.reason ?? "this selection is ordered by the source's own structure"})`
-          : `the fused ${ev.vectorMode === "hybrid" ? "semantic + lexical" : "lexical"} order stands; no neural rerank ran (${rk.reason ?? "not attempted"})`) +
-      (rk.mode === "neural" && rk.unscored > 0
-        ? `; ${rk.unscored} passage(s) in the window were never scored and kept their fused position below the scored ones`
-        : "") +
-      (rk.note ? `; ${rk.note}` : "") +
-      " -- passages the retrieval did not rank were never seen by the reranker]";
+    const covered = coverageMarker(ev, frames.length, ref.name, totalChunks, totalFrames);
+    const rankLine = rankingMarker(ev);
 
     blocks.push(
       `<knowledge_index name="${ref.name}">\n` +

@@ -1,0 +1,5 @@
+The supplied material doesn't support the comparison.
+
+What the extracted page contains is only the title "Reservoir measurements" and the two category labels "West" and "East" — no bar heights, axis scale, tick values, data table, or any numeric figure at all. The bars themselves are drawing marks in the PDF, and no numeric value accompanies them in the text that was read.
+
+So I can't say which reservoir has the taller bar: ranking West against East would require a value that isn't present in the material. If you can supply the underlying numbers, a labeled chart image, or an export of the plotted data, I'll compare them directly.

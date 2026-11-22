@@ -1,0 +1,11 @@
+file BASALT.png
+duration 3600
+file COBALT.png
+duration 2781
+file PAUSE.png
+duration 3
+file COBALT.png
+duration 816
+file AMBER.png
+duration 3600
+file AMBER.png

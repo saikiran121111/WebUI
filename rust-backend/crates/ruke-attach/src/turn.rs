@@ -36,6 +36,7 @@ use crate::router::{
     count_bounded, fingerprint_query, is_continuation_ask, pronoun_re, QueryMode, RouteAxis,
     route_query_in,
 };
+use crate::format::fmt_stamp;
 use crate::store;
 use crate::types::LoadedIndex;
 use crate::QueryEmbedder;
@@ -588,6 +589,143 @@ pub async fn build_attachment_turn(
         if ev.text.is_empty() && !anchored.is_empty() && anchored != rq {
             let fallback_vec = embedder.embed_one(&anchored, token).unwrap_or_default();
             ev = retrieve_evidence(&index, &anchored, &fallback_vec, &opts);
+        }
+
+        // F78 (2026-11-22): a video whose speech could not be read indexes
+        // its keyframes + one coverage note — there is NO timed passage for a
+        // routed time_range question to retrieve, so an empty `ev.text` below
+        // fires and the model receives NOTHING for the exact-time question
+        // the router aimed at the frames (reproduced live: "What is on screen
+        // at 01:31:00?" over a frames-only index → zero evidence delivered on
+        // THIS owner while the TS mirror served the frame). The saved frames
+        // ARE this record's only evidence for the asked moment: serve the
+        // nearest ones with the requested-vs-sampled attribution law
+        // (FRAME_WINDOW honesty intact — nearest_frames already refuses a far
+        // moment) and the unconfirmable-between law. Generic: routed window +
+        // index meta only, never content inspection. ⇔ turn.ts F78 block.
+        if ev.text.is_empty() && routed.mode == QueryMode::TimeRange && !index.meta.frames.is_empty() {
+            // The router builds each cue window as [c-180, c+180] CLIPPED to
+            // the video's length; midpoint of a clipped window is NOT the
+            // asked instant (a cue at 00:00:45 → window [0, 225] → midpoint
+            // 00:01:53 would mislabel what the user asked). Un-clip from the
+            // clipped edge; midpoint only when the window is full width.
+            let dur = index.meta.duration_sec.unwrap_or(0.0);
+            let cue_at = |w: (f64, f64)| -> f64 {
+                let mid = (w.0 + w.1) / 2.0;
+                if w.1 - w.0 >= 2.0 * FRAME_WINDOW {
+                    return mid;
+                }
+                if w.0 <= 0.5 {
+                    return (w.1 - FRAME_WINDOW).max(0.0);
+                }
+                if dur > 0.0 && w.1 >= dur - 0.5 {
+                    return w.0 + FRAME_WINDOW;
+                }
+                mid
+            };
+            let cues: Vec<f64> = {
+                let all: Vec<f64> = if !routed.windows.is_empty() {
+                    routed.windows.iter().copied().map(cue_at).collect()
+                } else {
+                    vec![cue_at((
+                        routed.from_sec.unwrap_or(0.0),
+                        routed.to_sec.unwrap_or(0.0),
+                    ))]
+                };
+                all.into_iter().take(MAX_FRAMES).collect()
+            };
+            let per_cue: Vec<(f64, Vec<(String, f64)>)> = cues
+                .iter()
+                .map(|cue| (*cue, nearest_frames(root, &index, &[*cue])))
+                .collect();
+            let mut shown: Vec<(String, f64)> = Vec::new();
+            for (_, frames) in &per_cue {
+                for f in frames {
+                    if !shown.iter().any(|x| x.0 == f.0 && x.1 == f.1) {
+                        shown.push(f.clone());
+                    }
+                }
+            }
+            if !shown.is_empty() {
+                let total_chunks = if index.meta.chunk_count != 0 {
+                    index.meta.chunk_count
+                } else {
+                    index.chunks.len() as i64
+                };
+                let total_frames = index.meta.frames.len() as i64;
+                let lines = per_cue
+                    .iter()
+                    .map(|(cue, frames)| {
+                        let cue_s = fmt_stamp(*cue);
+                        if frames.is_empty() {
+                            format!("Asked time {cue_s}: NO saved moment lies within this turn's time window, so what is on screen at that time was never captured.")
+                        } else {
+                            let plural = frames.len() > 1;
+                            let stamps = frames
+                                .iter()
+                                .map(|f| fmt_stamp(f.1))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            format!(
+                                "Asked time {cue_s}: the saved moment{} nearest {cue_s} {} at {stamps} (the record holds no saved moment closer).",
+                                if plural { "s" } else { "" },
+                                if plural { "are" } else { "is" },
+                            )
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let mut block = format!(
+                    "<knowledge_index name=\"{name}\">\nThe question asks about a moment on this video's timeline. Its saved record carries no readable speech, so the visual record is the evidence served for the asked time.\n{lines}\nThe saved moments are isolated points: the record holds NO evidence about the time between, before or after them. Answer about the asked moment from the saved moment nearest it, give its time, and state that what happens between saved moments cannot be confirmed.\n",
+                    name = r.name,
+                    lines = lines,
+                );
+                // coverageMarker ⇔ turn.ts — the same honest numbers, the
+                // frames-only selection counted.
+                {
+                    let mut c = format!(
+                        "\n[coverage: {} of {} indexed passages of \"{}\" were shown this turn",
+                        ev.chunk_idxs.len(),
+                        total_chunks,
+                        r.name
+                    );
+                    if ev.dropped > 0 {
+                        c.push_str(&format!("; {} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)", ev.dropped));
+                    } else if ev.truncated {
+                        c.push_str("; more passages matched than this turn's budget could show");
+                    } else {
+                        c.push_str("; no matched passage was withheld from this turn");
+                    }
+                    c.push_str(&format!(
+                        "; ranking mode: {}",
+                        if ev.vector_mode == crate::vectors::MODE_HYBRID {
+                            "semantic + lexical"
+                        } else {
+                            "lexical only"
+                        }
+                    ));
+                    if let Some(reason) = &ev.vector_reason {
+                        c.push_str(&format!(" ({})", reason));
+                    }
+                    if total_frames > 0 {
+                        c.push_str(&format!(
+                            "; {} of {} saved keyframes shown",
+                            shown.len(),
+                            total_frames
+                        ));
+                    }
+                    c.push_str(" -- anything outside this selection was NOT read this turn]");
+                    block.push_str(&c);
+                }
+                block.push_str(&rank_line(&opts, &ev.vector_mode));
+                block.push('\n');
+                block.push_str(&rules(r));
+                block.push_str("\n</knowledge_index>");
+                turn_used += js_len(&block) as f64;
+                blocks.push(block);
+                images.extend(shown);
+                continue;
+            }
         }
         if ev.text.is_empty() {
             continue;
@@ -1649,5 +1787,100 @@ mod tests {
         assert!(rank_line(&no_axis, crate::vectors::MODE_HYBRID).contains("the fused semantic + lexical order stands"));
         // The line is ASCII-only, like the [coverage: ...] marker it sits next to.
         assert!(rank_line(&span, crate::vectors::MODE_LEXICAL_ONLY).is_ascii());
+    }
+
+    // ---- F78: frames-only index + exact-time question -------------------
+    // The UI runs on THIS owner; the live row "What is on screen at
+    // 01:31:00?" over a frames-only index delivered ZERO evidence here while
+    // the TS mirror served the frame (model answered NO in 1 s). The mirror
+    // must serve the nearest saved moment with the requested-vs-sampled
+    // attribution law, refuse a far moment (I18b), and un-clip an edge
+    // window so the cue is the asked instant, not a clipped midpoint.
+    #[tokio::test]
+    async fn frames_only_time_range_serves_the_nearest_saved_moment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        seed_index(
+            root,
+            "att_f78frmr",
+            "video",
+            ",\n  \"durationSec\": 10800.0,\n  \"frames\": [{\"at\": 40.0, \"file\": \"frames/f40.jpg\"}, {\"at\": 5460.0, \"file\": \"frames/f5460.jpg\"}]",
+            "",
+            &[
+                ("frames/f40.jpg", b"ABC"),
+                ("frames/f5460.jpg", b"QUJD"),
+            ],
+        );
+        // Frames-only index: the chunks file exists and is EMPTY — there is
+        // no timed passage for the routed time_range question to retrieve.
+        std::fs::write(
+            store::index_dir(root, "att_f78frmr").unwrap().join("chunks.jsonl"),
+            "",
+        )
+        .unwrap();
+        let token = CancellationToken::new();
+
+        // Asked 01:31:00 — the saved moment at 5460 is served with the
+        // attribution law; the frame rides at the end of the user turn.
+        let mut msgs = user_with_ref("att_f78frmr", "lecture.mp4", "video");
+        let n = build(
+            &mut msgs,
+            0,
+            "What is on screen at 01:31:00 in the attached video?",
+            root,
+            &FixedEmbedder(vec![]),
+            &token,
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        let sys = system_text(&msgs);
+        assert!(
+            sys.contains("Asked time 01:31:00: the saved moment nearest 01:31:00 is at 01:31:00 (the record holds no saved moment closer)."),
+            "attribution line missing: {sys}"
+        );
+        assert!(sys.contains("no readable speech"), "frames-only framing missing");
+        assert!(
+            sys.contains("the record holds NO evidence about the time between"),
+            "unconfirmable-between law missing"
+        );
+        assert!(sys.contains("1 of 2 saved keyframes shown"), "coverage frame count wrong");
+        assert!(sys.contains("[ranking:"), "ranking honesty line missing");
+        assert!(msgs[1]["content"].as_array().unwrap().iter().any(|p| p["type"] == "image_url"), "frame not injected");
+
+        // Edge clip: a cue at 00:00:45 gives window [0, 225]; the cue is the
+        // asked instant (45s), NOT the clipped midpoint (00:01:53).
+        let mut msgs = user_with_ref("att_f78frmr", "lecture.mp4", "video");
+        let n = build(
+            &mut msgs,
+            0,
+            "What is on screen at 00:00:45 in the attached video?",
+            root,
+            &FixedEmbedder(vec![]),
+            &token,
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        let sys = system_text(&msgs);
+        assert!(sys.contains("Asked time 00:00:45"), "edge cue mislabeled: {sys}");
+        assert!(!sys.contains("Asked time 00:01:53"), "clipped midpoint labeled as the ask");
+
+        // I18b near miss: 01:40:00 has no saved moment within 180 s —
+        // honesty window refuses; NOTHING is served for the moment.
+        let mut msgs = user_with_ref("att_f78frmr", "lecture.mp4", "video");
+        let n = build(
+            &mut msgs,
+            0,
+            "What is on screen at 01:40:00 in the attached video?",
+            root,
+            &FixedEmbedder(vec![]),
+            &token,
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(msgs.len(), 1, "no system block for a refused moment");
+        assert!(msgs[0]["content"].as_array().unwrap().iter().all(|p| p["type"] != "image_url"));
     }
 }

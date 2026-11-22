@@ -25,7 +25,9 @@ from typing import Any
 from .structures import Block, Document
 
 # Only these kinds benefit from a structure-preserving rendering on the wire.
-RENDERED_KINDS = ("xlsx", "docx", "pptx")
+RENDERED_KINDS = ("xlsx", "docx", "pptx",
+                  "ods", "odt", "odp", "epub", "rtf",
+                  "doc", "ppt", "xls", "mat")
 
 # A single unit's rendering is bounded. Truncation is STATED in the payload and in the
 # text itself, so a caller can never mistake a capped rendering for the whole unit.
@@ -181,8 +183,33 @@ def _unit_headers(doc: Document, unit: int, blocks: list[Block]) -> list[str]:
                     + (f" (+{count - len(refs)} more not listed)" if count > len(refs) else "")
                     + " - these cells exist and hold no value; an empty cell is not zero"
                 )
-    elif doc.kind == "pptx":
+    elif doc.kind in ("pptx", "ppt"):
         headers.append(f"### slide {unit}")
+    elif doc.kind == "odp":
+        names = doc.meta.get("page_names")
+        name = str(names[str(unit)]) if isinstance(names, dict) and str(unit) in names else ""
+        headers.append(f"### page {unit}" + (f": {name}" if name else ""))
+    elif doc.kind in ("xls", "ods"):
+        name = _sheet_name(doc, unit)
+        if name:
+            headers.append(f"### worksheet: {name}")
+        if doc.kind == "xls" and doc.meta.get("cells_truncated"):
+            headers.append("### cell cap reached: only the first 50,000 cells are listed; "
+                           "cells after the cap are NOT included")
+    elif doc.kind == "epub":
+        chapters = doc.meta.get("chapters")
+        part = str(chapters[str(unit)]) if isinstance(chapters, dict) and str(unit) in chapters else ""
+        headers.append(f"### chapter {unit} (spine reading order)" + (f" - {part}" if part else ""))
+    elif doc.kind == "mat":
+        variables = doc.meta.get("variables")
+        if isinstance(variables, list) and variables:
+            headers.append("### variables: " + ", ".join(map(str, variables)) +
+                           " (values are column-major, rows/cols are 1-based)")
+    elif doc.kind == "rtf":
+        hidden = doc.meta.get("hidden_groups_excluded")
+        if hidden:
+            headers.append(f"### {hidden} hidden (\\v) group(s) EXCLUDED by design: "
+                           "the document formats their text as not-visible")
     elif doc.kind == "docx":
         tables = {b.loc.get("table") for b in blocks if b.kind == "table_row" and b.loc.get("table") is not None}
         if tables:
@@ -209,7 +236,7 @@ def render_units(doc: Document) -> list[dict[str, Any]]:
     # it (a sheet part that failed to parse, a slide with no text). Dropping the unit
     # entirely is how a failed sheet turned into "the workbook contains no cells".
     known: set[int] = set(grouped)
-    if doc.kind in ("xlsx", "pptx"):
+    if doc.kind in ("xlsx", "pptx", "ppt", "ods", "odp", "xls", "epub"):
         total = doc.coverage.units_total if isinstance(doc.coverage.units_total, int) else 0
         known |= {unit for unit in range(1, max(0, total) + 1)}
     for unit in sorted(known):

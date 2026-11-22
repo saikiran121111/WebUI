@@ -18,7 +18,11 @@ import { ffmpegPath, imageToDataUrlFromPath } from "../../lib/server/extract/ffm
 
 const execFileP = promisify(execFile);
 const SCRATCH = fs.mkdtempSync(path.join(process.cwd(), ".data", "tmp", "img_"));
-afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
+// Windows: ffmpeg/sharp handles can lock the dir past the last test (EPERM).
+// Scratch is .data/tmp — removal is best-effort, never a test failure.
+afterAll(() => {
+  try { fs.rmSync(SCRATCH, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 }); } catch { /* leave for the next sweep */ }
+});
 
 /** PNG IHDR is big-endian: width at byte 16, height at 20. */
 const pngDims = (buf: Buffer): { width: number; height: number } => ({

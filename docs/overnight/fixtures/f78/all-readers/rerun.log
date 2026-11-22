@@ -1,0 +1,187 @@
+[20:03:08.297] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_bcd61928f63a.csv -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_c1655b4cd3df.f32
+[mp3 @ 000001c7cae1c300] Invalid frame size (288): Could not seek to 288.
+[in#0 @ 000001c7cae1c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_bcd61928f63a.csv.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.csv"}[39m
+[20:03:08.325] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_3352b3bcb72b.md -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_5b233105f3d5.f32
+[in#0 @ 00000146b7c8c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_3352b3bcb72b.md.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.md"}[39m
+[20:03:08.352] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_988a923f212e.jsonl -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_73cdbd0c763e.f32
+[mp3 @ 000002092200c300] Invalid frame size (340): Could not seek to 340.
+[in#0 @ 000002092200c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_988a923f212e.jsonl.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.jsonl"}[39m
+[20:03:08.380] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_1fe6ca5336f1.html -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_67ad21ce11e3.f32
+[in#0 @ 000001c533b2c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_1fe6ca5336f1.html.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.html"}[39m
+[20:03:08.405] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_80f1dc57939e.yaml -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_b83902ab8a5c.f32
+[mp3 @ 000001ee47bac300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 000001ee47bac1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_80f1dc57939e.yaml.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.yaml"}[39m
+[20:03:08.423] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_c6f910ae779e.toml -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_cf8fad7457fd.f32
+[in#0 @ 000001d03605c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_c6f910ae779e.toml.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.toml"}[39m
+[20:03:08.441] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_4529ecbc1ac4.log -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_f74a00154a2e.f32
+[mp3 @ 0000017e07a6c300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 0000017e07a6c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_4529ecbc1ac4.log.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.log"}[39m
+[20:03:08.459] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2f8f7f048379.js -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_64bafe8db8fb.f32
+[in#0 @ 0000028b2f6cc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2f8f7f048379.js.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.js"}[39m
+[20:03:08.477] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_65cf14fb1796.ts -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_1279464f4889.f32
+[mp3 @ 0000021f0c3fc300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 0000021f0c3fc1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_65cf14fb1796.ts.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.ts"}[39m
+[20:03:08.495] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_a36e28f6c282.java -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_37c602d3d4d7.f32
+[in#0 @ 00000223efdbc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_a36e28f6c282.java.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.java"}[39m
+[20:03:08.515] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_915832e8b7dd.cpp -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_68afcaea125c.f32
+[mp3 @ 000002ad7620c300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 000002ad7620c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_915832e8b7dd.cpp.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.cpp"}[39m
+[20:03:08.534] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5edfadb20f53.h -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_9602ccf4b00c.f32
+[in#0 @ 0000021d04bcc1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5edfadb20f53.h.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.h"}[39m
+[20:03:08.552] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_383a4df28efb.cs -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_239100090ca5.f32
+[mp3 @ 00000215cf0fc300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 00000215cf0fc1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_383a4df28efb.cs.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.cs"}[39m
+[20:03:08.578] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_0dac5b999934.rs -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_87c8a3f02896.f32
+[sunrast @ 0000022582254dc0] this is not sunras encoded data
+[out#0/f32le @ 0000022582255680] Output file does not contain any stream
+Error opening output file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_87c8a3f02896.f32.
+Error opening output files: Invalid argument
+[39m [90m{"file":"sample.rs"}[39m
+[20:03:08.596] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_7c86fb3f6780.rb -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_a7cf690e10e5.f32
+[mp3 @ 0000018c2656c300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 0000018c2656c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_7c86fb3f6780.rb.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.rb"}[39m
+[20:03:08.614] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_0db84e1156d6.kt -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_6a746474bf76.f32
+[in#0 @ 000001e0d544c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_0db84e1156d6.kt.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.kt"}[39m
+[20:03:08.632] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_361583b3e245.scala -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_7d34a28f2aad.f32
+[mp3 @ 000001ca2441c300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 000001ca2441c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_361583b3e245.scala.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.scala"}[39m
+[20:03:08.650] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_926027e968aa.bash -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_32e6788e84f9.f32
+[in#0 @ 000001261094c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_926027e968aa.bash.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.bash"}[39m
+[20:03:08.668] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_3e51cdd14e1f.ps1 -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_e5d4e77ec013.f32
+[mp3 @ 000001948b4bc300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 000001948b4bc1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_3e51cdd14e1f.ps1.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.ps1"}[39m
+[20:03:08.686] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5c6c194833a0.cmd -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_53bf081dd18c.f32
+[in#0 @ 0000020e2970c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5c6c194833a0.cmd.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.cmd"}[39m
+[20:03:08.704] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_7071b1a98411.r -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_1a909cfe6666.f32
+[mp3 @ 000002976c57c300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 000002976c57c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_7071b1a98411.r.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.r"}[39m
+[20:03:08.722] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_d247916e69bf.tex -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_ff704a99677e.f32
+[in#0 @ 00000206b294c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_d247916e69bf.tex.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.tex"}[39m
+[20:03:08.744] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_68d6ebf9ff35.diff -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_cc9bfe90c1a0.f32
+[in#0 @ 000001df98d4c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_68d6ebf9ff35.diff.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.diff"}[39m
+[20:03:08.762] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5b69625cb8fa.env -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_ce7d686f66b2.f32
+[in#0 @ 000002223df2c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5b69625cb8fa.env.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.env"}[39m
+[20:03:08.780] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6292cfbb9f14.cfg -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_05aa5f70e4d6.f32
+[mp3 @ 00000200ea8bc300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 00000200ea8bc1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6292cfbb9f14.cfg.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.cfg"}[39m
+[20:03:08.798] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_46866cc61b5a.graphql -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_8ab8d109f97e.f32
+[in#0 @ 000001e48257c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_46866cc61b5a.graphql.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.graphql"}[39m
+[20:03:08.816] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_dcaa85f7a13d.proto -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_d5224edd7ec2.f32
+[mp3 @ 0000019cb9e7c300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 0000019cb9e7c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_dcaa85f7a13d.proto.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.proto"}[39m
+[20:03:08.834] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_70ec2aae4b78.makefile -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_031f2faf3f1a.f32
+[in#0 @ 000001cc6b41c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_70ec2aae4b78.makefile.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.makefile"}[39m
+[20:03:08.852] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5ce7e7575613.hcl -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_04f66e5df6b1.f32
+[mp3 @ 0000020cbff6c300] Failed to read frame size: Could not seek to 1257.
+[in#0 @ 0000020cbff6c1c0] Error opening input: Invalid argument
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_5ce7e7575613.hcl.
+Error opening input files: Invalid argument
+[39m [90m{"file":"sample.hcl"}[39m
+[20:03:08.870] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6fd53a0a647a.svelte -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_e5f4750b3468.f32
+[in#0 @ 0000021a1b20c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6fd53a0a647a.svelte.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"sample.svelte"}[39m
+[20:03:08.893] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_2dc2a77cf784.svg -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_ccb21cac4cac.f32
+[out#0/f32le @ 0000022f5d0c5b00] Output file does not contain any stream
+Error opening output file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_ccb21cac4cac.f32.
+Error opening output files: Invalid argument
+[39m [90m{"file":"sample.svg"}[39m
+[20:03:08.912] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6aac8d522084 -f f32le -ac 1 -ar 16000 C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_0d8cfedf6c76.f32
+[in#0 @ 0000023590b5c1c0] Error opening input: Invalid data found when processing input
+Error opening input file C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_6aac8d522084.
+Error opening input files: Invalid data found when processing input
+[39m [90m{"file":"Makefile"}[39m
+[20:03:20.529] [31mERROR[39m (api/files/extract): [36mextraction failed: File read error[39m [90m{"file":"audit.rar"}[39m
+[20:03:20.704] [31mERROR[39m (api/files/extract): [36mextraction failed: Command failed: C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\node_modules\ffmpeg-static\ffmpeg.exe -hide_banner -loglevel error -y -i C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\u_1dfcc581c27b.webp -frames:v 8 -vf scale=w=min(iw\,1280):h=min(ih\,1280):force_original_aspect_ratio=decrease,format=rgb24 -vsync vfr C:\Users\Ruku\Documents\Codex\2026-11-13\few-issues-in-the-screenshot-even\work\all-readers\.data\tmp\m_070545fe97a7_%03d.png
+[webp @ 0000015bf1b055c0] image data not found
+[webp @ 0000015bf1b05fc0] image data not found
+[vist#0:0/webp @ 0000015bf1b05a80] Decoding error: Invalid data found when processing input
+Cannot determine format of input stream 0:0 after EOF
+Error marking filters as finished
+Error while filtering: Invalid data found when processing input
+[vist#0:0/webp @ 0000015bf1b05a80] Decode error rate 1 exceeds maximum 0.666667
+[out#0/image2 @ 0000015bf1afc840] Nothing was written into output file, because at least one of its streams received no packets.
+[39m [90m{"file":"panel.webp"}[39m
+complete 112

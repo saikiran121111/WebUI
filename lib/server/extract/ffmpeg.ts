@@ -126,20 +126,134 @@ export interface ImageDecode {
 const MAX_IMAGE_PAGES = 8;
 
 /**
+ * libvips (sharp) page decode — the F78-B primary image decoder.
+ *
+ * Measured against the audit fixtures (2026-11-21): ffmpeg's gif demuxer skips
+ * disposal compositing (every page came back with a blank centre), its webp
+ * demuxer cannot open animated WebP at all ("image data not found"), and its
+ * tiff demuxer reads ONLY page 1 of a multi-page scan. libvips decodes all
+ * three with correct per-frame/page pixels, caps, page ids and an honest page
+ * count. Returns null when libvips cannot read the container at all (ico, …)
+ * or when page 0's pixels fail (HEVC-in-HEIF without libde265) — the caller
+ * falls through to the wasm HEIF decoder, then ffmpeg.
+ */
+async function decodePagesWithSharp(
+  src: string,
+  maxPages: number,
+  signal?: AbortSignal,
+): Promise<{ pages: Buffer[]; declared: number } | null> {
+  let sharp: any;
+  try {
+    const mod: any = await import("sharp");
+    sharp = mod.default ?? mod;
+  } catch {
+    return null; // native binding absent — ffmpeg stays the decoder
+  }
+  try {
+    const meta = await sharp(src).metadata();
+    const declared = Math.max(1, meta.pages ?? 1);
+    const pages: Buffer[] = [];
+    for (let i = 0; i < Math.min(declared, maxPages); i++) {
+      if (signal?.aborted) break;
+      try {
+        const png = await sharp(src, { page: i })
+          .resize({ width: MAX_IMAGE_SIDE, height: MAX_IMAGE_SIDE, fit: "inside", withoutEnlargement: true })
+          .flatten({ background: "#ffffff" })
+          .png()
+          .toBuffer();
+        pages.push(png);
+      } catch {
+        break; // page N undecodable — keep what came before it
+      }
+    }
+    return pages.length ? { pages, declared } : null;
+  } catch {
+    return null; // container not readable by libvips
+  }
+}
+
+/**
+ * HEVC-in-HEIF (real phone HEIC/HEIF): the vendored libheif has no libde265
+ * plugin, so libvips reads the container's metadata but not the pixels. The
+ * wasm libheif build (heic-decode) ships the HEVC decoder and decodes every
+ * image in the container. ABGR planes are rasterised to PNG through sharp.
+ */
+async function decodePagesWithHeic(
+  src: string,
+  maxPages: number,
+): Promise<{ pages: Buffer[]; declared: number } | null> {
+  let decode: any;
+  try {
+    const mod: any = await import("heic-decode");
+    decode = mod.default ?? mod;
+  } catch {
+    return null;
+  }
+  let buf: Buffer;
+  try {
+    buf = fs.readFileSync(src);
+  } catch {
+    return null;
+  }
+  try {
+    // decode.all() returns LAZY handles {width, height, decode()} — the
+    // pixels only exist after per-image decode(); the array carries dispose()
+    // to free the wasm decoder. Reading .data directly yields undefined.
+    const imgs: any = await decode.all({ buffer: buf });
+    if (!imgs.length) return null;
+    try {
+      const sharpMod: any = await import("sharp");
+      const s = sharpMod.default ?? sharpMod;
+      const pages: Buffer[] = [];
+      for (const handle of imgs.slice(0, maxPages)) {
+        const { width, height, data } = await handle.decode();
+        pages.push(
+          await s(Buffer.from(data.buffer, data.byteOffset, data.byteLength), {
+            raw: { width, height, channels: 4 },
+          })
+            .resize({ width: MAX_IMAGE_SIDE, height: MAX_IMAGE_SIDE, fit: "inside", withoutEnlargement: true })
+            .flatten({ background: "#ffffff" })
+            .png()
+            .toBuffer(),
+        );
+      }
+      return { pages, declared: imgs.length };
+    } finally {
+      try { imgs.dispose?.(); } catch { /* wasm free is best-effort */ }
+    }
+  } catch {
+    return null; // not a HEIF container, or the wasm decoder refused it
+  }
+}
+
+function pagesToDecode(pages: Buffer[]): ImageDecode {
+  const [first, ...rest] = pages;
+  const frames = rest.map((p, i) => ({ dataUrl: toDataUrl(p), at: i + 2 }));
+  return { dataUrl: toDataUrl(first), ...(frames.length ? { frames } : {}), pages: pages.length };
+}
+
+/**
  * Decode an image the browser could not (tif/heic/avif/ico/…) to a PNG data
- * URL. ffmpeg reads whatever the container actually holds and rescales it.
- * Reads from a path on disk — the upload never round-trips through memory.
+ * URL. Reads from a path on disk — the upload never round-trips through memory.
  *
  * I07: the old `-frames:v 1` threw away EVERY page after the first —
  * multi-page TIFFs (scanned documents!) and animated GIF/APNG reached the
  * model as a single frame with no announcement. Every page now comes back as
  * extra frames (bounded by MAX_IMAGE_PAGES; `pages` reports how many decoded,
  * so hitting the cap is visible rather than silent).
+ *
+ * F78-B decoder order: libvips first (correct animated-gif/animated-webp/
+ * multi-page-tiff pixels), then the wasm HEIF decoder for HEVC pixels, then
+ * ffmpeg for containers libvips cannot read (ico, …).
  */
 export async function imageToDataUrlFromPath(
   src: string,
   opts: { signal?: AbortSignal } = {},
 ): Promise<ImageDecode> {
+  const sharpPages = await decodePagesWithSharp(src, MAX_IMAGE_PAGES, opts.signal);
+  if (sharpPages) return pagesToDecode(sharpPages.pages);
+  const heicPages = await decodePagesWithHeic(src, MAX_IMAGE_PAGES);
+  if (heicPages) return pagesToDecode(heicPages.pages);
   const base = tmpName("");
   const pattern = base + "_%03d.png";
   const written: string[] = [];
@@ -428,6 +542,65 @@ export async function decodeAudioPcmFile(
     const ff = await ffmpegPath();
     await execFileP(ff, ["-hide_banner", "-loglevel", "error", "-y", "-i", src,
       "-f", "f32le", "-ac", "1", "-ar", "16000", out],
+      { timeout: 600_000, ...(opts.signal ? { signal: opts.signal } : {}) });
+    if (!fs.existsSync(out) || fs.statSync(out).size === 0) {
+      throw new Error("Audio decoded to nothing");
+    }
+    return { file: out, samples: Math.floor(fs.statSync(out).size / 4) };
+  } catch (err) {
+    try { fs.rmSync(out, { force: true }); } catch { /* ignore */ }
+    throw err;
+  }
+}
+
+/**
+ * F78 (2026-11-22): channel COUNT of the first audio stream, read off the
+ * `ffmpeg -i` layout line (the probeInfo law: no ffprobe dependency). Two
+ * speakers recorded on SEPARATE channels (interview split left/right) merge
+ * into one unattributable voice under `-ac 1`, so the audio path asks how
+ * many channels exist before deciding how to decode. 0 = a layout this
+ * parser does not name — the caller keeps the proven mono path.
+ */
+export function parseAudioChannelCount(probeStderr: string): number {
+  const line = /Audio:.*$/m.exec(probeStderr)?.[0] ?? "";
+  if (/\bmono\b/i.test(line)) return 1;
+  if (/\bstereo\b/i.test(line)) return 2;
+  if (/\bquad\b/i.test(line)) return 4;
+  if (/\b5\.1\w*\b/i.test(line)) return 6;
+  if (/\b7\.1\w*\b/i.test(line)) return 8;
+  if (/\boctal\b/i.test(line)) return 8;
+  // PCM containers (wav) print NO layout NAME — ffmpeg-static's probe line is
+  // "Audio: pcm_s16le (...), 22050 Hz, 2 channels, s16, ..." (reproduced on
+  // the overlap.wav fixture). The numeric form is the honest fallback.
+  const nc = /\b(\d{1,2}) channels\b/i.exec(line);
+  if (nc) return Number(nc[1]);
+  return 0;
+}
+
+export async function probeAudioChannels(
+  src: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<number> {
+  return parseAudioChannelCount(await probeInfo(src, opts));
+}
+
+/**
+ * F78: decode ONE channel of the audio track as 16 kHz mono float PCM —
+ * `pan=mono|c0=cK` downmixes the selected channel ALONE, so each channel's
+ * speech transcribes on its own timeline and keeps its channel identity.
+ * Same scratch-file law as decodeAudioPcmFile (disk, not RAM): the caller
+ * owns the returned file and must delete it.
+ */
+export async function decodeAudioPcmFileChannel(
+  src: string,
+  channel: number,
+  opts: { signal?: AbortSignal } = {},
+): Promise<{ file: string; samples: number }> {
+  const out = tmpName(".f32");
+  try {
+    const ff = await ffmpegPath();
+    await execFileP(ff, ["-hide_banner", "-loglevel", "error", "-y", "-i", src,
+      "-af", `pan=mono|c0=c${channel}`, "-f", "f32le", "-ac", "1", "-ar", "16000", out],
       { timeout: 600_000, ...(opts.signal ? { signal: opts.signal } : {}) });
     if (!fs.existsSync(out) || fs.statSync(out).size === 0) {
       throw new Error("Audio decoded to nothing");
