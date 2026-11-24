@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 import uuid
@@ -38,7 +39,58 @@ from typing import Any, Callable
 from .config import repo_root, runtime_dir
 from .models import devices, main_model, resources
 
+# Patchable sleep seam (fixtures pin the settle window to zero; production sleeps).
+_sleep = time.sleep
+
 COORD_DIR_REL = ".ai-coordination"
+# How long one engine IMPORT (torch/Paddle DLL load) takes on this host: the post-release
+# commit gate pays for the drain the host showed across the window for THIS long on top of
+# the measured peak (accept-8 live evidence, 2026-11-23: the import died ~20 s after a
+# gate that cleared statically, in both the Paddle and the Parakeet rows, WinError 1455).
+_COMMIT_DRAIN_IMPORT_S = 60.0
+# The drain must be measured over a real window (a sub-second sample is noise), and its
+# rate is clamped: page-file churn on this host tops out near a restoring 50 GB resident
+# (~200 MiB/s); anything faster is a measurement artifact, and an unclamped rate would
+# turn the allowance into a blanket refusal - the ban on manufacturing a "cannot".
+_COMMIT_DRAIN_MIN_SAMPLE_S = 2.0
+_COMMIT_DRAIN_MAX_MIB_PER_S = 200.0
+# F135 settle law (2026-11-23, accept-11 durable gate log): a gate sample taken right
+# after /unload rides the SYSTEM-MANAGED pagefile's expansion peak. accept-11's three
+# gate lines read 84,449 / 84,491 / 84,142 MiB free commit (the 48.5 GB main model had
+# just paged out, the pagefile had grown; sampler: total limit 139 GB), all three loads
+# were admitted, and within 30 s the manager shrank the pagefile (limit ~139 -> 83 GB,
+# free commit ~19-21k, free phys under ~2.7 GB) and every worker died inside its loader
+# with WinError 1455. One post-release sample is not the window's stable headroom:
+# take the MINIMUM over a settle window that covers the shrink (observed ~30 s),
+# floored by the pre-release baseline. The shrink is a host fact, not a demand
+# invention - a quiet host whose samples are flat changes nothing.
+_COMMIT_SETTLE_SAMPLES = 3
+_COMMIT_SETTLE_S = 10.0
+# F138 import-fit law (2026-11-24, accept-14): the gate refused documents.ocr at
+# import_required 21,068 MiB against 18,166 MiB of post-release headroom, and the
+# host curve cleared 21,068 MiB 61 s after the collapse (accept-14 host CSV:
+# 25,165 -> 19,171/18,861/18,992 -> 22,864). The F137 law applies verbatim at THIS
+# decision point: "settled" must mean FIT, not elapsed time. The ceiling axis is
+# fixed by the clamp and cannot be fitted by waiting, so only the import axis gets
+# the fit-wait: poll the post-release free commit at 1 s cadence until it clears
+# import_required _IMPORT_FIT_STABLE CONSECUTIVE times, capped at _IMPORT_FIT_CAP_S;
+# at the cap the refusal stands and records the fact. A fit tail is the window's own
+# witnessed stable reading - never a pagefile expansion spike - so the F135
+# pre-release baseline bound does not apply to it: the fit IS the window's law.
+_IMPORT_FIT_CAP_S = 120.0
+_IMPORT_FIT_STABLE = 10
+# F140 deadline law (2026-11-24, accept-15): the documents.ocr TS client gives up at
+# 90 s (DOCUMENT_PARSE_DEADLINE_MS + the 5 s RPC grace) while an unloaded window can
+# legitimately spend unload_wait (60 s) + the F135 settle (30 s) + the F138 fit-wait
+# (120 s). accept-15 showed what the overrun costs: the chip showed a generic
+# "processing -> error" (no typed refusal), no cascade record was written, and the
+# lease + ML slot stayed held into the next rows (fr-U1 refused with
+# coordination_held on F91.1's still-live lease, fr-F123 552). The machine must be
+# handed back INSIDE the job's own deadline: the settle and fit budgets are clamped
+# to (deadline_at - now - _GATE_DEADLINE_RESERVE_S); the reserve covers the gate
+# line and the restoration dispatch. deadline_at is the job's wall-clock expiry
+# (JobContext.deadline_at); 0 = no deadline knowledge, pre-F140 budgets stand verbatim.
+_GATE_DEADLINE_RESERVE_S = 20.0
 LEASE_NAME = "llm-handoff.lock"
 PLAYWRIGHT_LOCK = "playwright.lock"
 RECORD_WIDTH = 512
@@ -289,7 +341,18 @@ def lease_state(path: Path | None = None) -> dict[str, Any]:
 
 
 def playwright_state() -> dict[str, Any]:
-    """The shared browser lock, read the same way. Never deletes anything."""
+    """The shared browser lock, read the same way. Never deletes anything.
+
+    F129 (user brief 2026-11-23 sections 2-5): an acceptance batch that starts
+    under scripts/run-browser-e2e-exclusive.ps1 is the workspace's ONLY
+    inference owner - the submitter has verified the provider, Claude stays
+    dormant, and the batch's own uploads are the requests being tested. Such a
+    launcher stamps its record with "ml_window":"grant", and THAT record - and
+    only a live, parseable one carrying exactly that field - releases the ML
+    handoff while the browser window runs. A foreign lock, a forged grant whose
+    granting pid has died, an absent record path, and anything unparseable all
+    keep the original law: held, and the handoff stays waiting/retryable.
+    """
     path = coord_dir() / PLAYWRIGHT_LOCK
     record = read_lease_record(path)
     state = record.get("state")
@@ -312,13 +375,27 @@ def playwright_state() -> dict[str, Any]:
                          f"{'unknown' if age is None else round(age)}s, window "
                          f"{round(_stale_window_s())}s)"}
     alive, why = _pid_evidence(holder)
+    if alive and str(holder.get("ml_window") or "").strip().lower() == "grant":
+        # The exclusive acceptance batch granted its own window (see docstring).
+        # The grant dies with the granting pid: a crashed launcher's leftover
+        # record falls through to the normal held/stale path below.
+        return {"held": False, "state": "granted", "uncertain": False,
+                "alive": True, "granted": True,
+                "proof": f"the exclusive acceptance batch {why} granted the ML window; "
+                         "its browser window carries no inference stream while a product "
+                         "handoff runs",
+                "holder": holder, "path": str(path)}
     return {"held": True, "state": "ok", "uncertain": False, "stale": not alive, "alive": alive,
             "proof": why, "holder": holder, "path": str(path)}
 
 
 def acquire(owner: str = "ruke-python", phase: str = "waiting", *,
             break_stale: bool = False) -> Lease:
-    """Atomic exclusive acquire. Raises PlaywrightHeld / LeaseHeld, never steals."""
+    """Atomic exclusive acquire. Raises PlaywrightHeld / LeaseHeld, never steals.
+
+    The ONE playwright-lock release is the launcher's live F129 grant record
+    (playwright_state); nothing here deletes or edits a lock it did not write.
+    """
     pw = playwright_state()
     # Uncertain counts as held: an unparseable browser lock cannot be cleared by
     # a client that was not the one that wrote it.
@@ -491,6 +568,35 @@ def journal_clear() -> None:
         pass
 
 
+# ---------------------------------------------------------------- gate audit
+
+GATE_LOG_REL = "python/handoff-gate-log.jsonl"
+
+
+def gate_log_path() -> Path:
+    return runtime_dir() / Path(GATE_LOG_REL).name
+
+
+def gate_log_append(payload: dict[str, Any]) -> None:
+    """Append the post-unload commit-gate evaluation to a durable log.
+
+    The journal is ONE file, overwritten per window and CLEARED on success
+    (journal_clear), and a successful window is exactly the run whose gate
+    numbers the next reconciliation needs (accept-10: the gate OPENED and the
+    worker died at the loader import - with the journal cleared, the gate's
+    real s1 was unobtainable). One JSON line per gate evaluation, verdict
+    included, never cleared, append-only. Audit trail only: a log failure
+    must never break or refuse a window, so all OS errors are swallowed.
+    """
+    try:
+        path = gate_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    except OSError:
+        pass
+
+
 def recover(*, timeout_s: float = main_model.DEFAULT_READY_TIMEOUT_S) -> dict[str, Any]:
     """Finish an interrupted handoff after a supervisor restart.
 
@@ -518,6 +624,35 @@ def recover(*, timeout_s: float = main_model.DEFAULT_READY_TIMEOUT_S) -> dict[st
                        else "RESTORATION FAILED - the main model is still unloaded; retry "
                             "recovery, the processing output is already saved"),
             "journal": entry}
+
+
+def recover_at_startup(*, timeout_s: float = main_model.DEFAULT_READY_TIMEOUT_S,
+                       progress: Callable[[str, str], None] | None = None) -> dict[str, Any]:
+    """B10: the supervisor's journal-driven restart recovery — the ONLY server-side
+    reload owner outside a live window. Nothing in the UI polls for this.
+
+    A live lease means a window is running on this boot: its holder dispatches
+    restoration at worker completion (the run_exclusive law), so startup recovery
+    YIELDS and leaves the journal for that holder to settle — one reload owner,
+    never a race. With no live holder, the journal is the evidence of an interrupted
+    window, and restoring exactly the originally-loaded model is this owner's job.
+    The answer is always typed; a failed reload keeps the journal for the next attempt.
+    """
+    entry = journal_read()
+    if not entry:
+        return {"needed": False, "detail": "no handoff journal on disk"}
+    state = lease_state()
+    if state.get("held") and not state.get("stale"):
+        if progress:
+            progress("startup_recovery", "a live handoff lease is held: yielding to its holder")
+        return {"needed": True, "yielded": True, "restored": False,
+                "detail": "a live handoff lease is held; its holder is the reload owner "
+                          "for this window, and startup recovery will not race it",
+                "journal": entry}
+    report = recover(timeout_s=timeout_s)
+    if progress:
+        progress("startup_recovery", str(report.get("detail", "")))
+    return report
 
 
 # ---------------------------------------------------------------- state machine
@@ -555,22 +690,65 @@ def _freed_physical_mib(before: dict[str, Any] | None,
     return _freed_amount(before, after, "free_physical_mib", "free physical RAM")
 
 
+def _last_phase_at(phases: list[dict[str, Any]], name: str) -> float | None:
+    """The timestamp of the LAST journalled entry for a phase, or None."""
+    for entry in reversed(phases):
+        if entry.get("phase") == name and isinstance(entry.get("at"), (int, float)):
+            return float(entry["at"])
+    return None
+
+
+def _restore_timings(outcome: dict[str, Any], phases: list[dict[str, Any]],
+                     *, from_worker_completion: bool) -> None:
+    """B10: record the MEASURED restoration timing from the journalled phase stamps.
+
+    restore_dispatch_ms answers "how long between the worker completing and the
+    restoration being dispatched" — the checklist's dispatch latency. It only exists
+    when a worker actually completed (the resource_limit path never ran one).
+    restore_ready_ms is the dispatch-to-verified answer, so a slow reload is visible
+    in the same report as the dispatch gap. Both are computed from the timestamps
+    phase() already journalled; nothing here invents a number.
+    """
+    dispatched = _last_phase_at(phases, "restoring_main_model")
+    if dispatched is None:
+        return
+    if from_worker_completion:
+        completed = _last_phase_at(phases, "releasing_worker")
+        if completed is not None:
+            outcome["restore_dispatch_ms"] = max(0, int(round((dispatched - completed) * 1000)))
+    outcome["restore_ready_ms"] = max(0, int(round((time.time() - dispatched) * 1000)))
+
+
 def _freed_vram_mib(before: dict[str, Any] | None,
                     after: dict[str, Any] | None) -> tuple[int | None, str]:
     return _freed_amount(before, after, "free_vram_mib", "free VRAM")
 
 
+def _gate_budget_s(deadline_at: float) -> "float | None":
+    """Seconds the gate's settle/fit loops may still spend (F140): the job's wall-clock
+    deadline minus the exit reserve. None = the window has no deadline knowledge and
+    the pre-F140 budgets stand verbatim.
+    """
+    if not deadline_at:
+        return None
+    return (float(deadline_at) - time.time()) - _GATE_DEADLINE_RESERVE_S
+
+
 def run_exclusive(capability: str, work: Callable[[dict[str, Any]], dict[str, Any]], *,
-                  est_peak_mib: int, est_peak_vram_mib: int = 0,
+                  est_peak_mib: int, est_peak_vram_mib: int = 0, est_peak_commit_mib: int = 0,
                   est_basis: str = "", est_vram_basis: str = "",
                   allow_gpu: bool = True, allow_unload: bool = False,
                   owner: str = "ruke-python", unload_wait_s: float = 60.0,
                   ready_timeout_s: float = main_model.DEFAULT_READY_TIMEOUT_S,
+                  deadline_at: float = 0.0,
                   progress: Callable[[str, str], None] | None = None) -> dict[str, Any]:
     """Lease -> (unload if needed) -> work -> release worker -> restore model -> ready.
 
     `work` receives the plan and must persist its own results before returning; it must not
     keep the loaded weights alive after it returns.
+    `deadline_at` (F140) is the calling job's absolute wall-clock expiry
+    (JobContext.deadline_at()); it bounds the gate's settle/fit budgets so the machine
+    is handed back before the caller walks away mid-window.
     """
     log = progress or (lambda phase, note: None)
     phases: list[dict[str, Any]] = []
@@ -587,7 +765,17 @@ def run_exclusive(capability: str, work: Callable[[dict[str, Any]], dict[str, An
         log(name, note)
 
     try:
-        lease = acquire(owner=owner, phase="waiting")
+        # F142: the pipeline acquires with the SAME self-heal law as the TS admission
+        # client (llm-lease.ts acquireLease), which on PID evidence alone breaks a
+        # record whose recorded process identity is provably gone - "a crashed
+        # supervisor must not lock the product out of the coordinated path forever".
+        # The old default (break_stale=False) left a dead owner's record - the
+        # accept-15 window that outlived its client - poisoning every GPU job with
+        # coordination_held permanently, because no product path ever passed the flag.
+        # Breaking is unlink-only and never touches a process (DECISIONS.md D-054);
+        # a live pid stays HELD however quiet, and the takeover is bounded by the
+        # same PID/age proofs acquire() already enforces.
+        lease = acquire(owner=owner, phase="waiting", break_stale=True)
     except (PlaywrightHeld, LeaseHeld) as exc:
         return {"ok": False, "reason": "coordination_held", "detail": str(exc),
                 "holder": getattr(exc, "holder", {})}
@@ -605,11 +793,12 @@ def run_exclusive(capability: str, work: Callable[[dict[str, Any]], dict[str, An
                        "phase": "waiting", "original": original, "started_at": lease.started})
         outcome["original_main_model"] = original
         outcome["measure_before"] = _measure()
+        t_plan = time.monotonic()
 
         plan = devices.device_plan(
             capability, est_peak_mib=est_peak_mib, est_peak_vram_mib=est_peak_vram_mib,
             est_basis=est_basis, est_vram_basis=est_vram_basis, allow_gpu=allow_gpu,
-            main_model=original)
+            allow_unload=allow_unload, main_model=original)
         outcome["plan"] = plan.as_dict()
 
         if not plan.fits and plan.needs_handoff and allow_unload and original.get("loaded"):
@@ -653,6 +842,210 @@ def run_exclusive(capability: str, work: Callable[[dict[str, Any]], dict[str, An
                                        main_model=provider.inspect().as_dict())
             outcome["plan_after_unload"] = plan.as_dict()
 
+            # The release moves two axes - RAM and VRAM - and both are re-measured above.
+            # The third axis is COMMIT, and it has its own failure mode: a CONFIRMED
+            # /unload can leave the engine process resident with its full commit charge
+            # (measured 2026-11-23: the ASR worker died at torch's DLL import with
+            # WinError 1455 - a commit refusal the loader reports as "paging file too
+            # small" - while the sampler showed the "released" model holding ~49 GB of
+            # working set through the whole window). The window's own law is that the
+            # remeasured post-release plan is the real gate; so is the post-release
+            # commit headroom. Refuse typed and transient when it does not clear the
+            # capability's measured commit demand - work must never run where the
+            # engine's loader will die.
+            if est_peak_commit_mib > 0:
+                from .models import job_limits as job_limits_mod, lifecycle as lifecycle_mod
+                cceil, cnote = job_limits_mod.exclusive_ceiling_bytes()
+                # F131 churn law (2026-11-23, accept-8): the static gate above cleared,
+                # and the engine's DLL import died ~20 s later with the same WinError
+                # 1455 in BOTH live rows (F91.1 libpaddle, fr-U1 cufft64_11.dll). The
+                # quiet-host demand figures do not cover what a BUSY host consumes
+                # between this gate and the import: a restoring 50 GB main model, page
+                # file churn and visible browsers drain the system commit at GB/minute,
+                # and Windows reports the import's allocation refusal as "paging file
+                # too small". Measure the DRAIN the window itself witnessed - the
+                # pre-release and gate commit samples are seconds apart - and demand
+                # headroom for one more import-length drain on top of the measured
+                # peak. A stable host (drain <= 0) adds nothing and behaves exactly as
+                # the static gate did; an unknown sample adds nothing (no regression).
+                s0 = (outcome.get("measure_before") or {}).get("commit_available_mib")
+                s1 = cnote.get("commit_available_mib")
+                # F135: the release's own pagefile expansion makes the single post-release
+                # sample the window's MAXIMUM, not its headroom (accept-11: gate 84,449
+                # MiB, stable base ~19-21k). Sample across the shrink and gate on the
+                # smallest reading the window actually witnessed.
+                # F140: the settle and fit budgets are measured against the JOB's own
+                # deadline, so a 90 s document job is never left holding the lease and
+                # the ML slot past the client's exit (see the constant's law).
+                budget_s = _gate_budget_s(deadline_at)
+                settle_clamped = False
+                settle_samples: list[int] = ([s1] if isinstance(s1, int) else [])
+                for _ in range(_COMMIT_SETTLE_SAMPLES):
+                    if budget_s is not None and budget_s < _COMMIT_SETTLE_S:
+                        settle_clamped = True
+                        break
+                    budget_s = None if budget_s is None else budget_s - _COMMIT_SETTLE_S
+                    _sleep(_COMMIT_SETTLE_S)
+                    _, snote = job_limits_mod.exclusive_ceiling_bytes()
+                    sv = snote.get("commit_available_mib")
+                    if isinstance(sv, int):
+                        settle_samples.append(sv)
+                s_stable = min(settle_samples) if settle_samples else s1
+                elapsed = max(0.001, time.monotonic() - t_plan)
+                churn_allowance_mib = 0
+                if (isinstance(s0, int) and isinstance(s_stable, int) and s_stable < s0
+                        and elapsed >= _COMMIT_DRAIN_MIN_SAMPLE_S):
+                    rate = min((s0 - s_stable) / elapsed, _COMMIT_DRAIN_MAX_MIB_PER_S)
+                    churn_allowance_mib = int(math.ceil(rate * _COMMIT_DRAIN_IMPORT_S))
+                # F133 import-transient axis (2026-11-23, accept-9): the churn gate PASSED
+                # - attached ceiling 15,258 MiB over a 10,406 MiB measured peak - and
+                # libpaddle's import died on SYSTEM commit anyway (worker log: "DLL load
+                # failed while importing libpaddle: The paging file is too small"). The
+                # job-object ceiling bounds the child's steady kernel charge; a CUDA build's
+                # DLL import maps views (cudnn/cublas, Paddle's op-support tables) charged
+                # SYSTEM-WIDE, and accept-9 proved that transient exceeds the steady peak on
+                # a busy host: the death happened with free commit >= 17,306 MiB at gate
+                # time (ceiling 15,258 + the 2 GiB system reserve the ceiling arithmetic
+                # always keeps back) = 1.66x the row's measured peak, while the quiet probe
+                # imports cleanly under 11,444 MiB when commit headroom is plentiful. Size
+                # the gate to the loader, not only to the kernel: system free commit must
+                # cover the import transient (= one more copy of the measured demand, the
+                # smallest multiple clearing the 1.66x death point with margin) on top of
+                # demand + margin + churn. The ceiling is by construction <= free commit -
+                # reserve (job_limits.exclusive_ceiling_bytes), so ceiling + reserve is
+                # always a valid floor for free commit; when the gate sample knows better,
+                # use that. A host whose commit charge cannot be read keeps the old
+                # behaviour (no axis, no invented number).
+                reserve_mib = int(cnote.get("system_reserve_bytes") or 0) >> 20
+                import_transient_mib = int(est_peak_commit_mib)
+                import_required_mib = (int(est_peak_commit_mib)
+                                       + lifecycle_mod.COMMIT_CEILING_MARGIN_MIB
+                                       + churn_allowance_mib + import_transient_mib)
+                headroom_floor_mib = (max(int(s_stable), (int(cceil) >> 20) + reserve_mib)
+                                      if isinstance(s_stable, int) else None)
+                if headroom_floor_mib is not None and isinstance(s0, int):
+                    # The pre-release baseline bounds the window too: a post-release
+                    # reading above what the host had BEFORE the unload is pagefile
+                    # expansion, never new headroom (F135).
+                    headroom_floor_mib = min(headroom_floor_mib, s0)
+                outcome["commit_gate_after_unload"] = {
+                    "ceiling_mib": int(cceil) >> 20,
+                    "commit_available_mib": cnote.get("commit_available_mib"),
+                    "commit_available_stable_mib": s_stable,
+                    "settle_samples_mib": settle_samples,
+                    "settle_clamped_by_deadline": settle_clamped,
+                    "commit_available_at_release_mib": s0,
+                    "bound_by": cnote.get("bound_by", ""),
+                    "demand_mib": int(est_peak_commit_mib),
+                    "churn_allowance_mib": churn_allowance_mib,
+                    "drain_window_s": round(elapsed, 3),
+                    "import_transient_mib": import_transient_mib,
+                    "system_headroom_floor_mib": headroom_floor_mib,
+                    "import_required_mib": import_required_mib,
+                }
+                ceiling_short = (int(cceil) >> 20) < (int(est_peak_commit_mib)
+                                                      + lifecycle_mod.COMMIT_CEILING_MARGIN_MIB
+                                                      + churn_allowance_mib)
+                loader_short = (headroom_floor_mib is not None
+                                and headroom_floor_mib < import_required_mib)
+                # F138 (see the constants): settle-until-fit on the import axis. Only
+                # the import axis - the ceiling axis is a clamp fact waiting changes
+                # nothing. The fit tail's minimum is the window's own witnessed stable
+                # headroom; a stable tail >= required for _IMPORT_FIT_STABLE samples
+                # is the window's own definition of fit. A mocked/exhausted clock
+                # ends the wait at once: the refusal stands, no invented fit.
+                import_fit = None
+                if loader_short and not ceiling_short:
+                    fit_tail: list[int] = []
+                    fit_wait_s = 0.0
+                    fit_cap_s = _IMPORT_FIT_CAP_S
+                    if budget_s is not None:
+                        fit_cap_s = min(_IMPORT_FIT_CAP_S, max(0.0, budget_s))
+                    fit_deadline_clamped = fit_cap_s < _IMPORT_FIT_CAP_S
+                    try:
+                        fit_start = time.monotonic()
+                        deadline = fit_start + fit_cap_s
+                        while time.monotonic() < deadline:
+                            _sleep(1.0)
+                            _, fnote = job_limits_mod.exclusive_ceiling_bytes()
+                            fv = fnote.get("commit_available_mib")
+                            if not isinstance(fv, int) or fv <= 0:
+                                break
+                            if fv >= import_required_mib:
+                                fit_tail.append(int(fv))
+                                if len(fit_tail) >= _IMPORT_FIT_STABLE:
+                                    break
+                            else:
+                                fit_tail = []
+                        fit_wait_s = round(time.monotonic() - fit_start, 1)
+                    except StopIteration:
+                        pass  # test clock exhausted: the cap stands, no invented fit
+                    if len(fit_tail) >= _IMPORT_FIT_STABLE:
+                        s_fit = min(fit_tail)
+                        loader_short = s_fit < import_required_mib
+                        import_fit = {"wait_s": fit_wait_s,
+                                      "stable_samples_mib": fit_tail,
+                                      "fit_headroom_floor_mib": s_fit,
+                                      "cap_s": round(fit_cap_s, 1),
+                                      "deadline_clamped": fit_deadline_clamped}
+                    else:
+                        import_fit = {"wait_s": fit_wait_s, "stable_samples_mib": [],
+                                      "cap_s": round(fit_cap_s, 1),
+                                      "deadline_clamped": fit_deadline_clamped,
+                                      "note": ("free commit never settled above the import "
+                                               "demand inside the fit window (cap expiry or "
+                                               "unreadable probe): the refusal stands, typed "
+                                               "and retryable"
+                                               + (f"; the job's own deadline clamped the fit "
+                                                  f"window to {round(fit_cap_s, 1)} s - the "
+                                                  "gate must hand the machine back inside it"
+                                                  if fit_deadline_clamped else ""))}
+                    outcome["commit_gate_after_unload"]["import_fit"] = import_fit
+                gate_log_append({
+                    "capability": capability, "token": lease.token, "ts": time.time(),
+                    "verdict": "refused" if (ceiling_short or loader_short) else "opened",
+                    "gate": outcome["commit_gate_after_unload"],
+                })
+                if ceiling_short or loader_short:
+                    outcome.update(
+                        reason="resource_limit", transient=True, final_status="resource_limit",
+                        detail=("the release was confirmed, but "
+                                + (f"the commit headroom this host can give right now is "
+                                   f"{int(cceil) >> 20} MiB (bound by "
+                                   f"{cnote.get('bound_by', 'the host clamp')}) and the "
+                                   f"capability measured {int(est_peak_commit_mib)} MiB of "
+                                   f"commit demand"
+                                   if ceiling_short else
+                                   f"the ceiling {int(cceil) >> 20} MiB clears the capability's "
+                                   f"{int(est_peak_commit_mib)} MiB steady commit demand, and "
+                                   f"the system free commit at gate time is only "
+                                   f"{headroom_floor_mib} MiB (gate sample "
+                                   f"{s1} MiB, stable settle minimum {s_stable} MiB)"
+                                   if loader_short else "")
+                                + (f", plus {churn_allowance_mib} MiB for the commit drain this "
+                                   f"host showed across the window ({s0} -> {s_stable} MiB over "
+                                   f"{round(elapsed, 1)} s) over one engine import"
+                                   if churn_allowance_mib else "")
+                                + (f"; the engine's loader measures an import transient of "
+                                   f"{import_transient_mib} MiB on top of the steady peak "
+                                   f"(total {import_required_mib} MiB): a CUDA build's DLL "
+                                   f"import is charged system-wide, above the child's ceiling"
+                                   if loader_short else "")
+                                + (f"; the release window was then polled for "
+                                   f"{import_fit['wait_s']} s and free commit never "
+                                   f"settled above {import_required_mib} MiB"
+                                   if loader_short and import_fit
+                                   and not import_fit.get("stable_samples_mib") else "")
+                                + "; running here would die inside the engine's loader, not "
+                                  "inside the engine"))
+                    phase("restoring_main_model",
+                          "commit headroom did not clear the measured commit demand")
+                    outcome["restore"], outcome["restore_ready"] = restore(
+                        str(original.get("endpoint") or ""))
+                    _restore_timings(outcome, phases, from_worker_completion=False)
+                    unloaded = not bool(outcome["restore_ready"].get("ok"))
+                    return outcome
+
         if not plan.fits:
             # Neither backend fits even after the handoff: that is an acceptance failure to
             # report, not something to paper over by skipping pages.
@@ -662,6 +1055,7 @@ def run_exclusive(capability: str, work: Callable[[dict[str, Any]], dict[str, An
                 phase("restoring_main_model", plan.reason)
                 outcome["restore"], outcome["restore_ready"] = restore(
                     str(original.get("endpoint") or ""))
+                _restore_timings(outcome, phases, from_worker_completion=False)
                 unloaded = not bool(outcome["restore_ready"].get("ok"))
             return outcome
 
@@ -691,6 +1085,9 @@ def run_exclusive(capability: str, work: Callable[[dict[str, Any]], dict[str, An
             phase("restoring_main_model", "bringing the original model back")
             outcome["restore"], outcome["restore_ready"] = restore(
                 str(original.get("endpoint") or ""))
+            # Recorded BEFORE the ok branch: a failed restoration must carry its own
+            # measured timing too, so the report says how long the failed reload tried.
+            _restore_timings(outcome, phases, from_worker_completion=True)
             ready = outcome["restore_ready"]
             if not ready.get("ok"):
                 outcome.update(reason="restore_failed", detail=ready.get("detail", ""),
@@ -724,6 +1121,9 @@ def run_exclusive(capability: str, work: Callable[[dict[str, Any]], dict[str, An
                 phase("restoring_main_model", "recovery after an interrupted handoff")
                 (outcome["restore"], outcome["restore_ready"]
                  ) = restore(str((outcome.get("original_main_model") or {}).get("endpoint") or ""))
+                _restore_timings(outcome, phases,
+                                 from_worker_completion=_last_phase_at(phases, "releasing_worker")
+                                 is not None)
                 if outcome["restore_ready"].get("ok"):
                     outcome["interrupted_with_restore_ok"] = True
             except Exception as exc:                               # noqa: BLE001

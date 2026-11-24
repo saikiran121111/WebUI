@@ -118,6 +118,7 @@ class DevicePlan:
 
 def device_plan(capability: str, *, est_peak_mib: int, est_peak_vram_mib: int = 0,
                 est_basis: str = "", est_vram_basis: str = "", allow_gpu: bool = True,
+                allow_unload: bool = True,
                 margin_mib: int = DEFAULT_MARGIN_MIB,
                 floor_mib: int = resources.FLOOR_FREE_PHYSICAL_MIB,
                 main_model: dict[str, Any] | None = None) -> DevicePlan:
@@ -129,6 +130,14 @@ def device_plan(capability: str, *, est_peak_mib: int, est_peak_vram_mib: int = 
 
     `needs_handoff` means the shortfall is plausibly recoverable by releasing the resident
     main model through the coordinator. It is not a claim that this has been arranged.
+
+    `allow_unload` is the operator's automatic-handoff policy. A VRAM-only shortage with a
+    reclaimable resident model and sufficient RAM routes to the handoff (device "gpu", not
+    fits, needs_handoff) ONLY when the release is permitted: sufficient RAM for a CPU run
+    must not bypass that path - that bypass is F91, the reason a heavy worker ran on CPU
+    beside an idle model holding plenty of reclaimable VRAM. The release ceiling
+    (free + attributed usage) is a BOUND used only to reject impossible demands; the real
+    gate is run_exclusive's remeasured plan after a confirmed unload.
 
     Provisional estimates are charged higher than declared (resources.charged_estimate) on BOTH
     axes: an estimate that has never been measured on this host must not be the basis for
@@ -197,6 +206,53 @@ def device_plan(capability: str, *, est_peak_mib: int, est_peak_vram_mib: int = 
         reason = (f"GPU fits: free VRAM {vram.free_mib} MiB covers the "
                   f"{est_vram} MiB estimate; {ram_reason}")
         return DevicePlan(capability, "gpu", True, False, reason, ev)
+
+    # F91 (2026-11-23): the old code answered "cpu, fits" here whenever RAM fit, so a
+    # shortage ONLY in VRAM - CUDA works, RAM is ample, and the idle resident model
+    # holds reclaimable VRAM - never reached the coordinator and the worker silently
+    # ran on CPU. A RAM-sufficient CPU run must not bypass GPU-first. The shortage is
+    # exactly the gate that just failed, and only that gate: a disabled GPU, an absent
+    # VRAM reading or a missing estimate is a runtime fact, not a reclaimable shortage.
+    vram_shortage = (allow_gpu and vram.available and est_vram > 0
+                     and vram.free_mib < est_vram_charged + margin_mib)
+    if vram_shortage:
+        need = est_vram_charged + margin_mib
+        resident = bool((main_model or {}).get("loaded"))
+        # The release ceiling is free + everything attributed to the card: an UPPER bound
+        # on what releasing the resident model can add (other processes' usage stays).
+        # It exists to reject demands the card can never meet, never to claim a fit -
+        # run_exclusive remeasures after a confirmed unload and THAT plan is the gate.
+        ceiling = vram.free_mib + sum(int(d.get("used_mib") or 0) for d in vram.devices)
+        if not allow_unload:
+            gpu_reason += "; unload is not permitted, so the release cannot be used"
+        elif (main_model or {}).get("reachable") is False:
+            # F127 (c) (2026-11-23): an endpoint that never answers leaves the loaded
+            # state UNKNOWN, not "not loaded". Recording it as "not loaded, nothing to
+            # reclaim" is how a probe failure (the accept-4 egress blackhole) masqueraded
+            # as a hardware fact; the card's availability is a separate recorded axis.
+            gpu_reason += ("; the main-model control endpoint did not answer, so its loaded "
+                           "state is unknown and no release can be confirmed (endpoint "
+                           "availability is recorded apart from the card)")
+        elif not resident:
+            gpu_reason += "; the main model is not loaded, so there is nothing to reclaim"
+        elif ceiling < need:
+            gpu_reason += (f"; releasing the resident main model would not free enough "
+                           f"VRAM (at most {ceiling} MiB is claimable on this card, under "
+                           f"the {need} MiB needed)")
+        elif ram_ok:
+            return DevicePlan(
+                capability, "gpu", False, True,
+                f"GPU placement: {gpu_reason}; releasing the resident main model is what "
+                f"would make it fit (the release ceiling is {ceiling} MiB; the window "
+                f"remeasures after the unload and only runs on the GPU if the release "
+                f"actually provides the {need} MiB); RAM: {ram_reason}", ev)
+        else:
+            # RAM is the binding constraint on both devices; releasing changes only the
+            # GPU axis. The honest answer stays "none" - the coordinator is asked, and
+            # its remeasured plan decides.
+            gpu_reason += ("; releasing the resident main model would make the GPU fit, "
+                           "but system RAM is the binding constraint too")
+
     if ram_ok:
         return DevicePlan(capability, "cpu", True, False,
                           f"CPU placement: {gpu_reason}; {ram_reason}", ev)

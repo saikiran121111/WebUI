@@ -45,25 +45,60 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 ERROR_ACCESS_DENIED = 5
 ERROR_INVALID_PARAMETER = 87
 
-AGGREGATE_LIMIT_BYTES = 5_000_000_000   # hard maximum for the Ruke runtime tree
+# MEASURED-BUDGET LAW (final decision 2026-11-22, B8): the fixed 5 GB number is no longer the
+# ceiling the Ruke tree is held to. Both windows derive their enforceable ceiling from measured
+# host numbers (free commit, free physical RAM, the OS reserve and the configured maximum), and
+# the arithmetic is recorded in the report. AGGREGATE_LIMIT_BYTES survives exactly as the
+# documented FALLBACK for a host whose commit charge cannot be read - the honest answer when
+# nothing can be measured - and is never presented as the operating ceiling.
+AGGREGATE_LIMIT_BYTES = 5_000_000_000   # unmeasurable-host fallback, not the operating ceiling
 TARGET_LIMIT_BYTES = 4_000_000_000      # agreed target, below the hard ceiling
 
 # ---- two explicit budgets, never one number pretending to cover both windows ----------
-# Normal operation (nothing was unloaded) is bounded by the agreed 4 GB target / 5 GB hard
-# maximum for the Ruke tree plus the children it owns. The coordinated EXCLUSIVE window is a
-# different window: the main model has been released, so a heavy worker may be given more,
-# but "more" is still a bounded number, not the absence of a limit. The effective exclusive
-# ceiling is min(configured exclusive maximum, free commit - system reserve) and the arithmetic
-# that produced it is recorded in the report, because "we ran with a bigger number" is only
-# honest while the number and its provenance are on the page.
-EXCLUSIVE_LIMIT_BYTES_DEFAULT = 7_000_000_000
+# Both windows are MEASURED budgets, and they differ in exactly one physical quantity: the
+# coordinated EXCLUSIVE window runs after the main model has been released, so it is NOT
+# clamped by free physical RAM (the RAM the clamp was paying for has just come back). Normal
+# operation keeps that physical clamp, which is what "Strata STAYS LOADED when the job fits"
+# costs: the resident model is a reservation against the window. Each window's effective
+# ceiling is min(configured maximum, free commit - system reserve [, free physical - floor])
+# and the arithmetic that produced it is recorded in the report, because "we ran with a bigger
+# number" is only honest while the number and its provenance are on the page.
+# The default must clear the row the window exists for: the pinned PaddleOCR-VL-1.6 GPU row has
+# a measured kernel commit peak of 10,406 MiB (registry est_peak_commit_mib, six-page run), and
+# the old 7,000,000,000 B default (6,675 MiB after the host clamp) sat UNDER demand + margin -
+# the spawn's own demand check passed on the 2,620 MiB RAM figure, the worker loaded under a
+# ceiling it could not fit, and the load died mid-model with 0xC0000409 (measured 2026-11-23:
+# load-only commit peak 9,356 MiB uncapped). 12,000,000,000 B (11,444 MiB) proved equally too
+# thin the same day: inside the acceptance batch the worker died at IMPORT, in paddle's
+# static/amp/bf16 op-support enumeration (core.op_supported_infos -> MemoryError: bad
+# allocation), under that exact ceiling, while the identical adapter run in a quiet window
+# peaked at 10,406 MiB under the same ceiling - the import-stage CUDA mapping variance
+# (observed > 1,038 MiB) exceeds the 1,038 MiB a 12 GB band leaves over the measured peak.
+# 16,000,000,000 B (15,258 MiB) keeps ~4.7 GiB of headroom over the measured peak, which the
+# window's whole purpose (the released main model, 64 GB of commit on this host) trivially
+# provides; the host clamp (free commit - reserve) and the demand check (refuse, never
+# squeeze) still bound every run, so on a small host the band max never overpromises.
+EXCLUSIVE_LIMIT_BYTES_DEFAULT = 16_000_000_000
 EXCLUSIVE_LIMIT_CONFIG_MIN = AGGREGATE_LIMIT_BYTES    # below this the window gained nothing
-EXCLUSIVE_LIMIT_CONFIG_MAX = 12_000_000_000           # above this the config is a mistake
-SYSTEM_RESERVE_BYTES_DEFAULT = 2_000_000_000
+EXCLUSIVE_LIMIT_CONFIG_MAX = 16_000_000_000           # above this the config is a mistake
+SYSTEM_RESERVE_BYTES_DEFAULT = 2 * (1 << 30)          # 2 GiB kept back for the OS and other apps
 EXCLUSIVE_LIMIT_ENV = "RUKE_EXCLUSIVE_LIMIT_BYTES"
 SYSTEM_RESERVE_ENV = "RUKE_SYSTEM_RESERVE_BYTES"
 CEILING_MARGIN_MEASURED_BYTES = 256 * (1 << 20)
 MIB = 1 << 20
+
+# The normal window's configured maximum is an OPERATOR CAP, not the historical fixed ceiling:
+# with measured budgets below it, the cap only ever lowers the enforceable number (7 GB default
+# means "never claim more than this even if the host looks rich"), and the band keeps a
+# misconfigured environment value from silently disabling protection.
+NORMAL_LIMIT_ENV = "RUKE_LIMIT_BYTES"
+NORMAL_LIMIT_BYTES_DEFAULT = 7_000_000_000
+NORMAL_LIMIT_CONFIG_MIN = 1 << 30                     # below this the cap IS the whole budget
+NORMAL_LIMIT_CONFIG_MAX = 12_000_000_000              # above this the config is a mistake
+# The smallest ceiling the arithmetic may ever produce on a MEASURED host. A measured host with
+# no headroom is told "256 MiB and your demand check will refuse", which is a truthful answer;
+# a ceiling of 0 would only make the job object fail in a way no report explains.
+CEILING_FLOOR_BYTES = 256 * MIB
 
 _REASON_BY_ERROR = {
     ERROR_ACCESS_DENIED: "the OS refused the assignment (access denied, or an outer job "
@@ -302,7 +337,7 @@ _INSTALLED: JobLimit | None = None
 _INSTALL_REPORT: dict[str, Any] = {}
 
 
-def install_process_job(limit_bytes: int = AGGREGATE_LIMIT_BYTES, *, name: str = "ruke-runtime",
+def install_process_job(limit_bytes: int = 0, *, name: str = "ruke-runtime",
                         kill_on_close: bool = False) -> dict[str, Any]:
     """Cap this process AND everything it later spawns. Idempotent.
 
@@ -311,11 +346,28 @@ def install_process_job(limit_bytes: int = AGGREGATE_LIMIT_BYTES, *, name: str =
     so there is no assignment race for them. The handle stays open for the process lifetime,
     and `kill_on_close` stays off by default because closing it would take the supervisor
     down with its children.
+
+    MEASURED law (B8, 2026-11-22): `limit_bytes <= 0` - the default - resolves the tree cap
+    from the measured EXCLUSIVE-window budget at startup, and the report carries
+    `limit_source` so the number's provenance is on the page. The exclusive ceiling is the
+    right bound for the tree because nested job limits compose by minimum: a tree capped at
+    the tightest normal-window number measured at startup would silently veto every future
+    coordinated unload (the per-worker 7 GiB job would be clamped by the outer 1.6 GiB one).
+    "Does the job fit RIGHT NOW" stays the live per-worker demand check, which reads current
+    numbers; this cap is the runaway guard, bounded by the widest window the policy allows.
+    An unmeasurable host lands on the documented fallback. A positive `limit_bytes` is
+    honoured as given (the operator's number), also recorded in `limit_source`.
     """
     global _INSTALLED, _INSTALL_REPORT
     if _INSTALLED is not None:
         return dict(_INSTALL_REPORT)
-    job, report = create(limit_bytes, name=name, kill_on_close=kill_on_close)
+    if int(limit_bytes) > 0:
+        resolved, source = int(limit_bytes), "an explicit value supplied by the caller"
+    else:
+        resolved, window = exclusive_ceiling_bytes()
+        source = f"the measured exclusive-window budget at startup ({window.get('bound_by', '')})"
+    job, report = create(resolved, name=name, kill_on_close=kill_on_close)
+    report["limit_source"] = source
     if job is None:
         _INSTALL_REPORT = report
         return dict(report)
@@ -326,7 +378,7 @@ def install_process_job(limit_bytes: int = AGGREGATE_LIMIT_BYTES, *, name: str =
         _INSTALL_REPORT = {"enforced": False, "mechanism": "windows-job-object",
                            "reason": str(assigned.get("reason")),
                            "win32_error": assigned.get("win32_error"), "outer_job": outer,
-                           "limit_bytes": int(limit_bytes)}
+                           "limit_bytes": resolved, "limit_source": source}
         return dict(_INSTALL_REPORT)
     _INSTALLED = job
     _INSTALL_REPORT = {**report, "self_assigned": True, "outer_job": outer,
@@ -354,18 +406,92 @@ def _env_bytes(name: str, default: int) -> tuple[int, str]:
     return value, f"{name}={value}"
 
 
-def normal_ceiling_bytes() -> tuple[int, dict[str, Any]]:
-    """The ceiling for a worker that runs while everything else is still resident."""
-    return AGGREGATE_LIMIT_BYTES, {
+def normal_ceiling_bytes(*, reserve_bytes: int | None = None) -> tuple[int, dict[str, Any]]:
+    """The enforceable ceiling for a worker that runs while everything else is still resident.
+
+    MEASURED law (B8 final decision 2026-11-22): the ceiling is derived from the host's own
+    numbers - `min(configured normal maximum, free commit - system reserve, free physical RAM -
+    1,024 MiB floor - system reserve)`. The physical clamp is what "Strata STAYS LOADED when the
+    job fits" costs: the job object bounds COMMIT, and commit is never below resident RAM, so a
+    commit-only cap would page the resident main model out to buy the worker room. A measured
+    host with less headroom than the reserve gets CEILING_FLOOR_BYTES and a report saying the
+    reserve ate the budget, which the worker demand check then refuses in typed words. When the
+    commit charge cannot be read at all the answer is the DOCUMENTED FALLBACK
+    (AGGREGATE_LIMIT_BYTES) with measured=False - the fixed number retired from being the
+    operating ceiling, kept only as the honest answer for a host that cannot measure.
+    """
+    configured, configured_note = _env_bytes(NORMAL_LIMIT_ENV, NORMAL_LIMIT_BYTES_DEFAULT)
+    bounded = min(max(configured, NORMAL_LIMIT_CONFIG_MIN), NORMAL_LIMIT_CONFIG_MAX)
+    if reserve_bytes is not None:
+        reserve, reserve_note = int(reserve_bytes), "reserve supplied by the caller"
+    else:
+        reserve, reserve_note = _env_bytes(SYSTEM_RESERVE_ENV, SYSTEM_RESERVE_BYTES_DEFAULT)
+    report: dict[str, Any] = {
         "window": "normal",
-        "effective_limit_bytes": AGGREGATE_LIMIT_BYTES,
-        "effective_limit_mib": AGGREGATE_LIMIT_BYTES >> 20,
+        "configured_limit_bytes": int(configured),
+        "configured_note": configured_note,
+        "bounded_config_limit_bytes": int(bounded),
+        "config_bounds_bytes": [NORMAL_LIMIT_CONFIG_MIN, NORMAL_LIMIT_CONFIG_MAX],
+        "system_reserve_bytes": int(reserve),
+        "reserve_note": reserve_note,
         "target_bytes": TARGET_LIMIT_BYTES,
-        "bound_by": "the agreed hard maximum for the Ruke runtime tree",
-        "reason": ("no coordinated unload happened, so the normal-operation budget still applies "
-                   f"in full: target {TARGET_LIMIT_BYTES} B, hard maximum "
-                   f"{AGGREGATE_LIMIT_BYTES} B"),
+        "fallback_limit_bytes": AGGREGATE_LIMIT_BYTES,
     }
+    mem = resources.system_memory()
+    if mem.source != "GlobalMemoryStatusEx":
+        report.update({
+            "measured": False,
+            "commit_available_bytes": None,
+            "effective_limit_bytes": AGGREGATE_LIMIT_BYTES,
+            "effective_limit_mib": AGGREGATE_LIMIT_BYTES >> 20,
+            "bound_by": "no commit measurement available",
+            "reason": (f"this host's commit charge could not be read ({mem.source}), so the "
+                       f"normal window falls back to the documented unmeasurable-host ceiling "
+                       f"{AGGREGATE_LIMIT_BYTES} B; that number is a fallback, not a measurement"),
+        })
+        return AGGREGATE_LIMIT_BYTES, report
+    free_commit_bytes = int(mem.commit_avail_mib) * MIB
+    free_physical_mib = int(mem.available_mib)
+    commit_budget = free_commit_bytes - int(reserve)
+    physical_budget = (free_physical_mib - resources.FLOOR_FREE_PHYSICAL_MIB) * MIB - int(reserve)
+    tightest = min(bounded, commit_budget, physical_budget)
+    floor_applied = tightest < CEILING_FLOOR_BYTES
+    effective = int(CEILING_FLOOR_BYTES if floor_applied else tightest)
+    if bounded <= commit_budget and bounded <= physical_budget:
+        bound_by = "the configured normal maximum"
+    elif commit_budget <= physical_budget:
+        bound_by = "free commit minus the system reserve"
+    else:
+        bound_by = ("free physical RAM minus the 1,024 MiB floor and the system reserve: the "
+                    "resident main model is the reservation this clamp pays for")
+    report.update({
+        "measured": True,
+        "commit_available_bytes": free_commit_bytes,
+        "commit_available_mib": int(mem.commit_avail_mib),
+        "free_physical_mib": free_physical_mib,
+        "free_physical_floor_mib": int(resources.FLOOR_FREE_PHYSICAL_MIB),
+        "commit_budget_bytes": int(commit_budget),
+        "physical_budget_bytes": int(physical_budget),
+        "effective_limit_bytes": effective,
+        "effective_limit_mib": effective >> 20,
+        "bound_by": bound_by,
+    })
+    if floor_applied:
+        report["floor_applied"] = True
+        report["reason"] = (
+            f"free commit {free_commit_bytes} B and free physical {free_physical_mib} MiB leave "
+            f"nothing once the {int(reserve)} B system reserve and the "
+            f"{resources.FLOOR_FREE_PHYSICAL_MIB} MiB free-physical floor are paid for, so the "
+            f"enforceable ceiling is the {CEILING_FLOOR_BYTES} B floor; a worker with real "
+            "demand is refused by the demand check before it is spawned")
+    else:
+        report["reason"] = (
+            f"effective normal ceiling {effective} B = min(configured {int(bounded)} B, free "
+            f"commit {free_commit_bytes} B - reserve {int(reserve)} B = {int(commit_budget)} B, "
+            f"free physical {free_physical_mib} MiB - floor "
+            f"{resources.FLOOR_FREE_PHYSICAL_MIB} MiB - reserve = {int(physical_budget)} B); "
+            "the physical clamp is the cost of keeping the main model resident")
+    return effective, report
 
 
 def exclusive_ceiling_bytes(*, reserve_bytes: int | None = None) -> tuple[int, dict[str, Any]]:
@@ -373,11 +499,14 @@ def exclusive_ceiling_bytes(*, reserve_bytes: int | None = None) -> tuple[int, d
 
     The main model has been released, so this window may be wider than normal operation - but
     it is widened by arithmetic, not by removing protection: the effective ceiling is
-    `min(configured exclusive maximum, free commit - system reserve)`. When the host's own
-    commit charge cannot be read the window is held to the NORMAL hard maximum instead of
-    being opened on a guess, and when `free commit - reserve` is under the normal maximum the
-    report says the window gained nothing, which is the honest signal that the unload did not
-    actually buy the headroom the job needs.
+    `min(configured exclusive maximum, free commit - system reserve)`, and it is NOT clamped by
+    free physical RAM because the RAM the normal window's physical clamp pays for has just been
+    released. Whether the window actually widened is decided against the MEASURED normal
+    ceiling, not a constant: when `free commit - reserve` is under what the normal window
+    already allows on this host the report says the window gained nothing, which is the honest
+    signal that the unload did not actually buy the headroom the job needs. When the host's own
+    commit charge cannot be read the window is held to the documented fallback ceiling (the
+    same fallback the normal window uses) instead of being opened on a guess.
     """
     configured, configured_note = _env_bytes(EXCLUSIVE_LIMIT_ENV, EXCLUSIVE_LIMIT_BYTES_DEFAULT)
     bounded = min(max(configured, EXCLUSIVE_LIMIT_CONFIG_MIN), EXCLUSIVE_LIMIT_CONFIG_MAX)
@@ -393,7 +522,7 @@ def exclusive_ceiling_bytes(*, reserve_bytes: int | None = None) -> tuple[int, d
         "config_bounds_bytes": [EXCLUSIVE_LIMIT_CONFIG_MIN, EXCLUSIVE_LIMIT_CONFIG_MAX],
         "system_reserve_bytes": int(reserve),
         "reserve_note": reserve_note,
-        "normal_hard_limit_bytes": AGGREGATE_LIMIT_BYTES,
+        "normal_fallback_limit_bytes": AGGREGATE_LIMIT_BYTES,
         "normal_target_bytes": TARGET_LIMIT_BYTES,
     }
     mem = resources.system_memory()
@@ -405,10 +534,12 @@ def exclusive_ceiling_bytes(*, reserve_bytes: int | None = None) -> tuple[int, d
             "effective_limit_mib": AGGREGATE_LIMIT_BYTES >> 20,
             "bound_by": "no commit measurement available",
             "reason": (f"this host's commit charge could not be read ({mem.source}), so the "
-                       f"exclusive window is held to the normal hard maximum "
-                       f"{AGGREGATE_LIMIT_BYTES} B rather than widened on an unmeasured guess"),
+                       f"exclusive window is held to the documented fallback ceiling "
+                       f"{AGGREGATE_LIMIT_BYTES} B - the same fallback the normal window uses - "
+                       "rather than widened on an unmeasured guess"),
         })
         return AGGREGATE_LIMIT_BYTES, report
+    normal_limit, _normal = normal_ceiling_bytes(reserve_bytes=reserve)
     free_commit_bytes = int(mem.commit_avail_mib) * MIB
     after_reserve = free_commit_bytes - int(reserve)
     effective = int(min(bounded, after_reserve))
@@ -418,23 +549,26 @@ def exclusive_ceiling_bytes(*, reserve_bytes: int | None = None) -> tuple[int, d
         "commit_available_mib": int(mem.commit_avail_mib),
         "free_physical_mib": int(mem.available_mib),
         "after_reserve_bytes": int(after_reserve),
+        "normal_measured_ceiling_bytes": int(normal_limit),
         "effective_limit_bytes": effective,
         "effective_limit_mib": effective >> 20,
         "bound_by": ("the configured exclusive maximum" if bounded <= after_reserve
                      else "free commit minus the system reserve"),
-        "widened_beyond_normal": bool(effective > AGGREGATE_LIMIT_BYTES),
+        "widened_beyond_normal": bool(effective > normal_limit),
     })
-    if effective < AGGREGATE_LIMIT_BYTES:
+    if effective <= normal_limit:
         report["window_gained_nothing"] = True
         report["reason"] = (
             f"free commit is {free_commit_bytes} B and the system reserve is {int(reserve)} B, "
-            f"leaving {effective} B - under the {AGGREGATE_LIMIT_BYTES} B the normal-operation "
-            "budget already allows, so releasing the main model bought no usable headroom")
+            f"leaving {effective} B - under the {int(normal_limit)} B the MEASURED normal "
+            "window already allows on this host, so releasing the main model bought no usable "
+            "headroom")
     else:
         report["reason"] = (
             f"effective exclusive ceiling {effective} B = min(configured {bounded} B, free "
-            f"commit {free_commit_bytes} B - reserve {int(reserve)} B); normal-operation hard "
-            f"maximum is {AGGREGATE_LIMIT_BYTES} B")
+            f"commit {free_commit_bytes} B - reserve {int(reserve)} B); the measured "
+            f"normal-window ceiling on this host is {int(normal_limit)} B, so the released "
+            f"physical RAM is what widened the window")
     return effective, report
 
 
@@ -556,11 +690,19 @@ def attach_child(proc: Any, per_worker_limit_bytes: int = 0) -> dict[str, Any]:
 
 
 def status() -> dict[str, Any]:
+    """What the tree is bounded by, with the number's provenance.
+
+    `normal_ceiling_bytes` is the window a worker is measured against RIGHT NOW; the fixed
+    number appears only under its real name: the fallback for a host that cannot measure.
+    """
+    normal, window = normal_ceiling_bytes()
     if _INSTALLED is None:
         return {"enforced": False,
                 "mechanism": "unsupported-host" if not supported() else "not-installed",
-                "aggregate_limit_bytes": AGGREGATE_LIMIT_BYTES,
+                "normal_ceiling_bytes": int(normal),
+                "normal_bound_by": str(window.get("bound_by", "")),
+                "fallback_limit_bytes": AGGREGATE_LIMIT_BYTES,
                 "target_bytes": TARGET_LIMIT_BYTES, "outer_job": in_a_job()}
-    return _INSTALLED.as_dict()
+    return {**_INSTALLED.as_dict(), "normal_ceiling_bytes": int(normal)}
 
 

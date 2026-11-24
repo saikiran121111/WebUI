@@ -1,0 +1,42 @@
+B9 final Python gate - 2026-11-22 22:35 +0530 (session F79, HEAD 83bbce3 + working tree)
+
+Command: .venv/Scripts/python.exe -m unittest discover -s tests -t .
+Result:  Ran 657 tests in 65.346s
+         OK (skipped=1)
+Baseline before B9: 651/651. +6 tests = 5 GpuFirstRuntime (test_ocr_runtime_env)
++ 1 rewritten manifest law test (cu126 primary + CPU index_fallback).
+
+Intermediate failures found and fixed on the way (red -> green, law changes, not weakenings):
+1) test_memory_policy.Admission.test_the_ocr_job_is_not_refused_for_a_model_the_cascade_may_never_load
+   RED: est 2620 != 0 - the newly-MEASURED PaddleOCR basis made the concurrent pool charge
+   the documents.ocr worker for the engine the cascade may never load.
+   FIX (law): lifecycle._admission never charges a caller-gated capability (documents.ocr)
+   the registry engine estimate; the exclusive handoff's device plan + commit ceiling charge
+   the engine. The pool keeps the model-backing floor. Test unchanged, now green.
+2) test_supervisor_workers.OwnedWorkers.test_a_heavy_worker_declares_what_it_loaded_before_it_answers
+   RED: torch import WinError 1455 inside the worker; measured cause chain:
+   strata working set grew to 50,403 MiB (resident baseline after reload 49,218 MiB),
+   host free physical 1,168-1,320 MiB, so the B8 per-worker ceiling clamped to the 256 MiB
+   floor under the measured 4,283 MiB ASR commit demand; the test stubs only the refusal
+   hook, so the worker spawned under the lethal job object.
+   FIX (law, at the test seam): the handshake test stubs the ceiling to the value the
+   exclusive window really provides (measured commit demand + headroom, floor 6,144 MiB),
+   documented in the test; production path untouched (typed refusal stands).
+   Verified stable: suite ran 3x OK after the fix.
+
+Host maintenance performed per section 4 handoff law (idle check via /unload busy semantics,
+one unload, released-resources confirmation, immediate reload):
+  before: phys avail 1,168 MiB, commit avail 15,918 MiB, strata WS 50,403 MiB
+  unload: ok, status unloaded (200)
+  after unload: phys avail 55,143 MiB (freed 53,975 MiB), commit avail 82,179 MiB, strata WS []
+  load: ok; ready: 200 "swift-1.5-iq3_s loaded and ready"
+  final: phys avail 2,921 MiB, commit avail 17,267 MiB, strata WS 49,218 MiB
+Strata RESTORED and READY; the 49 GiB resident working set is its steady state on this host.
+
+B9 live GPU evidence (from the coordinated window, unchanged here):
+  f79-b9-gpu2-p1.json + f79-b9-gpu2-window.log: device_used gpu:0, plan/echo agreement,
+  load 7.46 s, worker peaks measured (resident 2,620 MiB / commit 10,327 MiB),
+  GPU phase peak 8,241 MiB, Strata restored + ready 200.
+  Persisted record 6e69b220c17e...json verified: unit page 1 state recognised,
+  engine paddleocr-vl-1.6, structured lines with bboxes (rich-results metadata),
+  coverage complete, unresolved [].

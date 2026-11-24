@@ -264,3 +264,78 @@ describe("F77 — anchor law: a user-initiated in-place control keeps its anchor
     expect(anchorTarget(g(600, 1000, 400), 94, 900)).toBe(600); // max 600
   });
 });
+
+// ---------------------------------------------------------------------------
+// F62 (brief 2026-11-22) — the fr-T1 live replay.
+// The live row (fr-20261122b) wrote scrollTop=0 programmatically at TTFT on a
+// ONE-SENTENCE answer: content fit the viewport (maxScrollTop=0), the write
+// was a no-op, clampedAtEnd kept following=true, and bottomGap>160 was
+// structurally unmeasurable (recorded gap: 0 on an 81-char answer). These
+// tests pin the release law at the exact event orders the live row produces,
+// with the tall-content real-gesture shape the fixed harness now drives.
+// ---------------------------------------------------------------------------
+describe("F62 — fr-T1 live replay: what releases the bottom lock", () => {
+  it("fitting content: a scrollTop=0 write is no release — nothing was scrolled (row-design lesson)", () => {
+    // The fr-20261122b shape: short answer, content fits (maxScrollTop=0).
+    // Every position IS the end, so the bottom law stands and the row's
+    // gap assertion can never be met — a harness defect, not a law violation.
+    let s = seed(initialFollowState(), g(0, 300, 400));
+    s = reduceFollow(s, { type: "pin_request", target: 0 });
+    s = reduceFollow(s, { type: "scroll", geo: g(0, 300, 400) });
+    expect(s.following).toBe(true);
+    expect(maxScrollTop(g(0, 300, 400))).toBe(0);
+  });
+
+  it("streamed wheel-up on tall content releases and pins stay OFF for the rest of the stream", () => {
+    // The live gesture shape (check-upscroll.mjs / fixed fr-T1): content grew
+    // tall, pins were landing, the reader wheeled up mid-stream, tokens kept
+    // streaming. The view must stay where they put it, gap > 160 at end.
+    let s = seed(initialFollowState(), g(0, 300, 400));
+    s = reduceFollow(s, { type: "geometry", geo: g(0, 1200, 400) }); // answer grew tall
+    s = reduceFollow(s, { type: "pin_request", target: 800 });
+    s = reduceFollow(s, { type: "scroll", geo: g(800, 1200, 400) }); // pin lands at the end
+    expect(s.following).toBe(true);
+    s = reduceFollow(s, { type: "wheel_up" }); // page.mouse.wheel(0, -400)
+    expect(s.following).toBe(false);
+    s = reduceFollow(s, { type: "stream_delta" });
+    expect(shouldPin(s)).toBe(false); // queued rAF + RO pins skip
+    s = reduceFollow(s, { type: "geometry", geo: g(400, 1600, 400) }); // more streaming
+    s = reduceFollow(s, { type: "scroll", geo: g(400, 1600, 400) });
+    expect(s.following).toBe(false);
+    expect(distanceFromBottom(g(400, 1600, 400))).toBeGreaterThan(160);
+  });
+
+  it("a keyboard/scrollbar jump to the top on SCROLLABLE content releases by geometry", () => {
+    // The programmatic-shape law done right: with real scrollable content, an
+    // untagged upward jump to the top is reader position, not layout — release.
+    let s = seed(initialFollowState(), g(800, 1200, 400));
+    s = reduceFollow(s, { type: "scroll", geo: g(0, 1200, 400) });
+    expect(s.following).toBe(false);
+    expect(s.userIntentUnpins).toBe(1);
+  });
+
+  it("wheel-up beats a queued pin SYNCHRONOUSLY: the in-frame rAF write sees shouldPin=false", () => {
+    // The anti-yank guarantee (app/page.tsx re-reads shouldPin at write time):
+    // a pin already scheduled this frame must see the unpin the moment the
+    // wheel event fires — following=false and the tag cleared in the SAME
+    // synchronous step, so the queued write skips instead of yanking back.
+    let s = seed(initialFollowState(), g(800, 1200, 400));
+    s = reduceFollow(s, { type: "pin_request", target: 800 });
+    s = reduceFollow(s, { type: "wheel_up" });
+    expect(s.following).toBe(false);
+    expect(shouldPin(s)).toBe(false);
+    expect(s.pendingPinTop).toBeNull();
+  });
+
+  it("after the release, returning to the bottom re-engages the lock", () => {
+    // The wheel-free reader scrolls back down (scrollbar/keyboard to the end):
+    // streaming resumes owning the view — the "re-enable at bottom" half.
+    let s = seed(initialFollowState(), g(800, 1200, 400));
+    s = reduceFollow(s, { type: "wheel_up" });
+    s = reduceFollow(s, { type: "scroll", geo: g(400, 1600, 400) }); // free mid-stream
+    expect(s.following).toBe(false);
+    s = reduceFollow(s, { type: "scroll", geo: g(1196, 1600, 400) }); // 4px from the end
+    expect(s.following).toBe(true);
+    expect(shouldPin(s)).toBe(true);
+  });
+});

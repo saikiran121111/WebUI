@@ -87,7 +87,15 @@ export function resetMlJobNegativeCache(): void {
   negative.clear();
 }
 
-/** Reasons worth remembering: the backend/rendezvous is the problem, not us. */
+/**
+ * Reasons worth remembering: the backend/rendezvous is the problem, not us.
+ * "resource_busy" is DELIBERATELY absent (F87, 2026-11-23): it is transient
+ * contention on the supervisor's one heavy slot, not a broken rendezvous.
+ * The cache is keyed by capability, so caching it turns one file's long job
+ * (C3: a 37-minute video) into a 60 s blackout for every sibling document
+ * row — mat-1.mat answered from the byte scan in 8 ms (fr-M1 FAIL) while a
+ * cache miss costs only the ~20 ms it takes to re-probe admission.
+ */
 const CACHEABLE_REASONS = new Set([
   "not_configured",
   "invalid_endpoint",
@@ -95,7 +103,6 @@ const CACHEABLE_REASONS = new Set([
   "deadline_exceeded",
   "contract_mismatch",
   "capability_mismatch",
-  "resource_busy",
 ]);
 
 function clampDeadlineMs(ms: number | undefined): number {

@@ -71,6 +71,10 @@ pub struct IndexMeta {
     /// Read tolerantly (Option per field) exactly like every other field here.
     #[serde(default)]
     pub embed: Option<EmbedStamp>,
+    /// F79: why a published lexical index carries no hybrid stamp — persisted
+    /// by the builder and quoted as the disclosed reason. Read tolerantly.
+    #[serde(default)]
+    pub embed_note: Option<String>,
 }
 
 /// `EmbedStamp` - provenance of the vectors an index stores. Written by the

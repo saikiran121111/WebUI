@@ -16,17 +16,24 @@ dependencies = []
 # Two kinds of extra live here, and the difference is a claim about this host, so every
 # block says which kind it is. INSTALLED extras name the exact versions present in
 # python-backend/.venv, checked with importlib.metadata so the pin matches the code that
-# was actually executed: an adapter validated against faster-whisper validates
-# faster-whisper, not transformers. DECLARED-ONLY extras are what a future quality gate
+# was actually executed: an adapter validated against a pinned engine validates that
+# engine, not a neighbouring library. DECLARED-ONLY extras are what a future quality gate
 # would install; they are NOT present here, and any registry row naming one of them must
 # answer "not_configured: pinned dependency ...", never "available".
 #
-# INSTALLED on this host, CPU execution only (no CUDA provider is present):
+# INSTALLED on this host (the asr row's torch is the measured cu126 CUDA build; the rest
+# run on CPU):
 documents = ["pypdf==7.1.0", "pypdfium2==5.6.0"]
-speech = ["faster-whisper==1.2.1", "ctranslate2==4.9.0"]
 media = ["av==19.0.2", "numpy==2.5.5"]
 onnx = ["onnxruntime==1.32.0"]
 hub = ["huggingface-hub==2.4.0", "tokenizers==0.23.3"]
+# The SOLE ASR engine (B5 final decision 2026-11-22): the pinned Transformers stack
+# measured on this host (g103 CUDA + g104 CPU probes at the pinned Parakeet revision).
+# torch resolves from the PyTorch cu126 index below, so `==2.14.1` selects the measured
+# 2.14.1+cu126 build, not a silently-different CPU wheel. Before this extra existed the
+# stack was present in the venv but declared nowhere, so a fresh machine's bootstrap
+# could not provision the release's only transcription engine.
+asr = ["transformers==5.24.0", "torch==2.14.1"]
 #
 # DECLARED-ONLY, deliberately not installed:
 #   embeddings  - sentence-transformers/torch are absent, so the neural embedding and
@@ -34,10 +41,26 @@ hub = ["huggingface-hub==2.4.0", "tokenizers==0.23.3"]
 #                 Relabelling the lexical baseline as neural retrieval is forbidden.
 #   diarization - pyannote community-1 needs a licence acceptance plus an HF token; a
 #                 human has to accept those terms, and this project will not do it for them.
-#   qwen        - the Qwen3 ASR/aligner rows never had a published language table
-#                 captured, so they claim no language and route nothing through them.
+#   parakeet    - nemo_toolkit[asr] (ruke_ml/speech/parakeet_tdt.py): the AUTHORIZED
+#                 fallback backend for Parakeet-only ASR (pivot 2026-11-22 §4), used
+#                 only if the primary Transformers runtime cannot deliver reliable
+#                 Parakeet transcription on this PC. Never synced by dev-supervisor.
+# The pivot (2026-11-22) removed the qwen/granite candidate extras: ONE maintained ASR
+# runtime serves transcription (primary: Transformers with a Parakeet-TDT checkpoint,
+# installed as an INSTALLED extra once its live validation pins the versions; fallback:
+# the parakeet extra below). Searching/downloading/selecting compatible checkpoints
+# needs no extra and no registry edit - compat.py judges the snapshot.
 embeddings = ["sentence-transformers>=3,<4"]
-qwen = ["qwen-asr"]
+#   speech     - faster-whisper/ctranslate2, the CT2 Whisper runtime. DEMOTED by B6
+#                (final decision 2026-11-22): the release runs NO Whisper, and this extra
+#                sat in capability_extras, so every fresh machine's `npm run dev` bootstrap
+#                downloaded a Whisper runtime the release never executes (implicit
+#                download). The pins stay DECLARED for the word-timing aligner row
+#                (Systran/faster-whisper-base in the registry): with the packages absent
+#                that row answers not_configured, which is the honest state for a retired
+#                engine. Removing this from capability_extras is what makes the claim true.
+speech = ["faster-whisper==1.2.1", "ctranslate2==4.9.0"]
+parakeet = ["nemo_toolkit[asr]"]
 diarization = ["pyannote.audio>=3,<4"]
 dev = []
 
@@ -53,10 +76,34 @@ dev = []
 # time, never components of the pinned CPU stack this host runs, and `npm run dev` syncs
 # only the capability_extras listed under [tool.ruke] below. Removing either pair makes
 # the lock unresolvable again (verified: uv exit 1 for each of those two pair sets).
+# The Parakeet fallback extra (nemo_toolkit) pins a huggingface-hub and a transformers
+# that cannot coexist with the INSTALLED hub extra's pins and with sentence-transformers',
+# exactly like the embeddings/hub pair above: it is the authorized ASR fallback backend,
+# installed when the fallback is exercised, never part of the pinned stack this host
+# runs day-to-day. (The pivot 2026-11-22 removed the qwen/granite candidate families.)
 conflicts = [
   [ { extra = "embeddings" }, { extra = "hub" } ],
-  [ { extra = "qwen" }, { extra = "hub" } ],
+  [ { extra = "parakeet" }, { extra = "hub" } ],
+  [ { extra = "parakeet" }, { extra = "embeddings" } ],
+  # asr pins transformers==5.24.0 (measured). sentence-transformers only ever pulls a
+  # transformers built for tokenizers<0.20 (verified in the resolved lock: that group
+  # lands on transformers 4.57.6 + tokenizers 0.22.2), and the nemo fallback pins its
+  # own transformers family. Both pairs are unsatisfiable, exactly like the rows above.
+  [ { extra = "asr" }, { extra = "embeddings" } ],
+  [ { extra = "asr" }, { extra = "parakeet" } ],
 ]
+
+# The measured torch is the +cu126 build published on the PyTorch cu126 wheel index;
+# PEP 440 says ==2.14.1 accepts the 2.14.1+cu126 local version, and routing torch to
+# this explicit index is what makes the resolver pick the CUDA build the probes ran
+# with instead of the CPU wheel PyPI serves under the same base version.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -74,4 +121,7 @@ evaluation_policy = "measure-before-pinning"
 # a fresh machine gets the pinned adapter stack instead of a stdlib-only venv. It never
 # appears at the uv command line for the DECLARED-ONLY families above, which stay
 # uninstalled and therefore report not_configured rather than "available".
-capability_extras = ["documents", "speech", "media", "onnx", "hub"]
+# B6 (final decision 2026-11-22): "speech" (faster-whisper/ctranslate2) is OUT of this
+# list - the release's ONLY transcription engine is provisioned by "asr", and bootstrapping
+# a Whisper runtime the release never runs is the implicit download this item retired.
+capability_extras = ["documents", "media", "onnx", "hub", "asr"]

@@ -50,8 +50,12 @@ const EXT_CATEGORY: Record<string, FileCategory> = {
   zip: "archive", tar: "archive", gz: "archive", tgz: "archive",
   bz2: "archive", xz: "archive", "7z": "archive", rar: "archive",
 
-  // office / document containers
+  // office / document containers — the macro-enabled twins (F71) are the SAME
+  // ZIP+XML containers plus a vbaProject.bin part; nothing about reading their
+  // text parts changes, and routing them to "archive" delivers a raw XML dump.
   docx: "office", xlsx: "office", xlsm: "office", pptx: "office",
+  docm: "office", dotm: "office", pptm: "office", potm: "office",
+  ppsm: "office", xltm: "office", xlam: "office",
   odt: "office", ods: "office", odp: "office", epub: "office",
 
   pdf: "pdf",
@@ -111,7 +115,7 @@ export const TEXT_CHAR_LIMIT = 48000;
 /**
  * Human-readable size label for error messages ("512 MB", "1.5 GB").
  * There is deliberately NO attachment size cap: this is a local app, the
- * upload streams straight to disk, and ffmpeg/whisper read media from that
+ * upload streams straight to disk, and ffmpeg and the speech job read media from that
  * path — the only real limit is the user's free disk space.
  */
 export function sizeLimitLabel(bytes: number): string {

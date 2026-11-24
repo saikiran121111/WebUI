@@ -31,8 +31,9 @@
  * that drops an injected fake, would wake or occupy the very model that hosts
  * the coding session (capacity 1, shared with Codex). The honest fix is an
  * OBSERVING test-harness guard that fails the run when a live call is
- * attempted. The lifecycle half of this was already production-hardened in
- * D-067 (llmParkPermission in lib/server/extract/audio.ts).
+ * attempted. The lifecycle half of this was production-hardened in D-067;
+ * with F123 the Node ASR stage is gone and the law lives where the unload
+ * decision happens now — the Python handoff policy (ruke_ml/handoff.py).
  *
  * This file is only the vitest wiring. The decision itself - which endpoint is
  * the operator's, which paths are protected, what counts as a test double -

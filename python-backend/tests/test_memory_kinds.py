@@ -25,7 +25,7 @@ from unittest import mock
 from ruke_ml import allocations
 from ruke_ml.contracts import JobRequest
 from ruke_ml.documents import ocr_paddle
-from ruke_ml.models import lifecycle, resources
+from ruke_ml.models import lifecycle, provider_config, resources
 from ruke_ml.retrieval.nn_embed import NeuralEmbeddingError
 from ruke_ml.retrieval.nn_rerank import CrossEncoderError
 from ruke_ml.speech import whisper_ct2
@@ -33,7 +33,12 @@ from ruke_ml.workers import runner
 from ruke_ml.workers.jobs import typed_from_kind
 
 MKL = "RuntimeError: mkl_malloc: failed to allocate memory"
-ASR_COMMIT_MIB = 1_276            # measured commit peak of the owned whisper tree
+# Measured commit peak of the owned ASR worker tree: the frozen Parakeet row. The GPU
+# path measured higher than the 2026-11-22 g104 CPU run (4,375 vs 4,283 kernel-job
+# commit, 2026-11-23 exclusive-window probe on this host), so the row follows the GPU
+# figure - the release's SOLE ASR engine runs GPU-first. The former whisper figure
+# (1,276) retired with its row; the derivation law below is unchanged.
+ASR_COMMIT_MIB = 4_375
 
 
 def fake_memory(available_mib: int, total_mib: int = 63 * 1024,
@@ -173,9 +178,17 @@ class AdmissionRefusal(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def test_the_refusal_is_typed_and_names_the_commit_shortfall(self):
+        # F91 law (2026-11-23): with automatic handoff ON this shortfall is DEFERRED to
+        # the ASR dispatcher - the exclusive window re-measures its ceiling after the
+        # release (test_memory_policy pins that pair). This test pins the other half of
+        # the deferral contract: with the policy OFF there is no wider window, so the
+        # typed pre-spawn refusal stands. The policy is pinned, not inherited from the
+        # host's provider config.
         req = JobRequest(request_id="t", run_id="t", job_id="t", capability="speech.asr",
                          payload={}, deadline_s=60.0)
-        res = self.pool._admission_refusal(req)
+        with mock.patch.object(provider_config, "load",
+                               return_value=mock.Mock(automatic_handoff=False)):
+            res = self.pool._admission_refusal(req)
         self.assertIsNotNone(res)
         assert res is not None and res.error is not None
         self.assertEqual(res.error.reason, "memory_pressure")
@@ -184,7 +197,7 @@ class AdmissionRefusal(unittest.TestCase):
         self.assertIn("already on disk", res.error.human_step.lower())
         self.assertEqual(res.payload.get("refused_for"),
                          "commit_ceiling_below_measured_demand")
-        self.assertIn("1276", res.error.message.replace(",", ""))
+        self.assertIn("4375", res.error.message.replace(",", ""))
 
 
 class AdapterClassification(unittest.TestCase):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import http.server
+import itertools
 import json
 import os
 import subprocess
@@ -23,7 +24,7 @@ from unittest import mock
 from ruke_ml import handoff
 from ruke_ml.documents import ocr_cascade, ocr_paddle, ocr_tesseract
 from ruke_ml.documents.ocr_tesseract import OcrPage, OcrUnavailable
-from ruke_ml.models import devices, main_model, resources
+from ruke_ml.models import devices, job_limits, main_model, resources
 
 from .test_retrieval_documents import _pdf_bytes, _text_stream
 
@@ -90,6 +91,18 @@ def _vram(available: bool, free_mib: int = 0) -> devices.VramState:
                              [{"name": "fake", "total_mib": 12288, "used_mib": 0,
                                "free_mib": free_mib}] if available else [],
                              "stub" if available else "stub: no gpu", "stub", 0.0)
+
+
+def _vram_used(free_mib: int, used_mib: int, total_mib: int = 12288) -> devices.VramState:
+    """A VRAM reading where the resident-model footprint is attributed, not zeroed.
+
+    nvidia-smi's `memory.used` already includes the resident main LLM, so the reclaimable
+    ceiling the planner may reason about is exactly `used_mib` on top of `free_mib`.
+    """
+    return devices.VramState(True, free_mib,
+                             [{"name": "fake", "total_mib": total_mib, "used_mib": used_mib,
+                               "free_mib": free_mib}],
+                             "stub", "stub", 0.0)
 
 
 def _ram(fits: bool, reasons: list[str] | None = None) -> dict:
@@ -182,6 +195,133 @@ class DevicePlacement(unittest.TestCase):
         self.assertTrue(measured.fits, measured.reason)
         self.assertFalse(measured.needs_handoff,
                          "a job that measurably fits must not trigger an unload")
+
+
+class VramOnlyShortage(unittest.TestCase):
+    """F91 (2026-11-23): a VRAM-only shortage with a reclaimable resident model must NOT
+    be answered by the CPU placement.
+
+    The exact scenario the live batch exposed: CUDA works, system RAM is sufficient for
+    the CPU run, free VRAM is insufficient for the GPU run, and the IDLE resident main
+    model holds enough VRAM that releasing it makes the GPU run fit. The old `if ram_ok`
+    return answered "cpu, fits" whenever RAM fit, so the handoff branch in handoff.py
+    and ocr_cascade.py could never fire and heavy workers silently ran on CPU.
+    A RAM-sufficient CPU run must not bypass the GPU-first path; the real gate (the
+    remeasured plan after a confirmed release) still lives inside run_exclusive.
+    """
+
+    def plan(self, *, free_vram, used_vram, est_vram, ram_fits=True,
+             allow_gpu=True, allow_unload=True, main_loaded=True, total_vram=12288,
+             main_model=None):
+        with mock.patch.object(resources, "admission", return_value=_ram(ram_fits)), \
+                mock.patch.object(devices, "vram_state",
+                                  return_value=_vram_used(free_vram, used_vram, total_vram)):
+            return devices.device_plan(
+                "documents.ocr", est_peak_mib=2620, est_peak_vram_mib=est_vram,
+                est_basis="measured 2026-11-22", est_vram_basis="measured 2026-11-22",
+                allow_gpu=allow_gpu, allow_unload=allow_unload,
+                main_model=main_model if main_model is not None else {"loaded": main_loaded})
+
+    def test_vram_only_shortage_with_reclaimable_model_routes_to_the_handoff(self):
+        """PaddleOCR-VL figures (g103): 8100 MiB measured GPU peak, 2400 free, 9888 used
+        by the idle resident model on a 12288 MiB card. RAM fits. -> the handoff path."""
+        plan = self.plan(free_vram=2400, used_vram=9888, est_vram=8100)
+        self.assertEqual(plan.device, "gpu",
+                         f"a reclaimable VRAM shortage must aim at the GPU, got: {plan.reason}")
+        self.assertFalse(plan.fits, "it does NOT fit right now - that is the whole scenario")
+        self.assertTrue(plan.needs_handoff, "the release is what would make it fit")
+        self.assertIn("free VRAM is 2400 MiB", plan.reason)
+        self.assertIn("releasing the resident main model", plan.reason)
+
+    def test_parakeet_figures_follow_the_same_law(self):
+        """Parakeet figures (g103 CUDA probe): 2845 MiB peak, 2737 free beside the
+        resident model, RAM ample. Same shortage, same routing - both engines, one law."""
+        plan = self.plan(free_vram=2737, used_vram=9551, est_vram=2845)
+        self.assertEqual(plan.device, "gpu")
+        self.assertFalse(plan.fits)
+        self.assertTrue(plan.needs_handoff, plan.reason)
+
+    def test_coexisting_gpu_fit_keeps_the_main_model_resident(self):
+        """The other side of the law: when the job measurably fits beside everything
+        already loaded, the GPU is used WITHOUT any unload."""
+        plan = self.plan(free_vram=3200, used_vram=9088, est_vram=2845)
+        self.assertEqual(plan.device, "gpu")
+        self.assertTrue(plan.fits, plan.reason)
+        self.assertFalse(plan.needs_handoff)
+
+    def test_shortage_is_not_recoverable_without_a_resident_model(self):
+        """Nothing to reclaim: the model is not loaded, so releasing it cannot add VRAM.
+        A RAM-sufficient host takes the supported CPU path with the reason recorded."""
+        plan = self.plan(free_vram=2400, used_vram=0, est_vram=8100, main_loaded=False)
+        self.assertEqual(plan.device, "cpu")
+        self.assertTrue(plan.fits, plan.reason)
+        self.assertFalse(plan.needs_handoff)
+
+    def test_shortage_beyond_the_card_capacity_falls_to_cpu(self):
+        """The GPU can never fit this job on this card, release included (the release
+        ceiling is the attributed usage, a bound - run_exclusive's remeasured plan is
+        still the real gate). The CPU path is the supported answer, with the reason."""
+        plan = self.plan(free_vram=2400, used_vram=9888, est_vram=20000)
+        self.assertEqual(plan.device, "cpu")
+        self.assertTrue(plan.fits, plan.reason)
+        self.assertFalse(plan.needs_handoff)
+        self.assertIn("releasing the resident main model would not free enough VRAM",
+                      plan.reason)
+
+    def test_unload_policy_off_keeps_the_supported_cpu_path(self):
+        """Operator policy outranks the GPU-first preference: with automatic handoff
+        disabled the worker runs on CPU and the plan says the policy is why."""
+        plan = self.plan(free_vram=2400, used_vram=9888, est_vram=8100, allow_unload=False)
+        self.assertEqual(plan.device, "cpu")
+        self.assertTrue(plan.fits, plan.reason)
+        self.assertFalse(plan.needs_handoff)
+        self.assertIn("unload is not permitted", plan.reason)
+
+    def test_gpu_disabled_is_never_a_handoff(self):
+        """A disabled GPU is a runtime fact, not a reclaimable shortage."""
+        plan = self.plan(free_vram=2400, used_vram=9888, est_vram=8100, allow_gpu=False)
+        self.assertEqual(plan.device, "cpu")
+        self.assertTrue(plan.fits, plan.reason)
+        self.assertFalse(plan.needs_handoff)
+
+    def test_ram_starved_shortage_still_reports_handoff(self):
+        """The pre-existing contract (amendment 5) survives the fix: RAM fails on both
+        devices, the plan says none and needs the coordinator."""
+        plan = self.plan(free_vram=2400, used_vram=9888, est_vram=8100, ram_fits=False)
+        self.assertEqual(plan.device, "none")
+        self.assertFalse(plan.fits)
+        self.assertTrue(plan.needs_handoff)
+
+    def test_an_unreachable_lifecycle_endpoint_is_recorded_apart_from_the_card(self):
+        """F127 (c) (user brief 2026-11-23): "the main-model control endpoint does not
+        answer" and "this host has no usable GPU" are DIFFERENT facts and must be
+        recorded separately. The live batch's exact shape: the card is present and
+        readable (nvidia-smi answers, VRAM short beside the shortage), while the
+        lifecycle endpoint is silent, so the release cannot even be requested. The
+        plan takes the supported CPU path, the reason names the lifecycle gate, and
+        the evidence keeps the two axes apart: the vram block stays available=True
+        (the host is NEVER described as having no GPU), and the main_model block
+        carries the endpoint, reachable=False and the worker's own detail."""
+        snapshot = {"provider": "strata", "endpoint": "http://127.0.0.1:8080",
+                    "reachable": False, "loaded": False,
+                    "detail": "no main-model control endpoint answered",
+                    "lifecycle_supported": False,
+                    "lifecycle_detail": "no main-model control endpoint answered"}
+        plan = self.plan(free_vram=2400, used_vram=9888, est_vram=8100, main_model=snapshot)
+        self.assertEqual(plan.device, "cpu")
+        self.assertTrue(plan.fits, plan.reason)
+        self.assertFalse(plan.needs_handoff,
+                         "an endpoint that never answers is not a reclaimable shortage")
+        self.assertIn("free VRAM is 2400 MiB", plan.reason)
+        self.assertIn("the main-model control endpoint did not answer, so its loaded "
+                      "state is unknown", plan.reason)
+        self.assertTrue(plan.evidence["vram"]["available"],
+                        "the card's availability is its own recorded fact; an unreachable "
+                        "lifecycle endpoint must not erase it")
+        mm = plan.evidence["main_model"]
+        self.assertFalse(mm["reachable"])
+        self.assertEqual(mm["endpoint"], "http://127.0.0.1:8080")
+        self.assertIn("no main-model control endpoint answered", mm["detail"])
 
 
 class StubMainModel(main_model.MainModelProvider):
@@ -332,6 +472,7 @@ class LeaseAndHandoff(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="f26-handoff-"))
         patches = [mock.patch.object(handoff, "coord_dir", return_value=self.tmp),
                    mock.patch.object(handoff, "runtime_dir", return_value=self.tmp),
+                   mock.patch.object(handoff, "_sleep", lambda s: None),
                    mock.patch.object(handoff.devices, "vram_state", return_value=_vram(True, 2000))]
         for p in patches:
             p.start()
@@ -360,6 +501,43 @@ class LeaseAndHandoff(unittest.TestCase):
             (json.dumps({"runId": "browser", "pid": os.getpid()}) + "\0" * 400).encode())
         with self.assertRaises(handoff.PlaywrightHeld):
             handoff.acquire(owner="ruke")
+
+    # ---- F129 launcher ML-window grant (user brief 2026-11-23 sections 2-5) ----
+    def _pw_record(self, **fields):
+        record = {"runId": "batch", "owner": "e2e-launcher", "phase": "test", **fields}
+        (self.tmp / handoff.PLAYWRIGHT_LOCK).write_bytes(
+            (json.dumps(record) + "\0" * 400).encode()[:handoff.RECORD_WIDTH])
+
+    def test_the_launchers_live_grant_record_releases_the_ml_window(self):
+        self._pw_record(pid=os.getpid(), ml_window="grant")
+        state = handoff.playwright_state()
+        self.assertFalse(state["held"])
+        self.assertEqual(state["state"], "granted")
+        self.assertIn("granted the ML window", state["proof"])
+        lease = handoff.acquire(owner="ruke")  # the upload-triggered job proceeds
+        self.assertEqual(handoff.release(lease).get("released"), True)
+
+    def test_the_grant_is_the_exact_field_and_dies_with_the_granting_pid(self):
+        # A lookalike value is not a grant.
+        self._pw_record(pid=os.getpid(), ml_window="granted")
+        self.assertTrue(handoff.playwright_state()["held"])
+        with self.assertRaises(handoff.PlaywrightHeld):
+            handoff.acquire(owner="ruke")
+        # A dead granting pid is not a grant: the batch that granted it is gone.
+        self._pw_record(pid=1, pid_created=1, ml_window="grant")
+        state = handoff.playwright_state()
+        self.assertTrue(state["held"])
+        self.assertTrue(state["stale"])
+        with self.assertRaises(handoff.PlaywrightHeld):
+            handoff.acquire(owner="ruke")
+
+    def test_a_grant_record_never_touches_the_lock_it_grants_from(self):
+        self._pw_record(pid=os.getpid(), ml_window="grant")
+        before = (self.tmp / handoff.PLAYWRIGHT_LOCK).read_bytes()
+        lease = handoff.acquire(owner="ruke")
+        self.assertEqual((self.tmp / handoff.PLAYWRIGHT_LOCK).read_bytes(), before,
+                         "the reader never deletes or edits a foreign lock")
+        handoff.release(lease)
 
     def test_a_record_without_a_live_pid_is_provable_stale(self):
         # pid 1 is init/the System process: a different generation, so it is provable.
@@ -476,22 +654,106 @@ class LeaseAndHandoff(unittest.TestCase):
                          "no heartbeat thread may outlive the window")
         self.assertFalse(handoff.lease_path().exists(), "the lease was still released")
 
-    def _run(self, provider, plans, *, allow_unload=False, work=None):
+    # ---- F142: the pipeline self-heals exactly like the TS admission client ----
+    def _seed_owner_record(self, owner: str, pid: int, pid_created: int,
+                           phase: str = "waiting") -> None:
+        (self.tmp / handoff.LEASE_NAME).write_bytes(
+            (json.dumps({"owner": owner, "pid": pid, "pid_created": pid_created,
+                         "phase": phase, "started": time.time() - 120.0,
+                         "heartbeat": time.time() - 120.0})
+             + "\0" * 400).encode()[:handoff.RECORD_WIDTH])
+
+    def test_run_exclusive_self_heals_a_dead_owner_record(self):
+        # INCIDENT REGRESSION (accept-15/16/17): a window that outlived its client
+        # left a record naming a process that later died, and every later GPU job
+        # typed coordination_held forever - the TS admission client (acquireLease)
+        # breaks such a record on the pid evidence, and the pipeline must apply the
+        # same law. The takeover removes ONLY the record.
+        self._seed_owner_record("job_poison", 1, 1)
+        provider = StubMainModel(loaded=True)
+        plan = devices.DevicePlan("documents.ocr", "cpu", True, False, "CPU fits", {})
+        owners: list = []
+
+        def work(_plan):
+            owners.append(handoff.read_lease().get("owner"))
+            return {"peak": {"working_set_mib": 1200}, "persisted": True}
+
+        out, _seen = self._run(provider, [plan], work=work)
+        self.assertTrue(out["ok"], out.get("detail"))
+        self.assertEqual(owners, ["ruke-python"],
+                         "the dead owner's record must be replaced by OURS, not edited")
+        self.assertFalse(handoff.lease_path().exists(),
+                         "the window releases the lease it took over")
+
+    def test_run_exclusive_stays_held_on_a_live_owner_record(self):
+        # The other half of the law: a live pid is untouched "however quiet it is".
+        self._seed_owner_record("live-holder", os.getpid(),
+                                resources.process_creation_time(os.getpid()))
+        provider = StubMainModel(loaded=True)
+        plan = devices.DevicePlan("documents.ocr", "cpu", True, False, "CPU fits", {})
+        out, _seen = self._run(provider, [plan])
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["reason"], "coordination_held")
+        self.assertEqual(handoff.read_lease().get("owner"), "live-holder",
+                         "a live holder's record is never broken")
+
+    def test_run_exclusive_breaks_a_pid_reuse_record_without_touching_the_process(self):
+        # D-054 at the pipeline layer: staleness proven by pid REUSE names an
+        # innocent live process; the takeover must unlink the record and leave the
+        # process running.
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        self.addCleanup(_own_child, child)
+        deadline = time.time() + 10.0
+        while resources.process_creation_time(child.pid) == 0 and time.time() < deadline:
+            time.sleep(0.05)
+        live_created = resources.process_creation_time(child.pid)
+        self.assertNotEqual(live_created, 0)
+        self._seed_owner_record("long-gone", child.pid, live_created + 1)
+        provider = StubMainModel(loaded=True)
+        plan = devices.DevicePlan("documents.ocr", "cpu", True, False, "CPU fits", {})
+        out, _seen = self._run(provider, [plan])
+        self.assertTrue(out["ok"], out.get("detail"))
+        self.assertIsNone(child.poll(),
+                          "the takeover must never terminate the innocent pid's process")
+
+    def _run(self, provider, plans, *, allow_unload=False, work=None,
+             commit_mib=0, ceiling_bytes=None, commit_available_mib=None,
+             deadline_at=0.0):
         seen: list[dict] = []
 
         def _work(plan):
             seen.append(plan)
             return {"peak": {"working_set_mib": 1200, "commit_mib": 1500}, "persisted": True}
 
-        with mock.patch.object(main_model, "snapshot",
-                               return_value={"provider": provider.name, "endpoint": provider.base_url,
-                                             "loaded": provider.loaded}), \
-                mock.patch.object(main_model, "provider_for", return_value=provider), \
-                mock.patch.object(handoff.devices, "device_plan", side_effect=plans):
+        patches = [
+            mock.patch.object(main_model, "snapshot",
+                              return_value={"provider": provider.name,
+                                            "endpoint": provider.base_url,
+                                            "loaded": provider.loaded}),
+            mock.patch.object(main_model, "provider_for", return_value=provider),
+            mock.patch.object(handoff.devices, "device_plan", side_effect=plans),
+        ]
+        if ceiling_bytes is not None:
+            # A band-clamped ceiling NEVER means "free commit == ceiling": the ceiling is
+            # min(band, free commit - reserve), so free commit is at least ceiling + 2 GiB.
+            # The clamp-identical mock under-sold the host; F133's import-transient axis
+            # reads this number, so the mock now states it explicitly.
+            avail = ((int(ceiling_bytes) >> 20) if commit_available_mib is None
+                     else int(commit_available_mib))
+            patches.append(mock.patch.object(
+                job_limits, "exclusive_ceiling_bytes",
+                return_value=(int(ceiling_bytes),
+                              {"bound_by": "the test clamp",
+                               "commit_available_mib": avail,
+                               "system_reserve_bytes": 2 * (1 << 30)})))
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
             out = handoff.run_exclusive("documents.ocr", work or _work, est_peak_mib=3300,
-                                        est_peak_vram_mib=6000, est_basis="measured",
+                                        est_peak_vram_mib=6000, est_peak_commit_mib=commit_mib,
+                                        est_basis="measured",
                                         est_vram_basis="measured", allow_gpu=False,
-                                        allow_unload=allow_unload)
+                                        allow_unload=allow_unload, deadline_at=deadline_at)
         return out, seen
 
     def test_no_unload_when_the_measured_fit_is_already_enough(self):
@@ -529,6 +791,459 @@ class LeaseAndHandoff(unittest.TestCase):
         self.assertTrue(out.get("measure_after_unload"))
         self.assertFalse(handoff.lease_path().exists())
         self.assertEqual(handoff.journal_read(), {}, "a clean handoff must clear its journal")
+
+    def test_confirmed_release_with_thin_commit_headroom_refuses_before_work(self):
+        # Measured 2026-11-23: /unload confirmed (loaded=false) while the engine process
+        # stayed resident at ~49 GB working set; the ASR worker then died at torch's DLL
+        # import with WinError 1455 - a COMMIT refusal the loader names "paging file too
+        # small". VRAM and RAM remeasured clean; only the commit axis saw it. The window
+        # must gate the third axis too: typed, transient, model restored, work never run.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        out, seen = self._run(provider, [before, after], allow_unload=True,
+                              commit_mib=10_406, ceiling_bytes=10_000 * (1 << 20))
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertTrue(out.get("transient"),
+                        "commit headroom is a moving host state: the answer is retryable")
+        self.assertNotIn("work", out)
+        self.assertEqual(seen, [], "the gate must fire BEFORE the worker is invoked")
+        self.assertEqual(provider.calls, ["unload", "load", "ready"],
+                         "the refusal must restore the model it unloaded")
+        gate = out.get("commit_gate_after_unload") or {}
+        self.assertEqual(gate.get("ceiling_mib"), 10_000)
+        self.assertEqual(gate.get("demand_mib"), 10_406)
+        self.assertFalse(handoff.lease_path().exists())
+
+    def test_commit_gate_opens_the_window_when_headroom_clears_demand(self):
+        # The control: the 16e9 band max (15,258 MiB) over the row's 10,406 MiB measured
+        # commit peak clears demand + margin, and the healthy window runs its work.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        # F135: the settle law also floors the gate by the PRE-release baseline (a
+        # post-release reading above the pre-release one is pagefile expansion), so the
+        # control states both axes at the same healthy 24,000 MiB.
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 40_000, "commit_available_mib": 24_000,
+                "free_vram_mib": 11_000, "vram_available": True}):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, ceiling_bytes=16_000_000_000,
+                                  commit_available_mib=24_000)
+        self.assertTrue(out["ok"])
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(out["commit_gate_after_unload"]["ceiling_mib"], 16_000_000_000 >> 20)
+
+    def test_confirmed_release_with_a_draining_host_refuses_before_work(self):
+        # F131 churn law (2026-11-23, accept-8): the static gate CLEARED and the
+        # engine's DLL import died ~20 s later with WinError 1455 in both live rows
+        # (fr-U1 cufft64_11.dll, F91.1 libpaddle). The commit headroom the window
+        # measured was real at the gate and gone by the import: the host drains
+        # commit at GB/minute while a 50 GB resident model regrows. The window saw
+        # that drain (pre-release 20,000 MiB -> gate 15,258 MiB over 10 s); the gate
+        # pays for one more import-length drain (rate-clamped to the host's physical
+        # ceiling) on top of the measured demand, and this scenario's headroom does
+        # not cover it. Typed, transient, restored, work never run.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = iter([1000.0, 1010.0])
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 9000, "commit_available_mib": 20_000,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, ceiling_bytes=16_000_000_000)
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertTrue(out.get("transient"),
+                        "a draining host refills: the answer is retryable, not terminal")
+        self.assertNotIn("work", out)
+        self.assertEqual(seen, [], "the gate must fire BEFORE the worker is invoked")
+        self.assertEqual(provider.calls, ["unload", "load", "ready"],
+                         "the refusal must restore the model it unloaded")
+        gate = out["commit_gate_after_unload"]
+        self.assertEqual(gate["commit_available_at_release_mib"], 20_000)
+        self.assertEqual(gate["churn_allowance_mib"], 12_000,
+                         "200 MiB/s clamp x the 60 s import window")
+        self.assertEqual(gate["drain_window_s"], 10.0)
+        self.assertIn("commit drain", out["detail"])
+        self.assertFalse(handoff.lease_path().exists())
+
+    def test_a_stable_host_pays_no_churn_allowance(self):
+        # The control: the same 16e9 band and the same demand on a host whose commit
+        # sample did NOT fall across the window adds nothing and runs. The churn term
+        # must never become a blanket refusal - an unmeasured drain is a stable host,
+        # and manufacturing a "cannot" from absent evidence is banned.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = iter([1000.0, 1010.0])
+        # F135: a stable host's PRE-release reading equals the gate reading (15,258
+        # pre-release under a 24,000 gate reading would BE the expansion shape the
+        # settle law refuses); the churn intent is preserved with equal axes.
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 9000, "commit_available_mib": 24_000,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, ceiling_bytes=16_000_000_000,
+                                  commit_available_mib=24_000)
+        self.assertTrue(out["ok"], f"{out}")
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(out["commit_gate_after_unload"]["churn_allowance_mib"], 0)
+
+    def test_f133_a_stable_busy_host_refuses_the_import_transient(self):
+        # F133 (2026-11-23, accept-9): the churn law's gate PASSED - attached ceiling
+        # 15,258 MiB over the row's 10,406 MiB steady peak, host stable - and libpaddle's
+        # DLL import died on SYSTEM commit ("The paging file is too small") seconds
+        # later. The child's job-object ceiling does not bound the loader: a CUDA build's
+        # import maps views charged system-wide, and accept-9 proved that transient
+        # exceeds the steady peak (death with free commit >= 17,306 MiB = 1.66x demand,
+        # while the quiet probe imports cleanly under 11,444 MiB). The window must refuse
+        # typed when the SYSTEM free commit at gate time cannot cover demand + margin +
+        # churn + one import transient - a doomed window is a refusal, not a corpse.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = iter([1000.0, 1010.0])
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 9000, "commit_available_mib": 17_306,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, ceiling_bytes=16_000_000_000,
+                                  commit_available_mib=17_306)
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertTrue(out.get("transient"),
+                        "free commit refills when the host settles: the answer is retryable")
+        self.assertNotIn("work", out)
+        self.assertEqual(seen, [], "the gate must fire BEFORE the worker is invoked")
+        self.assertEqual(provider.calls, ["unload", "load", "ready"],
+                         "the refusal must restore the model it unloaded")
+        gate = out["commit_gate_after_unload"]
+        self.assertEqual(gate["ceiling_mib"], 16_000_000_000 >> 20,
+                         "the CEILING axis passes - only the loader axis may refuse here")
+        self.assertEqual(gate["churn_allowance_mib"], 0, "stable host: no drain term")
+        self.assertEqual(gate["import_transient_mib"], 10_406)
+        self.assertEqual(gate["system_headroom_floor_mib"], 17_306)
+        self.assertEqual(gate["import_required_mib"], 21_068)
+        self.assertIn("import transient", out["detail"])
+        self.assertFalse(handoff.lease_path().exists())
+        # F134 durable audit: the journal is cleared by the windows that SUCCEED, and a
+        # gate number is only useful after the run - accept-10's opened gate was
+        # unobtainable once the journal cleared. Every evaluation appends one line.
+        lines = [json.loads(line) for line in
+                 (self.tmp / handoff.gate_log_path().name)
+                 .read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(lines), 1, "one line per gate evaluation")
+        self.assertEqual(lines[0]["verdict"], "refused")
+        self.assertEqual(lines[0]["capability"], "documents.ocr")
+        self.assertEqual(lines[0]["gate"]["import_required_mib"], 21_068)
+
+    def test_f133_a_quiet_host_pays_the_import_transient_and_runs(self):
+        # The control for the axis above: the same 16e9 band and the same demand on a host
+        # with 24,000 MiB free commit (64 GB machine, main model released) clears
+        # 2x demand + margin and the window runs. The axis must never become a blanket
+        # refusal for the row it exists to protect.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = iter([1000.0, 1010.0])
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 40_000, "commit_available_mib": 24_000,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, ceiling_bytes=16_000_000_000,
+                                  commit_available_mib=24_000)
+        self.assertTrue(out["ok"], f"{out}")
+        self.assertEqual(len(seen), 1)
+        self.assertGreaterEqual(out["commit_gate_after_unload"]["system_headroom_floor_mib"],
+                                out["commit_gate_after_unload"]["import_required_mib"])
+        lines = [json.loads(line) for line in
+                 (self.tmp / handoff.gate_log_path().name)
+                 .read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[-1]["verdict"], "opened",
+                         "the opened gate must survive journal clearing for reconciliation")
+
+    def _f135_ceiling(self, samples_mib):
+        """A ceiling whose free-commit readings follow the given sequence: the FIRST
+        call is the gate sample, the next _COMMIT_SETTLE_SAMPLES are the settle
+        window (accept-11: 84,449 MiB gate -> ~19-21k stable after the shrink)."""
+        def _ceil():
+            for v in samples_mib:
+                yield (16_000_000_000, {"bound_by": "the configured exclusive maximum",
+                                        "commit_available_mib": v,
+                                        "system_reserve_bytes": 2 * (1 << 30)})
+        gen = _ceil()
+        return mock.patch.object(job_limits, "exclusive_ceiling_bytes", side_effect=lambda: next(gen))
+
+    def test_f135_pagefile_expansion_spike_refuses_the_window(self):
+        # F135 (2026-11-23, accept-11 durable gate log): all three accept-11 windows
+        # opened at 84,449 / 84,491 / 84,142 MiB free commit - the system-managed
+        # pagefile's EXPANSION peak right after the 48.5 GB main model released - and
+        # within 30 s the manager shrank the pagefile (limit ~139 -> 83 GB), the free
+        # commit collapsed to ~19-21k, and every worker died inside its loader with
+        # WinError 1455. The gate sample is the window's MAXIMUM; the settle MINIMUM
+        # is its headroom. On accept-11's real numbers (pre-release 21,113, gate
+        # 84,449, settle 20,457 / 19,180 / 20,000) the gate must refuse typed and
+        # transient - a doomed window is a refusal, not a corpse.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = iter([1000.0, 1010.0])
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 6_000, "commit_available_mib": 21_113,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)), \
+             self._f135_ceiling([84_449, 20_457, 19_180, 20_000]):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406)
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertTrue(out.get("transient"), "the pagefile re-extends: the answer is retryable")
+        self.assertNotIn("work", out)
+        self.assertEqual(seen, [], "the gate must fire BEFORE the worker is invoked")
+        self.assertEqual(provider.calls, ["unload", "load", "ready"],
+                         "the refusal must restore the model it unloaded")
+        gate = out["commit_gate_after_unload"]
+        self.assertEqual(gate["commit_available_mib"], 84_449,
+                         "the expansion spike stays recorded for reconciliation")
+        self.assertEqual(gate["commit_available_stable_mib"], 19_180)
+        self.assertEqual(gate["settle_samples_mib"], [84_449, 20_457, 19_180, 20_000])
+        self.assertEqual(gate["system_headroom_floor_mib"], 19_180,
+                         "the settle MINIMUM gates, not the release spike")
+        self.assertEqual(gate["churn_allowance_mib"], 11_598,
+                         "193.3 MiB/s x the 60 s import window (under the 200 clamp)")
+        self.assertEqual(gate["import_required_mib"], 10_406 + 256 + 11_598 + 10_406)
+        self.assertIn("21113 -> 19180 MiB", out["detail"],
+                      "the refusal must name the settle-driven drain, not the spike")
+        lines = [json.loads(line) for line in
+                 (self.tmp / handoff.gate_log_path().name)
+                 .read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[-1]["verdict"], "refused")
+        self.assertEqual(lines[-1]["gate"]["commit_available_stable_mib"], 19_180)
+
+    def test_f135_a_host_that_shrinks_onto_ample_headroom_runs(self):
+        # The control: the same expansion spike over a host whose settle samples stay
+        # at 24,400-24,500 MiB (above 2x demand + margin) is admitted, churn-free -
+        # the settle law must never become a blanket refusal of every post-unload
+        # window (the ban on manufacturing a "cannot").
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = iter([1000.0, 1010.0])
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 40_000, "commit_available_mib": 24_400,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)), \
+             self._f135_ceiling([84_449, 24_500, 24_400, 24_450]):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406)
+        self.assertTrue(out["ok"], f"{out}")
+        self.assertEqual(len(seen), 1)
+        gate = out["commit_gate_after_unload"]
+        self.assertEqual(gate["commit_available_stable_mib"], 24_400)
+        self.assertEqual(gate["churn_allowance_mib"], 0, "the settle base matches the baseline")
+        self.assertGreaterEqual(gate["system_headroom_floor_mib"], gate["import_required_mib"])
+
+    def _f138_stream(self, samples_mib):
+        """A ceiling whose readings follow the sequence, then repeat the LAST reading
+        forever (the fit poll may keep sampling): first call is the ceiling/gate sample,
+        the next _COMMIT_SETTLE_SAMPLES are the settle window, the rest the fit window."""
+        def _ceil():
+            for v in samples_mib:
+                yield (16_000_000_000, {"bound_by": "the configured exclusive maximum",
+                                        "commit_available_mib": v,
+                                        "system_reserve_bytes": 2 * (1 << 30)})
+            while True:
+                yield (16_000_000_000, {"bound_by": "the configured exclusive maximum",
+                                        "commit_available_mib": samples_mib[-1],
+                                        "system_reserve_bytes": 2 * (1 << 30)})
+        gen = _ceil()
+        return mock.patch.object(job_limits, "exclusive_ceiling_bytes",
+                                 side_effect=lambda: next(gen))
+
+    def test_f138_the_gate_waits_until_the_import_fits(self):
+        # F138 (2026-11-24, accept-14): documents.ocr refused with import_required
+        # 21,068 > 18,166 at release, and the host cleared 21,068 MiB 61 s after the
+        # collapse (host CSV: 25,165 -> 19,171/18,861/18,992 -> 22,864). The F137 law
+        # at the window's own decision point: settle means FIT, not elapsed time.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = itertools.repeat(1000.0)
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 6_000, "commit_available_mib": 18_166,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)), \
+             self._f138_stream([84_362, 84_413, 84_864, 84_362,
+                                18_992, 19_010, 20_899] + [22_864] * 10):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406)
+        self.assertTrue(out["ok"], f"{out}")
+        self.assertEqual(len(seen), 1, "the window runs once the import FITS")
+        gate = out["commit_gate_after_unload"]
+        self.assertEqual(gate["commit_available_at_release_mib"], 18_166,
+                         "the F135 baseline reading stays recorded - the fit does not rewrite it")
+        self.assertEqual(gate["system_headroom_floor_mib"], 18_166,
+                         "the pre-collapse floor stands in the record")
+        fit = gate["import_fit"]
+        self.assertEqual(fit["stable_samples_mib"], [22_864] * 10,
+                         "the fit tail is CONSECUTIVE stability, not one lucky sample")
+        self.assertEqual(fit["fit_headroom_floor_mib"], 22_864)
+        self.assertEqual(fit["cap_s"], 120.0,
+                         "no job deadline: the full F138 fit window stands (F140)")
+        self.assertFalse(fit["deadline_clamped"])
+        self.assertFalse(gate["settle_clamped_by_deadline"],
+                         "no job deadline: the full F135 settle stands (F140)")
+        lines = [json.loads(line) for line in
+                 (self.tmp / handoff.gate_log_path().name)
+                 .read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(lines), 1, "one gate line per evaluation, fit included")
+        self.assertEqual(lines[-1]["verdict"], "opened")
+        self.assertEqual(lines[-1]["gate"]["import_fit"]["stable_samples_mib"], [22_864] * 10)
+
+    def test_f138_a_momentary_dip_defers_the_fit_to_the_next_stable_window(self):
+        # The F137 consecutive-sample law at the gate: five fitting samples then a dip
+        # must RESET the tail - the import may only start inside a stable window.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = itertools.repeat(1000.0)
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 6_000, "commit_available_mib": 18_166,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)), \
+             self._f138_stream([84_362, 84_413, 84_864, 84_362,
+                                22_864] + [22_864] * 4 + [19_000] + [22_864] * 10):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406)
+        self.assertTrue(out["ok"], f"{out}")
+        self.assertEqual(len(seen), 1)
+        fit = out["commit_gate_after_unload"]["import_fit"]
+        self.assertEqual(fit["stable_samples_mib"], [22_864] * 10,
+                         "the dip is not part of the fit tail")
+
+    def test_f138_the_cap_expires_and_the_refusal_stands(self):
+        # At the cap the F136 law holds: the retry/refusal runs anyway with its own
+        # recorded fact. Host never recovers inside the window (18,000 < 21,068).
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        clock = iter([1000.0, 1010.0, 1000.0, 1000.0, 1001.0])
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 6_000, "commit_available_mib": 18_166,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff, "_IMPORT_FIT_CAP_S", 0.5), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)), \
+             self._f138_stream([84_362, 84_413, 84_864, 84_362, 18_000]):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406)
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertTrue(out.get("transient"), "the answer stays typed and retryable")
+        self.assertEqual(seen, [], "the gate must fire BEFORE the worker is invoked")
+        self.assertEqual(provider.calls, ["unload", "load", "ready"],
+                         "the refusal must restore the model it unloaded")
+        gate = out["commit_gate_after_unload"]
+        self.assertEqual(gate["import_fit"]["stable_samples_mib"], [])
+        self.assertIn("settled above", gate["import_fit"]["note"])
+        self.assertIn("polled for", out["detail"],
+                      "the refusal must name the fit window it paid for")
+        lines = [json.loads(line) for line in
+                 (self.tmp / handoff.gate_log_path().name)
+                 .read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[-1]["verdict"], "refused")
+
+    def test_f138_the_ceiling_axis_short_never_waits(self):
+        # The ceiling axis is a clamp fact: free commit cannot change it, so the fit
+        # window must not open at all - no waiting, no import_fit record.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        with mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 6_000, "commit_available_mib": 24_000,
+                "free_vram_mib": 11_000, "vram_available": True}):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, ceiling_bytes=9_900_000_000,
+                                  commit_available_mib=24_000)
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertNotIn("import_fit", out["commit_gate_after_unload"],
+                         "the ceiling axis never gets the fit-wait")
+
+    def test_f140_the_gate_hands_back_inside_the_job_deadline(self):
+        # F140 (2026-11-24, accept-15): the documents.ocr TS client gives up at 90 s
+        # (DOCUMENT_PARSE_DEADLINE_MS + grace) while the window spent unload + F135
+        # settle (30 s) + F138 fit (120 s). accept-15: F91.1's chip showed a generic
+        # "processing -> error", no cascade record was written, and the lease stayed
+        # held into pass 2 - fr-U1 refused with coordination_held on that lease
+        # (job_1e11d1e1295e14265f, phase waiting), fr-F123 got 552 for the same slot.
+        # The window must hand the machine back INSIDE the job's own deadline.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        slept: list[float] = []
+        clock = itertools.repeat(1000.0)
+        with mock.patch.object(handoff, "_sleep", slept.append), \
+             mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 6_000, "commit_available_mib": 18_166,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "time", lambda: 1000.0), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)), \
+             self._f138_stream([84_362, 84_413, 18_000]):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, deadline_at=1030.0)
+        # budget = 1030 - 1000 - 20 = 10 s: ONE settle sample fits the budget, the fit
+        # window is clamped to ZERO - the gate refuses typed, restores, releases.
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertTrue(out.get("transient"), "the answer stays typed and retryable")
+        self.assertEqual(seen, [], "the gate fires before the worker, inside the deadline")
+        self.assertEqual(provider.calls, ["unload", "load", "ready"],
+                         "the refusal restores the model it unloaded")
+        self.assertFalse(handoff.lease_path().exists(),
+                         "the lease is handed back - the next row is not coordination_held")
+        self.assertEqual(slept, [10.0],
+                         "exactly ONE settle sleep: the settle loop stops at the deadline")
+        gate = out["commit_gate_after_unload"]
+        self.assertTrue(gate["settle_clamped_by_deadline"])
+        self.assertEqual(gate["settle_samples_mib"], [84_362, 84_413])
+        self.assertEqual(gate["import_fit"]["cap_s"], 0.0)
+        self.assertTrue(gate["import_fit"]["deadline_clamped"])
+        self.assertIn("settled above", gate["import_fit"]["note"])
+        self.assertIn("clamped the fit window", gate["import_fit"]["note"],
+                      "the refusal says WHY the fit window was short - a measured fact")
+        lines = [json.loads(line) for line in
+                 (self.tmp / handoff.gate_log_path().name)
+                 .read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[-1]["verdict"], "refused",
+                         "accept-15 appended NO gate line at all: the deadline-bounded "
+                         "window must record its decision before the client leaves")
+
+    def test_f140_a_budget_that_covers_the_settle_keeps_it_whole(self):
+        # The near miss: with 60 s of budget the F135 settle runs FULL (3 x 10 s - the
+        # clamp must never silently shorten a settle that fits), and only the fit
+        # window is clamped (60 - 30 = 30 s of the 120 s cap).
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits after unload", {})
+        slept: list[float] = []
+        clock = iter([1000.0, 1010.0, 1000.0, 1000.0])
+        with mock.patch.object(handoff, "_sleep", slept.append), \
+             mock.patch.object(handoff, "_measure", lambda: {
+                "free_physical_mib": 6_000, "commit_available_mib": 18_166,
+                "free_vram_mib": 11_000, "vram_available": True}), \
+             mock.patch.object(handoff.time, "time", lambda: 1000.0), \
+             mock.patch.object(handoff.time, "monotonic", lambda: next(clock)), \
+             self._f138_stream([84_362, 84_413, 84_864, 84_362, 18_000]):
+            out, seen = self._run(provider, [before, after], allow_unload=True,
+                                  commit_mib=10_406, deadline_at=1080.0)
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertEqual(slept, [10.0, 10.0, 10.0, 1.0],
+                         "three full settle sleeps + one fit poll: the settle keeps its law")
+        gate = out["commit_gate_after_unload"]
+        self.assertFalse(gate["settle_clamped_by_deadline"])
+        self.assertEqual(gate["settle_samples_mib"], [84_362, 84_413, 84_864, 84_362])
+        self.assertEqual(gate["import_fit"]["cap_s"], 30.0)
+        self.assertTrue(gate["import_fit"]["deadline_clamped"])
 
     def test_refused_unload_stops_the_job_and_is_reported(self):
         provider = StubMainModel(loaded=True, unload_ok=False)
@@ -859,6 +1574,199 @@ class CascadeMechanics(unittest.TestCase):
         self.assertEqual(casc["handoff"]["ok"], True)
         self.assertEqual(casc["units_read"], 1)
         self.assertEqual(pages[0].engine, "tesseract")
+
+    def test_a_gpu_shortage_window_runs_the_primary_on_the_plan_device(self):
+        """F91 wiring: when device_plan reports the VRAM-only shortage (device gpu, not
+        fits, needs_handoff), the cascade must request the window AND hand the plan
+        device to the primary engine - the CUDA execution is what the release was for.
+        The engine's own device echo (verified inside ocr_paddle) is the acceptance
+        evidence; here the mechanics are that the gpu placement reaches the engine."""
+        calls: list[list[int]] = []
+        recovered: list[OcrPage] = []
+        plan = devices.DevicePlan(
+            "documents.ocr", "gpu", False, True,
+            "free VRAM is 2400 MiB, under the 8356 MiB this needs; releasing the resident "
+            "main model is what would make it fit", {})
+        seen: dict = {}
+
+        def _primary_gpu(*a, **k):
+            seen.update(k)
+            return ocr_paddle.PaddleRun(
+                [OcrPage(page=1, state="recognised", text="scanned text",
+                         engine=ocr_paddle.ENGINE)],
+                {"peak_working_set_mib": 1000, "samples": 3, "device_used": "gpu:0"})
+
+        def fake_run_exclusive(name: str, operation, **kwargs):
+            operation({"device": "gpu", "main_model_unloaded_by_us": True})
+            return {"ok": True, "status": "ready",
+                    "plan_after_unload": {"device": "gpu", "fits": True,
+                                          "reason": "free VRAM 11500 MiB after the release"},
+                    "freed_vram_mib": 8800, "work_peak": {"working_set_mib": 2620}}
+
+        with mock.patch.object(ocr_cascade, "_primary_state", return_value=self._state(True)), \
+                mock.patch.object(main_model, "snapshot",
+                                  return_value={"loaded": True, "provider": "strata",
+                                                "endpoint": "http://127.0.0.1:9"}), \
+                mock.patch.object(ocr_paddle, "estimate",
+                                  return_value={"est_peak_mib": 2620,
+                                                "est_peak_basis": "measured",
+                                                "est_peak_vram_mib": 8100,
+                                                "est_vram_basis": "measured"}), \
+                mock.patch.object(devices, "device_plan", return_value=plan), \
+                mock.patch.object(handoff, "run_exclusive", side_effect=fake_run_exclusive), \
+                mock.patch.object(ocr_paddle, "ocr_pdf_pages", side_effect=_primary_gpu), \
+                self._fallback([], calls):
+            pages, report = ocr_cascade.run(str(self.pdf), [1], language="eng", dpi=200)
+        casc = report["cascade"]
+        self.assertEqual(casc["handoff"]["ok"], True)
+        self.assertEqual(seen.get("device"), "gpu",
+                         "the plan device must reach the primary engine: "
+                         "a gpu window that runs the engine on CPU is the bug under test")
+        self.assertTrue(seen.get("allow_gpu"),
+                        "inside the gpu window the engine must be allowed onto CUDA")
+        self.assertEqual(casc["device_plan"].get("device"), "gpu",
+                         "the report carries the post-unload plan, not the pre-unload one")
+        self.assertEqual(casc["handoff_work_peak"]["working_set_mib"], 2620)
+        self.assertEqual(casc["units_read"], 1)
+        self.assertEqual(calls, [], "the primary read inside the window; recovery must not run")
+
+    def test_f127c_a_refused_gpu_window_runs_the_same_paddle_pipeline_on_cpu(self):
+        """F127 (c) (user brief 2026-11-23): "unavailable after confirmed release -> CPU
+        with specific reason". accept-11 (F135) measured the shape: the commit gate
+        opened at a pagefile-expansion spike, the window died in libpaddle's import,
+        and every page answered tesseract - the SELECTED engine never ran. A refused
+        GPU window whose CPU plan fits must run the SAME pinned Paddle pipeline on CPU,
+        with the refusal recorded; Tesseract stays recovery-of-failed-pages (F122), so
+        the row's engine evidence contains paddle."""
+        calls: list[list[int]] = []
+        gpu_plan = devices.DevicePlan(
+            "documents.ocr", "gpu", False, True,
+            "free commit 15258 MiB under the 21068 MiB the loader measures", {})
+        cpu_plan = devices.DevicePlan(
+            "documents.ocr", "cpu", True, False,
+            "fits on CPU: the CUDA import views are not charged to the CPU build", {})
+        seen: dict = {}
+
+        def _plans(capability, **kwargs):
+            return cpu_plan if not kwargs.get("allow_gpu") else gpu_plan
+
+        def _primary(*a, **k):
+            seen.update(k)
+            return ocr_paddle.PaddleRun(
+                [OcrPage(page=1, state="recognised", text="scanned text",
+                         engine=ocr_paddle.ENGINE)],
+                {"peak_working_set_mib": 1000, "samples": 3, "device_used": "cpu"})
+
+        def fake_run_exclusive(name: str, operation, **kwargs):
+            # The F135 gate refuses the window: the worker is never invoked.
+            return {"ok": False, "status": "resource_limit", "reason": "resource_limit",
+                    "transient": True,
+                    "detail": "the commit headroom this host can give right now is 19180 MiB",
+                    "commit_gate_after_unload": {"commit_available_stable_mib": 19180}}
+
+        with mock.patch.object(ocr_cascade, "_primary_state", return_value=self._state(True)), \
+                mock.patch.object(main_model, "snapshot",
+                                  return_value={"loaded": True, "provider": "strata",
+                                                "endpoint": "http://127.0.0.1:9"}), \
+                mock.patch.object(ocr_paddle, "estimate",
+                                  return_value={"est_peak_mib": 10406,
+                                                "est_peak_basis": "measured",
+                                                "est_peak_vram_mib": 8100,
+                                                "est_vram_basis": "measured",
+                                                "est_peak_commit_mib": 10406}), \
+                mock.patch.object(devices, "device_plan", side_effect=_plans), \
+                mock.patch.object(handoff, "run_exclusive", side_effect=fake_run_exclusive), \
+                mock.patch.object(ocr_paddle, "ocr_pdf_pages", side_effect=_primary), \
+                self._fallback([], calls):
+            pages, report = ocr_cascade.run(str(self.pdf), [1], language="eng", dpi=200)
+        casc = report["cascade"]
+        self.assertIn("resource_limit", casc["primary"]["run_refused"],
+                      "the refused GPU window stays recorded as primary evidence")
+        fb = casc["device_fallback"]
+        self.assertEqual((fb["from_device"], fb["to_device"]), ("gpu", "cpu"))
+        self.assertTrue(fb["same_model"], "the fallback keeps the SAME pinned model")
+        self.assertEqual(fb["window"], "resource_limit")
+        self.assertIn("19180", fb["reason"], "the specific refusal reason rides along")
+        self.assertEqual(seen.get("device"), "cpu",
+                         "the SAME Paddle pipeline must run on the fallback device")
+        self.assertEqual(pages[0].engine, ocr_paddle.ENGINE,
+                         "the selected engine produced the page - not Tesseract")
+        self.assertEqual(calls, [], "the CPU run read the unit; recovery must not run")
+        self.assertEqual(casc["units_read"], 1)
+
+    def test_f127c_a_persistent_no_fit_plan_does_not_fake_a_cpu_run(self):
+        """The near miss: "neither device fits" (transient=False) says CPU cannot fit
+        either. The refusal is recorded with its reason, device_fallback names the plan
+        that does not fit, and NO engine work is faked - Tesseract recovery still runs
+        for the unread units."""
+        calls: list[list[int]] = []
+        recovered = [OcrPage(page=1, state="recognised", text="x", engine="tesseract")]
+        gpu_plan = devices.DevicePlan(
+            "documents.ocr", "gpu", False, True, "the card cannot fit this even released", {})
+        cpu_plan = devices.DevicePlan(
+            "documents.ocr", "cpu", False, False, "RAM under the demand on both devices", {})
+
+        def _plans(capability, **kwargs):
+            return cpu_plan if not kwargs.get("allow_gpu") else gpu_plan
+
+        def fake_run_exclusive(name: str, operation, **kwargs):
+            return {"ok": False, "status": "resource_limit", "reason": "resource_limit",
+                    "transient": False, "detail": "the window remeasured and neither fits"}
+
+        with mock.patch.object(ocr_cascade, "_primary_state", return_value=self._state(True)), \
+                mock.patch.object(main_model, "snapshot",
+                                  return_value={"loaded": True, "provider": "strata",
+                                                "endpoint": "http://127.0.0.1:9"}), \
+                mock.patch.object(ocr_paddle, "estimate",
+                                  return_value={"est_peak_mib": 10406,
+                                                "est_peak_basis": "measured",
+                                                "est_peak_vram_mib": 8100,
+                                                "est_vram_basis": "measured",
+                                                "est_peak_commit_mib": 10406}), \
+                mock.patch.object(devices, "device_plan", side_effect=_plans), \
+                mock.patch.object(handoff, "run_exclusive", side_effect=fake_run_exclusive), \
+                mock.patch.object(ocr_paddle, "ocr_pdf_pages",
+                                  side_effect=AssertionError("CPU plan does not fit: no "
+                                                             "primary run may happen")), \
+                self._fallback(recovered, calls):
+            pages, report = ocr_cascade.run(str(self.pdf), [1], language="eng", dpi=200)
+        casc = report["cascade"]
+        self.assertFalse(casc["device_fallback"]["plan"]["fits"])
+        self.assertEqual(casc["fallback"]["attempted"], [1])
+        self.assertEqual(pages[0].engine, "tesseract")
+
+    def test_the_window_restoration_timings_ride_into_the_cascade_report(self):
+        """B10: the restore dispatch/ready latencies the window MEASURED (worker
+        completion -> restoration dispatch -> verified ready) are carried into the
+        cascade report, so the persisted record answers "in how long was Strata
+        restored after the worker completed" without any poller involved."""
+        calls: list[list[int]] = []
+        recovered = [OcrPage(page=1, state="recognised", text="x", engine="tesseract")]
+        p1, p2 = self._planner(False)
+
+        def fake_run_exclusive(name: str, operation, **kwargs):
+            operation({"device": "cpu"})
+            return {"ok": True, "status": "ready",
+                    "plan": {"device": "cpu", "fits": True, "reason": "fits"},
+                    "work_peak": {"commit_mib": 3300},
+                    "restore_dispatch_ms": 42, "restore_ready_ms": 123456}
+
+        with mock.patch.object(ocr_cascade, "_primary_state", return_value=self._state(True)), \
+                mock.patch.object(main_model, "snapshot",
+                                  return_value={"loaded": True, "provider": "strata",
+                                                "endpoint": "http://127.0.0.1:9"}), \
+                mock.patch.object(ocr_paddle, "estimate",
+                                  return_value={"est_peak_mib": 3300, "est_peak_basis": "measured",
+                                                "est_peak_vram_mib": 0, "est_vram_basis": "u"}), \
+                p1, p2, \
+                mock.patch.object(handoff, "run_exclusive", side_effect=fake_run_exclusive), \
+                self._primary([OcrPage(page=1, state="ocr_failed", text="",
+                                       engine=ocr_paddle.ENGINE)]), \
+                self._fallback(recovered, calls):
+            _pages, report = ocr_cascade.run(str(self.pdf), [1], language="eng", dpi=200)
+        casc = report["cascade"]
+        self.assertEqual(casc["handoff_restore"],
+                         {"restore_dispatch_ms": 42, "restore_ready_ms": 123456})
 
     def test_inside_a_handoff_the_cascade_never_requests_a_nested_lease(self):
         calls: list[list[int]] = []

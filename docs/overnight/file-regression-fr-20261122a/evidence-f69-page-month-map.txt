@@ -1,0 +1,34 @@
+F69 model-free probe 2026-11-22 (pdfjs-dist, full render, NO 48000 cap) — doc-c.pdf
+(college-accounts-direction-2025-26.pdf, fixture .data/tmp/file-regression/fr-20261122a/dl/live/doc-c.pdf)
+
+TOTAL rendered text: 61,168 chars across 36 pages. (Server cap path without attId keeps 48,000 = head 78.5%;
+live path indexes the whole body via attId.)
+
+Month-year mentions per page (pattern "Month 20NN"):
+p1  (cover, len 143): March 2026            <-- the ONLY "March 2026" in the entire file
+p3  : July 2026 | August 2025
+p5  : February 2026 | August 2026
+p7  : December 2026 | July 2026
+p8  : July 2026 | December 2026
+p9  : January 2027
+p28 : April 2019 | August 2025 | July 2026
+p31 : July 2026 | March 2027 | July 2025
+p32 : September 2024 | November 2025 | January 2026
+
+Key S-P5 (ANSWER-KEY.md): "Which month and year does the latest direction in this file cover?" -> `March 2026` EXACT,
+note "late-in-file relationship (5/3 chart battery direction leg)".
+Harness question (tests/fr-live-regression.spec.ts:919): same wording; expects /march\s*2026/i.
+Live answer 2026-11-22T07:00:51Z: "July 2026".
+
+Verdict so far: "March 2026" exists in the rendered text ONLY on the cover (p1); the latest months in the file are
+January 2027 (p9) and March 2027 (p31). The key's "late-in-file" premise is NOT supported by the month map —
+March-2026 is head-of-file, not late. F73-style key-vs-fixture review required (see F69 direction-context probe next).
+
+Direction-context probe (pages 2-36, "direction" ±context): every late mention is OfS/academies accounts
+direction boilerplate or the future CAD 2026-27 ("will comply"). NO passage ties a direction to March 2026
+late in the file. Head facts: p1 cover "College accounts direction 2025 to 2026 … March 2026"; p3 body idx 760
+"financial year ending 31 July 2026". Both are inside the opening preview of the indexed body, so the live
+payload carried both; "July 2026" is a supported reading of "cover" (coverage period), the key asks the
+publication date. Key-vs-fixture wording defect (F73 pattern). Fix = harness question retargeted to the
+ANSWER-KEY P5 cover wording; EXACT March 2026 kept (only match in file = cover). Spec fingerprint change,
+sha recorded at C3 freeze.

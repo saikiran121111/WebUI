@@ -1,0 +1,1829 @@
+{
+  "state": "transcribed",
+  "text": "Nice, Matthews. Our claim to fame actually at the time was that our room was literally Matt Damon's just three years prior, so uh onward from that. But my first year, I didn't really have the nerves to like set foot in this classroom, let alone computer science. In fact, for me, computer science and CS50 in particular was very much this class to beware. Like I was kind of comfortable with computers, but I certainly wasn't among those more comfortable with for with computers, and so I shied away my first year. Instead, I actually took a whole lot of classes in government. In fact, in high school, I was really enjoying history. I love this constitutional law class that I took, my senior year of high school, and so I figured, okay, if that's what I liked in high school, and if that's where my comfort zone was, that's probably what I should be doing in college. And so I essentially declared as my concentration or major government for the first year, year and a half of school. But my sophomore year, when I was living actually in Matherhouse inste",
+  "segments": [
+    {
+      "start": 0.96,
+      "end": 54.96,
+      "text": "Nice, Matthews. Our claim to fame actually at the time was that our room was literally Matt Damon's just three years prior, so uh onward from that. But my first year, I didn't really have the nerves to like set foot in this classroom, let alone computer science. In fact, for me, computer science and CS50 in particular was very much this class to beware. Like I was kind of comfortable with computers, but I certainly wasn't among those more comfortable with for with computers, and so I shied away my first year. Instead, I actually took a whole lot of classes in government. In fact, in high school, I was really enjoying history. I love this constitutional law class that I took, my senior year of high school, and so I figured, okay, if that's what I liked in high school, and if that's where my comfort zone was, that's probably what I should be doing in college. And so I essentially declared as my concentration or major government for the first year, year and a half of school. But my sophomore year, when I was living actually in Matherhouse inste",
+      "words": [
+        {
+          "word": "N",
+          "start": 0.96,
+          "end": 1.2
+        },
+        {
+          "word": "ice",
+          "start": 1.2,
+          "end": 1.36
+        },
+        {
+          "word": ",",
+          "start": 1.36,
+          "end": 1.36
+        },
+        {
+          "word": " M",
+          "start": 1.52,
+          "end": 1.6
+        },
+        {
+          "word": "att",
+          "start": 1.6,
+          "end": 1.76
+        },
+        {
+          "word": "he",
+          "start": 1.76,
+          "end": 2.0
+        },
+        {
+          "word": "ws",
+          "start": 2.0,
+          "end": 2.32
+        },
+        {
+          "word": ".",
+          "start": 2.32,
+          "end": 2.32
+        },
+        {
+          "word": " O",
+          "start": 2.72,
+          "end": 2.88
+        },
+        {
+          "word": "ur",
+          "start": 2.88,
+          "end": 2.96
+        },
+        {
+          "word": " c",
+          "start": 2.96,
+          "end": 3.04
+        },
+        {
+          "word": "la",
+          "start": 3.04,
+          "end": 3.2
+        },
+        {
+          "word": "im",
+          "start": 3.2,
+          "end": 3.28
+        },
+        {
+          "word": " to",
+          "start": 3.28,
+          "end": 3.44
+        },
+        {
+          "word": " f",
+          "start": 3.44,
+          "end": 3.52
+        },
+        {
+          "word": "ame",
+          "start": 3.52,
+          "end": 3.68
+        },
+        {
+          "word": " actu",
+          "start": 3.76,
+          "end": 3.84
+        },
+        {
+          "word": "ally",
+          "start": 3.84,
+          "end": 4.0
+        },
+        {
+          "word": " at",
+          "start": 4.08,
+          "end": 4.16
+        },
+        {
+          "word": " the",
+          "start": 4.16,
+          "end": 4.24
+        },
+        {
+          "word": " time",
+          "start": 4.24,
+          "end": 4.4
+        },
+        {
+          "word": " was",
+          "start": 4.48,
+          "end": 4.64
+        },
+        {
+          "word": " that",
+          "start": 4.64,
+          "end": 4.88
+        },
+        {
+          "word": " our",
+          "start": 4.88,
+          "end": 5.04
+        },
+        {
+          "word": " ro",
+          "start": 5.04,
+          "end": 5.2
+        },
+        {
+          "word": "om",
+          "start": 5.2,
+          "end": 5.36
+        },
+        {
+          "word": " was",
+          "start": 5.36,
+          "end": 5.52
+        },
+        {
+          "word": " l",
+          "start": 5.52,
+          "end": 5.6
+        },
+        {
+          "word": "iter",
+          "start": 5.6,
+          "end": 5.76
+        },
+        {
+          "word": "ally",
+          "start": 5.76,
+          "end": 6.0
+        },
+        {
+          "word": " M",
+          "start": 6.0,
+          "end": 6.16
+        },
+        {
+          "word": "att",
+          "start": 6.16,
+          "end": 6.4
+        },
+        {
+          "word": " D",
+          "start": 6.4,
+          "end": 6.48
+        },
+        {
+          "word": "am",
+          "start": 6.48,
+          "end": 6.64
+        },
+        {
+          "word": "on",
+          "start": 6.64,
+          "end": 6.72
+        },
+        {
+          "word": "'",
+          "start": 6.72,
+          "end": 6.72
+        },
+        {
+          "word": "s",
+          "start": 6.96,
+          "end": 7.04
+        },
+        {
+          "word": " just",
+          "start": 7.12,
+          "end": 7.28
+        },
+        {
+          "word": " th",
+          "start": 7.28,
+          "end": 7.36
+        },
+        {
+          "word": "ree",
+          "start": 7.36,
+          "end": 7.52
+        },
+        {
+          "word": " ye",
+          "start": 7.52,
+          "end": 7.68
+        },
+        {
+          "word": "ars",
+          "start": 7.68,
+          "end": 7.84
+        },
+        {
+          "word": " pri",
+          "start": 7.84,
+          "end": 8.08
+        },
+        {
+          "word": "or",
+          "start": 8.08,
+          "end": 8.24
+        },
+        {
+          "word": ",",
+          "start": 8.24,
+          "end": 8.24
+        },
+        {
+          "word": " so",
+          "start": 8.48,
+          "end": 8.72
+        },
+        {
+          "word": " uh",
+          "start": 8.8,
+          "end": 8.96
+        },
+        {
+          "word": " on",
+          "start": 9.2,
+          "end": 9.44
+        },
+        {
+          "word": "ward",
+          "start": 9.44,
+          "end": 9.76
+        },
+        {
+          "word": " from",
+          "start": 9.76,
+          "end": 10.0
+        },
+        {
+          "word": " that",
+          "start": 10.0,
+          "end": 10.24
+        },
+        {
+          "word": ".",
+          "start": 10.24,
+          "end": 10.24
+        },
+        {
+          "word": " But",
+          "start": 10.4,
+          "end": 10.56
+        },
+        {
+          "word": " my",
+          "start": 10.72,
+          "end": 10.88
+        },
+        {
+          "word": " first",
+          "start": 10.88,
+          "end": 11.12
+        },
+        {
+          "word": " ye",
+          "start": 11.12,
+          "end": 11.2
+        },
+        {
+          "word": "ar",
+          "start": 11.2,
+          "end": 11.36
+        },
+        {
+          "word": ",",
+          "start": 11.36,
+          "end": 11.36
+        },
+        {
+          "word": " I",
+          "start": 11.44,
+          "end": 11.6
+        },
+        {
+          "word": " did",
+          "start": 11.6,
+          "end": 11.68
+        },
+        {
+          "word": "n",
+          "start": 11.68,
+          "end": 11.76
+        },
+        {
+          "word": "'",
+          "start": 11.76,
+          "end": 11.76
+        },
+        {
+          "word": "t",
+          "start": 11.92,
+          "end": 11.92
+        },
+        {
+          "word": " really",
+          "start": 11.92,
+          "end": 12.16
+        },
+        {
+          "word": " have",
+          "start": 12.16,
+          "end": 12.32
+        },
+        {
+          "word": " the",
+          "start": 12.32,
+          "end": 12.64
+        },
+        {
+          "word": " ner",
+          "start": 12.72,
+          "end": 12.96
+        },
+        {
+          "word": "ves",
+          "start": 12.96,
+          "end": 13.12
+        },
+        {
+          "word": " to",
+          "start": 13.12,
+          "end": 13.28
+        },
+        {
+          "word": " like",
+          "start": 13.36,
+          "end": 13.6
+        },
+        {
+          "word": " set",
+          "start": 13.6,
+          "end": 13.84
+        },
+        {
+          "word": " fo",
+          "start": 13.84,
+          "end": 14.0
+        },
+        {
+          "word": "ot",
+          "start": 14.0,
+          "end": 14.16
+        },
+        {
+          "word": " in",
+          "start": 14.16,
+          "end": 14.32
+        },
+        {
+          "word": " this",
+          "start": 14.32,
+          "end": 14.48
+        },
+        {
+          "word": " clas",
+          "start": 14.48,
+          "end": 14.64
+        },
+        {
+          "word": "s",
+          "start": 14.64,
+          "end": 14.72
+        },
+        {
+          "word": "ro",
+          "start": 14.72,
+          "end": 14.8
+        },
+        {
+          "word": "om",
+          "start": 14.8,
+          "end": 14.96
+        },
+        {
+          "word": ",",
+          "start": 14.96,
+          "end": 14.96
+        },
+        {
+          "word": " let",
+          "start": 15.04,
+          "end": 15.2
+        },
+        {
+          "word": " al",
+          "start": 15.2,
+          "end": 15.36
+        },
+        {
+          "word": "one",
+          "start": 15.36,
+          "end": 15.52
+        },
+        {
+          "word": " comp",
+          "start": 15.52,
+          "end": 15.76
+        },
+        {
+          "word": "uter",
+          "start": 15.76,
+          "end": 15.92
+        },
+        {
+          "word": " s",
+          "start": 15.92,
+          "end": 16.0
+        },
+        {
+          "word": "ci",
+          "start": 16.0,
+          "end": 16.08
+        },
+        {
+          "word": "ence",
+          "start": 16.08,
+          "end": 16.24
+        },
+        {
+          "word": ".",
+          "start": 16.24,
+          "end": 16.24
+        },
+        {
+          "word": " In",
+          "start": 16.4,
+          "end": 16.56
+        },
+        {
+          "word": " fac",
+          "start": 16.56,
+          "end": 16.64
+        },
+        {
+          "word": "t",
+          "start": 16.64,
+          "end": 16.8
+        },
+        {
+          "word": ",",
+          "start": 16.8,
+          "end": 16.8
+        },
+        {
+          "word": " for",
+          "start": 16.88,
+          "end": 17.12
+        },
+        {
+          "word": " me",
+          "start": 17.12,
+          "end": 17.2
+        },
+        {
+          "word": ",",
+          "start": 17.2,
+          "end": 17.2
+        },
+        {
+          "word": " comp",
+          "start": 17.36,
+          "end": 17.6
+        },
+        {
+          "word": "uter",
+          "start": 17.6,
+          "end": 17.76
+        },
+        {
+          "word": " s",
+          "start": 17.76,
+          "end": 17.84
+        },
+        {
+          "word": "ci",
+          "start": 17.84,
+          "end": 17.92
+        },
+        {
+          "word": "ence",
+          "start": 17.92,
+          "end": 18.0
+        },
+        {
+          "word": " and",
+          "start": 18.08,
+          "end": 18.24
+        },
+        {
+          "word": " C",
+          "start": 18.24,
+          "end": 18.4
+        },
+        {
+          "word": "S",
+          "start": 18.4,
+          "end": 18.56
+        },
+        {
+          "word": "5",
+          "start": 18.56,
+          "end": 18.64
+        },
+        {
+          "word": "0",
+          "start": 18.72,
+          "end": 18.88
+        },
+        {
+          "word": " in",
+          "start": 18.88,
+          "end": 18.96
+        },
+        {
+          "word": " parti",
+          "start": 18.96,
+          "end": 19.04
+        },
+        {
+          "word": "cul",
+          "start": 19.04,
+          "end": 19.2
+        },
+        {
+          "word": "ar",
+          "start": 19.2,
+          "end": 19.28
+        },
+        {
+          "word": " was",
+          "start": 19.44,
+          "end": 19.6
+        },
+        {
+          "word": " very",
+          "start": 19.6,
+          "end": 19.76
+        },
+        {
+          "word": " much",
+          "start": 19.76,
+          "end": 19.92
+        },
+        {
+          "word": " this",
+          "start": 19.92,
+          "end": 20.08
+        },
+        {
+          "word": " clas",
+          "start": 20.08,
+          "end": 20.24
+        },
+        {
+          "word": "s",
+          "start": 20.24,
+          "end": 20.4
+        },
+        {
+          "word": " to",
+          "start": 20.4,
+          "end": 20.72
+        },
+        {
+          "word": " be",
+          "start": 20.96,
+          "end": 21.12
+        },
+        {
+          "word": "w",
+          "start": 21.12,
+          "end": 21.36
+        },
+        {
+          "word": "are",
+          "start": 21.36,
+          "end": 21.52
+        },
+        {
+          "word": ".",
+          "start": 21.52,
+          "end": 21.52
+        },
+        {
+          "word": " L",
+          "start": 21.68,
+          "end": 21.92
+        },
+        {
+          "word": "ike",
+          "start": 21.92,
+          "end": 21.92
+        },
+        {
+          "word": " I",
+          "start": 22.0,
+          "end": 22.24
+        },
+        {
+          "word": " was",
+          "start": 22.24,
+          "end": 22.48
+        },
+        {
+          "word": " kind",
+          "start": 22.48,
+          "end": 22.8
+        },
+        {
+          "word": " of",
+          "start": 22.8,
+          "end": 22.96
+        },
+        {
+          "word": " com",
+          "start": 22.96,
+          "end": 23.04
+        },
+        {
+          "word": "for",
+          "start": 23.04,
+          "end": 23.2
+        },
+        {
+          "word": "ta",
+          "start": 23.2,
+          "end": 23.28
+        },
+        {
+          "word": "ble",
+          "start": 23.28,
+          "end": 23.44
+        },
+        {
+          "word": " with",
+          "start": 23.44,
+          "end": 23.6
+        },
+        {
+          "word": " comp",
+          "start": 23.6,
+          "end": 23.68
+        },
+        {
+          "word": "ut",
+          "start": 23.68,
+          "end": 23.84
+        },
+        {
+          "word": "ers",
+          "start": 23.84,
+          "end": 23.92
+        },
+        {
+          "word": ",",
+          "start": 23.92,
+          "end": 23.92
+        },
+        {
+          "word": " but",
+          "start": 24.0,
+          "end": 24.16
+        },
+        {
+          "word": " I",
+          "start": 24.16,
+          "end": 24.24
+        },
+        {
+          "word": " cer",
+          "start": 24.24,
+          "end": 24.32
+        },
+        {
+          "word": "tain",
+          "start": 24.32,
+          "end": 24.48
+        },
+        {
+          "word": "ly",
+          "start": 24.48,
+          "end": 24.56
+        },
+        {
+          "word": " was",
+          "start": 24.56,
+          "end": 24.64
+        },
+        {
+          "word": "n",
+          "start": 24.64,
+          "end": 24.72
+        },
+        {
+          "word": "'",
+          "start": 24.72,
+          "end": 24.72
+        },
+        {
+          "word": "t",
+          "start": 24.8,
+          "end": 24.8
+        },
+        {
+          "word": " am",
+          "start": 24.8,
+          "end": 24.96
+        },
+        {
+          "word": "ong",
+          "start": 24.96,
+          "end": 25.12
+        },
+        {
+          "word": " th",
+          "start": 25.12,
+          "end": 25.36
+        },
+        {
+          "word": "ose",
+          "start": 25.36,
+          "end": 25.68
+        },
+        {
+          "word": " more",
+          "start": 25.68,
+          "end": 26.0
+        },
+        {
+          "word": " com",
+          "start": 26.0,
+          "end": 26.08
+        },
+        {
+          "word": "for",
+          "start": 26.08,
+          "end": 26.24
+        },
+        {
+          "word": "ta",
+          "start": 26.24,
+          "end": 26.4
+        },
+        {
+          "word": "ble",
+          "start": 26.4,
+          "end": 26.56
+        },
+        {
+          "word": " with",
+          "start": 26.56,
+          "end": 26.72
+        },
+        {
+          "word": " for",
+          "start": 26.72,
+          "end": 26.8
+        },
+        {
+          "word": " with",
+          "start": 26.96,
+          "end": 27.12
+        },
+        {
+          "word": " comp",
+          "start": 27.12,
+          "end": 27.2
+        },
+        {
+          "word": "ut",
+          "start": 27.2,
+          "end": 27.36
+        },
+        {
+          "word": "ers",
+          "start": 27.36,
+          "end": 27.52
+        },
+        {
+          "word": ",",
+          "start": 27.52,
+          "end": 27.52
+        },
+        {
+          "word": " and",
+          "start": 27.6,
+          "end": 27.68
+        },
+        {
+          "word": " so",
+          "start": 27.68,
+          "end": 27.84
+        },
+        {
+          "word": " I",
+          "start": 27.84,
+          "end": 27.92
+        },
+        {
+          "word": " sh",
+          "start": 27.92,
+          "end": 28.16
+        },
+        {
+          "word": "ied",
+          "start": 28.16,
+          "end": 28.32
+        },
+        {
+          "word": " a",
+          "start": 28.32,
+          "end": 28.48
+        },
+        {
+          "word": "way",
+          "start": 28.48,
+          "end": 28.64
+        },
+        {
+          "word": " my",
+          "start": 28.8,
+          "end": 28.96
+        },
+        {
+          "word": " first",
+          "start": 28.96,
+          "end": 29.12
+        },
+        {
+          "word": " ye",
+          "start": 29.12,
+          "end": 29.2
+        },
+        {
+          "word": "ar",
+          "start": 29.2,
+          "end": 29.36
+        },
+        {
+          "word": ".",
+          "start": 29.36,
+          "end": 29.36
+        },
+        {
+          "word": " In",
+          "start": 29.52,
+          "end": 29.6
+        },
+        {
+          "word": "ste",
+          "start": 29.6,
+          "end": 29.76
+        },
+        {
+          "word": "ad",
+          "start": 29.76,
+          "end": 29.84
+        },
+        {
+          "word": ",",
+          "start": 29.84,
+          "end": 29.84
+        },
+        {
+          "word": " I",
+          "start": 29.92,
+          "end": 30.16
+        },
+        {
+          "word": " actu",
+          "start": 30.16,
+          "end": 30.24
+        },
+        {
+          "word": "ally",
+          "start": 30.24,
+          "end": 30.4
+        },
+        {
+          "word": " to",
+          "start": 30.4,
+          "end": 30.48
+        },
+        {
+          "word": "ok",
+          "start": 30.48,
+          "end": 30.64
+        },
+        {
+          "word": " a",
+          "start": 30.64,
+          "end": 30.72
+        },
+        {
+          "word": " wh",
+          "start": 30.72,
+          "end": 30.8
+        },
+        {
+          "word": "ole",
+          "start": 30.8,
+          "end": 30.96
+        },
+        {
+          "word": " lot",
+          "start": 30.96,
+          "end": 31.12
+        },
+        {
+          "word": " of",
+          "start": 31.12,
+          "end": 31.2
+        },
+        {
+          "word": " clas",
+          "start": 31.2,
+          "end": 31.28
+        },
+        {
+          "word": "s",
+          "start": 31.28,
+          "end": 31.44
+        },
+        {
+          "word": "es",
+          "start": 31.44,
+          "end": 31.6
+        },
+        {
+          "word": " in",
+          "start": 31.6,
+          "end": 31.76
+        },
+        {
+          "word": " gov",
+          "start": 31.76,
+          "end": 31.84
+        },
+        {
+          "word": "ern",
+          "start": 31.84,
+          "end": 32.0
+        },
+        {
+          "word": "ment",
+          "start": 32.0,
+          "end": 32.08
+        },
+        {
+          "word": ".",
+          "start": 32.08,
+          "end": 32.08
+        },
+        {
+          "word": " In",
+          "start": 32.24,
+          "end": 32.32
+        },
+        {
+          "word": " fac",
+          "start": 32.32,
+          "end": 32.4
+        },
+        {
+          "word": "t",
+          "start": 32.4,
+          "end": 32.48
+        },
+        {
+          "word": ",",
+          "start": 32.48,
+          "end": 32.48
+        },
+        {
+          "word": " in",
+          "start": 32.56,
+          "end": 32.72
+        },
+        {
+          "word": " h",
+          "start": 32.72,
+          "end": 32.8
+        },
+        {
+          "word": "igh",
+          "start": 32.8,
+          "end": 32.88
+        },
+        {
+          "word": " sch",
+          "start": 32.88,
+          "end": 32.96
+        },
+        {
+          "word": "ool",
+          "start": 32.96,
+          "end": 33.04
+        },
+        {
+          "word": ",",
+          "start": 33.04,
+          "end": 33.04
+        },
+        {
+          "word": " I",
+          "start": 33.12,
+          "end": 33.28
+        },
+        {
+          "word": " was",
+          "start": 33.28,
+          "end": 33.44
+        },
+        {
+          "word": " really",
+          "start": 33.44,
+          "end": 33.6
+        },
+        {
+          "word": " en",
+          "start": 33.6,
+          "end": 33.76
+        },
+        {
+          "word": "jo",
+          "start": 33.76,
+          "end": 33.84
+        },
+        {
+          "word": "y",
+          "start": 33.84,
+          "end": 34.08
+        },
+        {
+          "word": "ing",
+          "start": 34.08,
+          "end": 34.24
+        },
+        {
+          "word": " hist",
+          "start": 34.24,
+          "end": 34.48
+        },
+        {
+          "word": "ory",
+          "start": 34.48,
+          "end": 34.64
+        },
+        {
+          "word": ".",
+          "start": 34.64,
+          "end": 34.64
+        },
+        {
+          "word": " I",
+          "start": 34.8,
+          "end": 34.96
+        },
+        {
+          "word": " love",
+          "start": 34.96,
+          "end": 35.04
+        },
+        {
+          "word": " this",
+          "start": 35.2,
+          "end": 35.44
+        },
+        {
+          "word": " const",
+          "start": 35.44,
+          "end": 35.6
+        },
+        {
+          "word": "itu",
+          "start": 35.6,
+          "end": 35.84
+        },
+        {
+          "word": "tion",
+          "start": 35.84,
+          "end": 35.92
+        },
+        {
+          "word": "al",
+          "start": 35.92,
+          "end": 36.08
+        },
+        {
+          "word": " la",
+          "start": 36.08,
+          "end": 36.24
+        },
+        {
+          "word": "w",
+          "start": 36.24,
+          "end": 36.4
+        },
+        {
+          "word": " clas",
+          "start": 36.4,
+          "end": 36.48
+        },
+        {
+          "word": "s",
+          "start": 36.48,
+          "end": 36.64
+        },
+        {
+          "word": " that",
+          "start": 36.64,
+          "end": 36.8
+        },
+        {
+          "word": " I",
+          "start": 36.8,
+          "end": 36.88
+        },
+        {
+          "word": " to",
+          "start": 36.88,
+          "end": 37.04
+        },
+        {
+          "word": "ok",
+          "start": 37.04,
+          "end": 37.12
+        },
+        {
+          "word": ",",
+          "start": 37.12,
+          "end": 37.12
+        },
+        {
+          "word": " my",
+          "start": 37.28,
+          "end": 37.44
+        },
+        {
+          "word": " s",
+          "start": 37.44,
+          "end": 37.52
+        },
+        {
+          "word": "eni",
+          "start": 37.52,
+          "end": 37.68
+        },
+        {
+          "word": "or",
+          "start": 37.68,
+          "end": 37.76
+        },
+        {
+          "word": " ye",
+          "start": 37.76,
+          "end": 37.84
+        },
+        {
+          "word": "ar",
+          "start": 37.84,
+          "end": 37.92
+        },
+        {
+          "word": " of",
+          "start": 37.92,
+          "end": 38.0
+        },
+        {
+          "word": " h",
+          "start": 38.0,
+          "end": 38.08
+        },
+        {
+          "word": "igh",
+          "start": 38.08,
+          "end": 38.16
+        },
+        {
+          "word": " sch",
+          "start": 38.16,
+          "end": 38.24
+        },
+        {
+          "word": "ool",
+          "start": 38.24,
+          "end": 38.32
+        },
+        {
+          "word": ",",
+          "start": 38.32,
+          "end": 38.32
+        },
+        {
+          "word": " and",
+          "start": 38.4,
+          "end": 38.48
+        },
+        {
+          "word": " so",
+          "start": 38.48,
+          "end": 38.64
+        },
+        {
+          "word": " I",
+          "start": 38.64,
+          "end": 38.72
+        },
+        {
+          "word": " fig",
+          "start": 38.72,
+          "end": 38.8
+        },
+        {
+          "word": "u",
+          "start": 38.8,
+          "end": 38.88
+        },
+        {
+          "word": "red",
+          "start": 38.88,
+          "end": 38.96
+        },
+        {
+          "word": ",",
+          "start": 38.96,
+          "end": 38.96
+        },
+        {
+          "word": " o",
+          "start": 39.04,
+          "end": 39.2
+        },
+        {
+          "word": "kay",
+          "start": 39.2,
+          "end": 39.2
+        },
+        {
+          "word": ",",
+          "start": 39.2,
+          "end": 39.2
+        },
+        {
+          "word": " if",
+          "start": 39.28,
+          "end": 39.36
+        },
+        {
+          "word": " that",
+          "start": 39.36,
+          "end": 39.44
+        },
+        {
+          "word": "'",
+          "start": 39.44,
+          "end": 39.44
+        },
+        {
+          "word": "s",
+          "start": 39.52,
+          "end": 39.52
+        },
+        {
+          "word": " what",
+          "start": 39.52,
+          "end": 39.6
+        },
+        {
+          "word": " I",
+          "start": 39.6,
+          "end": 39.76
+        },
+        {
+          "word": " lik",
+          "start": 39.76,
+          "end": 39.84
+        },
+        {
+          "word": "ed",
+          "start": 39.84,
+          "end": 40.0
+        },
+        {
+          "word": " in",
+          "start": 40.0,
+          "end": 40.16
+        },
+        {
+          "word": " h",
+          "start": 40.16,
+          "end": 40.24
+        },
+        {
+          "word": "igh",
+          "start": 40.24,
+          "end": 40.32
+        },
+        {
+          "word": " sch",
+          "start": 40.32,
+          "end": 40.48
+        },
+        {
+          "word": "ool",
+          "start": 40.48,
+          "end": 40.64
+        },
+        {
+          "word": ",",
+          "start": 40.64,
+          "end": 40.64
+        },
+        {
+          "word": " and",
+          "start": 40.72,
+          "end": 40.96
+        },
+        {
+          "word": " if",
+          "start": 40.96,
+          "end": 41.12
+        },
+        {
+          "word": " that",
+          "start": 41.12,
+          "end": 41.2
+        },
+        {
+          "word": "'",
+          "start": 41.2,
+          "end": 41.2
+        },
+        {
+          "word": "s",
+          "start": 41.28,
+          "end": 41.36
+        },
+        {
+          "word": " where",
+          "start": 41.36,
+          "end": 41.52
+        },
+        {
+          "word": " my",
+          "start": 41.52,
+          "end": 41.6
+        },
+        {
+          "word": " com",
+          "start": 41.6,
+          "end": 41.76
+        },
+        {
+          "word": "f",
+          "start": 41.76,
+          "end": 41.92
+        },
+        {
+          "word": "ort",
+          "start": 41.92,
+          "end": 42.08
+        },
+        {
+          "word": " z",
+          "start": 42.08,
+          "end": 42.16
+        },
+        {
+          "word": "one",
+          "start": 42.16,
+          "end": 42.4
+        },
+        {
+          "word": " was",
+          "start": 42.4,
+          "end": 42.64
+        },
+        {
+          "word": ",",
+          "start": 42.64,
+          "end": 42.64
+        },
+        {
+          "word": " that",
+          "start": 42.8,
+          "end": 42.88
+        },
+        {
+          "word": "'",
+          "start": 42.88,
+          "end": 42.88
+        },
+        {
+          "word": "s",
+          "start": 42.96,
+          "end": 43.12
+        },
+        {
+          "word": " probab",
+          "start": 43.12,
+          "end": 43.28
+        },
+        {
+          "word": "ly",
+          "start": 43.28,
+          "end": 43.44
+        },
+        {
+          "word": " what",
+          "start": 43.44,
+          "end": 43.6
+        },
+        {
+          "word": " I",
+          "start": 43.6,
+          "end": 43.76
+        },
+        {
+          "word": " sho",
+          "start": 43.76,
+          "end": 43.92
+        },
+        {
+          "word": "uld",
+          "start": 43.92,
+          "end": 44.0
+        },
+        {
+          "word": " be",
+          "start": 44.0,
+          "end": 44.16
+        },
+        {
+          "word": " do",
+          "start": 44.16,
+          "end": 44.32
+        },
+        {
+          "word": "ing",
+          "start": 44.32,
+          "end": 44.48
+        },
+        {
+          "word": " in",
+          "start": 44.48,
+          "end": 44.64
+        },
+        {
+          "word": " col",
+          "start": 44.64,
+          "end": 44.8
+        },
+        {
+          "word": "lege",
+          "start": 44.8,
+          "end": 44.96
+        },
+        {
+          "word": ".",
+          "start": 44.96,
+          "end": 44.96
+        },
+        {
+          "word": " And",
+          "start": 45.04,
+          "end": 45.2
+        },
+        {
+          "word": " so",
+          "start": 45.2,
+          "end": 45.36
+        },
+        {
+          "word": " I",
+          "start": 45.36,
+          "end": 45.52
+        },
+        {
+          "word": " es",
+          "start": 45.52,
+          "end": 45.6
+        },
+        {
+          "word": "sen",
+          "start": 45.6,
+          "end": 45.68
+        },
+        {
+          "word": "ti",
+          "start": 45.68,
+          "end": 45.76
+        },
+        {
+          "word": "ally",
+          "start": 45.76,
+          "end": 45.92
+        },
+        {
+          "word": " dec",
+          "start": 45.92,
+          "end": 46.0
+        },
+        {
+          "word": "lar",
+          "start": 46.0,
+          "end": 46.16
+        },
+        {
+          "word": "ed",
+          "start": 46.16,
+          "end": 46.24
+        },
+        {
+          "word": " as",
+          "start": 46.32,
+          "end": 46.48
+        },
+        {
+          "word": " my",
+          "start": 46.48,
+          "end": 46.64
+        },
+        {
+          "word": " con",
+          "start": 46.64,
+          "end": 46.72
+        },
+        {
+          "word": "cent",
+          "start": 46.72,
+          "end": 46.88
+        },
+        {
+          "word": "r",
+          "start": 46.88,
+          "end": 47.04
+        },
+        {
+          "word": "ation",
+          "start": 47.04,
+          "end": 47.2
+        },
+        {
+          "word": " or",
+          "start": 47.2,
+          "end": 47.44
+        },
+        {
+          "word": " maj",
+          "start": 47.44,
+          "end": 47.6
+        },
+        {
+          "word": "or",
+          "start": 47.6,
+          "end": 47.76
+        },
+        {
+          "word": " gov",
+          "start": 47.92,
+          "end": 48.08
+        },
+        {
+          "word": "ern",
+          "start": 48.08,
+          "end": 48.24
+        },
+        {
+          "word": "ment",
+          "start": 48.24,
+          "end": 48.48
+        },
+        {
+          "word": " for",
+          "start": 48.48,
+          "end": 48.64
+        },
+        {
+          "word": " the",
+          "start": 48.64,
+          "end": 48.72
+        },
+        {
+          "word": " first",
+          "start": 48.72,
+          "end": 48.88
+        },
+        {
+          "word": " ye",
+          "start": 48.88,
+          "end": 48.96
+        },
+        {
+          "word": "ar",
+          "start": 48.96,
+          "end": 49.04
+        },
+        {
+          "word": ",",
+          "start": 49.04,
+          "end": 49.04
+        },
+        {
+          "word": " ye",
+          "start": 49.2,
+          "end": 49.28
+        },
+        {
+          "word": "ar",
+          "start": 49.28,
+          "end": 49.44
+        },
+        {
+          "word": " and",
+          "start": 49.44,
+          "end": 49.52
+        },
+        {
+          "word": " a",
+          "start": 49.52,
+          "end": 49.6
+        },
+        {
+          "word": " hal",
+          "start": 49.6,
+          "end": 49.68
+        },
+        {
+          "word": "f",
+          "start": 49.68,
+          "end": 49.84
+        },
+        {
+          "word": " of",
+          "start": 49.84,
+          "end": 50.08
+        },
+        {
+          "word": " sch",
+          "start": 50.08,
+          "end": 50.16
+        },
+        {
+          "word": "ool",
+          "start": 50.16,
+          "end": 50.4
+        },
+        {
+          "word": ".",
+          "start": 50.4,
+          "end": 50.4
+        },
+        {
+          "word": " But",
+          "start": 50.64,
+          "end": 50.88
+        },
+        {
+          "word": " my",
+          "start": 50.88,
+          "end": 51.2
+        },
+        {
+          "word": " so",
+          "start": 51.2,
+          "end": 51.28
+        },
+        {
+          "word": "p",
+          "start": 51.28,
+          "end": 51.44
+        },
+        {
+          "word": "hom",
+          "start": 51.44,
+          "end": 51.6
+        },
+        {
+          "word": "ore",
+          "start": 51.6,
+          "end": 51.76
+        },
+        {
+          "word": " ye",
+          "start": 51.76,
+          "end": 51.92
+        },
+        {
+          "word": "ar",
+          "start": 51.92,
+          "end": 52.08
+        },
+        {
+          "word": ",",
+          "start": 52.08,
+          "end": 52.08
+        },
+        {
+          "word": " when",
+          "start": 52.16,
+          "end": 52.32
+        },
+        {
+          "word": " I",
+          "start": 52.32,
+          "end": 52.4
+        },
+        {
+          "word": " was",
+          "start": 52.4,
+          "end": 52.56
+        },
+        {
+          "word": " liv",
+          "start": 52.56,
+          "end": 52.72
+        },
+        {
+          "word": "ing",
+          "start": 52.72,
+          "end": 52.88
+        },
+        {
+          "word": " actu",
+          "start": 52.88,
+          "end": 52.96
+        },
+        {
+          "word": "ally",
+          "start": 52.96,
+          "end": 53.12
+        },
+        {
+          "word": " in",
+          "start": 53.12,
+          "end": 53.36
+        },
+        {
+          "word": " M",
+          "start": 53.36,
+          "end": 53.52
+        },
+        {
+          "word": "at",
+          "start": 53.52,
+          "end": 53.76
+        },
+        {
+          "word": "her",
+          "start": 53.76,
+          "end": 54.0
+        },
+        {
+          "word": "ho",
+          "start": 54.0,
+          "end": 54.16
+        },
+        {
+          "word": "use",
+          "start": 54.16,
+          "end": 54.32
+        },
+        {
+          "word": " in",
+          "start": 54.4,
+          "end": 54.64
+        },
+        {
+          "word": "ste",
+          "start": 54.64,
+          "end": 54.96
+        }
+      ]
+    }
+  ],
+  "segment_count": 1,
+  "language": "en",
+  "language_source": "explicit",
+  "language_probability": null,
+  "duration": 60.0,
+  "examined": [
+    [
+      0.0,
+      60.0
+    ]
+  ],
+  "complete": true,
+  "note": "speech gating is not published for this engine; the run is ungated",
+  "model": "nvidia/parakeet-tdt-0.6b-v3",
+  "device": "cuda",
+  "compute_type": "auto",
+  "word_timestamps": true,
+  "vad_filter": false,
+  "vad_state": "unsupported_by_backend",
+  "superseded_fragments": 0,
+  "superseded": []
+}

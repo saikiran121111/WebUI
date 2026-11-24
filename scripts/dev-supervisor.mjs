@@ -645,5 +645,38 @@ console.log(
     "Press Ctrl+C to stop RUKE.",
 );
 
+// ---------------------------------------------------------------- engine update check
+// B5 final decision (2026-11-22): every `npm run dev` checks the engines' STABLE
+// channels in the BACKGROUND and records findings beside the pins in
+// .data/python/engine-updates.json. The check is spawned DETACHED and unref'd, is
+// deliberately NOT in `children` (teardown kills exactly the supervised stack, and
+// a read-only finished check must never be in that set), writes its own log file,
+// and startup never waits on it. It installs NOTHING: a finding is a line in a
+// JSON report; stage+validate happens separately, so the working version survives
+// active jobs, offline states and failed updates. Opt out: RUKE_ENGINE_UPDATES=0.
+if (process.env.RUKE_ENGINE_UPDATES !== "0") {
+  const engineScript = path.join(root, "scripts", "engine-updates.mjs");
+  const engineLog = path.join(root, ".data", "python", "engine-updates.log");
+  if (fs.existsSync(engineScript)) {
+    try {
+      fs.mkdirSync(path.dirname(engineLog), { recursive: true });
+      const log = fs.openSync(engineLog, "a");
+      const check = spawn(process.execPath, [engineScript], {
+        cwd: root,
+        stdio: ["ignore", log, log],
+        detached: true,
+        windowsHide: true,
+        env: { ...process.env },
+      });
+      fs.closeSync(log); // the child holds its own inherited handle
+      check.unref();     // startup never waits on the check; it finishes on its own
+      console.log("[dev-supervisor] engine stable-channel check started in background (report: .data/python/engine-updates.json).");
+    } catch {
+      // A background nicety: if the spawn itself fails, say so and carry on.
+      console.log("[dev-supervisor] engine update check could not start; startup is unaffected.");
+    }
+  }
+}
+
 // First child out wins: whatever died (crash or Ctrl+C cascade) tears the
 // other down too, so `npm run dev` never leaves a half-up backend.

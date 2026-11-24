@@ -113,7 +113,8 @@ export const WEB_TOOL_GUIDANCE =
   "- If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.\n" +
   "- A failed, blocked or empty lookup is NOT evidence that the fact does not exist: never tell the human it does not exist based on a lookup that failed — say what you searched and what you could not retrieve.\n" +
   "- Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.\n" +
-  "- Scope: these laws govern claims that genuinely need external or current evidence. They do not make this turn a research task, and they never require you to mention searching, sources, tools or capabilities in the answer.";
+  "- Scope: these laws govern claims that genuinely need external or current evidence. They do not make this turn a research task, and they never require you to mention searching, sources, tools or capabilities in the answer.\n" +
+  "- Supplied attachments are primary evidence: the server enforces source scope at dispatch — a web call whose claims the attachments answer comes back REFUSED with the attachment's own passages, so answer from the file. Reach the web for current-world verification beyond the files by declaring external_verification: true; attachments never restrict web use for questions they do not address.";
 
 // ⇔ Rust `WEB_TOOL_FINAL_DIRECTIVE`.
 export const WEB_TOOL_FINAL_DIRECTIVE =
@@ -624,6 +625,10 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
         priorBlock = built.block;
       }
     }
+    // F13/P7 + F80: the attachment ids THIS turn references drive both the
+    // media clues and the source-scope gate (⇔ Rust turn_attachment_ids
+    // forwarded on the create RPC).
+    const turnAttIds = collectTurnAttachmentIds(payload.messages);
     const session = makeWebToolSession(
       depth,
       seed + 1,
@@ -637,7 +642,8 @@ export async function runWebToolLoop(opts: WebToolLoopOptions): Promise<void> {
       // F13/P7: bounded, provenance-labelled clues from the stored indexes of
       // the attachments THIS turn references - never from an attachment name,
       // never from content without a timeline.
-      hintsForAttachments(collectTurnAttachmentIds(payload.messages), fullText),
+      hintsForAttachments(turnAttIds, fullText),
+      turnAttIds,
     );
     // MHR-E: rehydrated prior-turn [S#] aliases seed the registry, so a
     // document this conversation already fetched keeps ONE alias across

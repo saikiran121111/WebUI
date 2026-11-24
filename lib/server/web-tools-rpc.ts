@@ -188,6 +188,10 @@ export async function handleWebToolsRpc(
       liveRequired,
       conversation,
       mediaHints,
+      // F80: the same ids the media clues were derived from — the exec
+      // layer's source-scope gate resolves web calls against these stored
+      // indexes at dispatch.
+      attachmentIds,
     );
     // MHR-E: prior-turn [S#] aliases seed the source registry so a
     // re-fetched document keeps ONE alias across waves (mirrors the chat

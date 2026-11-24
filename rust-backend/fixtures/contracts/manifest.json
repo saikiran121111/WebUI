@@ -486,6 +486,16 @@
             "nullable": false
           }
         ]
+      },
+      {
+        "name": "speech_model",
+        "present": "optional-omit-when-absent",
+        "nullable": false
+      },
+      {
+        "name": "ocr_engine",
+        "present": "optional-omit-when-absent",
+        "nullable": false
       }
     ]
   },

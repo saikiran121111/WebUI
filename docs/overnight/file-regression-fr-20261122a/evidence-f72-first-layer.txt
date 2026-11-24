@@ -1,0 +1,48 @@
+F72 first-failing-layer census — 2026-11-22 (A7) — HEAD 83bbce3, no code change pending
+=======================================================================================
+
+CLAIM UNDER TEST (ANSWER-KEY S-X4, line 234):
+  "data-5.xlsx — What value is stored in A1? — 0 (IF(SUM(A9:A19)=0,0,1) cached result)"
+Live row fr-X1/S-X4 (tests/fr-live-regression.spec.ts:421) uploads data-5.xlsx and
+asks: "One cell's stored formula is IF(SUM(A9:A19)=0,0,1). What value does that
+cell STORE?"
+
+LAYER CENSUS (fixture first, per F62-F75 law):
+
+1. FIXTURE layer — data-5.xlsx (.data/tmp/file-regression/fr-20261122a/dl/live/):
+   - Raw-XML substring census over EVERY member: occurrences of "A9:A19" = 0.
+     The formula string does not exist anywhere in the workbook.
+   - A1 census over all 17 sheets: only ONE sheet stores an A1 formula —
+     sheet3 ("Stories to Numbers"): A1 = 'Input sheet'!B4, cached "Almarai".
+     No sheet stores IF(SUM(A9:A19)=0,0,1).
+   - 157 IF formulas exist on OTHER ranges; 103 cells render "(cached 0)".
+
+2. FIXTURE layer — data-6.xlsx (the DfE workbook; key X4 [mid] row, line 67):
+   - Sheet "ToC" (xl/worksheets/sheet1.xml) A1:
+       f = IF(SUM(A9:A19)=0, 0, 1)   v = 0        <-- the key X4 row is TRUE here.
+   - ToC B1: f = SUM(B9:B19) v = 15 (key X5/fr-X10 already target this file).
+   => The key's S-X4 row (line 234) copied the DfE ToC A1 formula onto data-5.xlsx,
+      where it is absent. FIRST FAILING LAYER = harness/key (premise), same family
+      as F69/F73. Decoder, merge, retrieval, delivery are NOT implicated:
+      extraction is honest (the string is not in the file, so it is not delivered).
+
+3. RETARGET candidate — data-5.xlsx "Valuation output" B10:
+   - Raw XML: unique formula IF('Input sheet'!B61="Yes",'Input sheet'!B62,0),
+     cached v = 0 — exactly 1 occurrence in the whole workbook.
+   - Production extraction (extractFileFromPath, 7.6 s, indexed 382 chunks):
+     chunk 22 renders  B10==IF('Input sheet'!B61="Yes",'Input sheet'!B62,0) (cached 0)
+   - retrieveEvidence(point_qa, budget 24000) with the retargeted question
+     quoting that formula: lexical_only path, picked 19, B10 chunk DELIVERED.
+   - Same law as the superseded row preserved: stored formula + cached result,
+     "absent-cached-vs-zero" — the honest answer is the numeric 0.
+
+4. fr-X1 leg 1 (B4 -> Almarai) unaffected: it passes and stays.
+
+DISPOSITION: S-X4 key row SUPERSEDED (retargeted in place with a formula the file
+measurably stores); spec follow-up question retargeted; strict /^0\b/ answer
+assertion kept. X4 [mid] matrix row (DfE ToC A1) is CORRECT as written — the
+fixture verified above. Spec + key fingerprints recorded at C3 freeze.
+
+Replay: npx vitest run __tests__/server/tmp-a7b-probe.test.ts   (throwaway probe,
+deleted when A7 closes; census reproducible with the python zipfile one-liners in
+the A7 session log).

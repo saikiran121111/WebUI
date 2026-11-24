@@ -1,4 +1,8 @@
 
+[asr]
+transformers==5.24.0
+torch==2.14.1
+
 [dev]
 
 [diarization]
@@ -22,8 +26,8 @@ numpy==2.5.5
 [onnx]
 onnxruntime==1.32.0
 
-[qwen]
-qwen-asr
+[parakeet]
+nemo_toolkit[asr]
 
 [speech]
 faster-whisper==1.2.1

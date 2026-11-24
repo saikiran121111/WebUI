@@ -120,7 +120,8 @@ const WEB_TOOL_GUIDANCE: &str = "WEB RESEARCH TOOL LAWS FOR THIS TURN:\n\
 - If every web lookup failed, say so plainly and answer from your own knowledge, clearly labeled as unverified.\n\
 - A failed, blocked or empty lookup is NOT evidence that the fact does not exist: never tell the human it does not exist based on a lookup that failed — say what you searched and what you could not retrieve.\n\
 - Before you answer, account for what you actually retrieved: every key claim no successful search or fetched page supports is unverified background knowledge — label it as such, never as research.\n\
- - Scope: these laws govern claims that genuinely need external or current evidence. They do not make this turn a research task, and they never require you to mention searching, sources, tools or capabilities in the answer.";
+ - Scope: these laws govern claims that genuinely need external or current evidence. They do not make this turn a research task, and they never require you to mention searching, sources, tools or capabilities in the answer.\n\
+ - Supplied attachments are primary evidence: the server enforces source scope at dispatch — a web call whose claims the attachments answer comes back REFUSED with the attachment's own passages, so answer from the file. Reach the web for current-world verification beyond the files by declaring external_verification: true; attachments never restrict web use for questions they do not address.";
 
 /// Fallback final directive ⇔ TS `WEB_TOOL_FINAL_DIRECTIVE` (same
 /// byte-parity note as [`WEB_TOOL_GUIDANCE`]).

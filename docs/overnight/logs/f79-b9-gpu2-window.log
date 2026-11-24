@@ -1,0 +1,71 @@
+[22:09:49] unloading_main_model: neither device fits: free physical RAM is 1500 MiB, under the 7056 MiB this load needs (measured load peak 6800 MiB + 256 MiB margin); GPU: free VRAM is 1261 MiB, under the 9256 MiB this needs (6000 MiB estimate charged at 9000 MiB + 256 MiB margin); the main model is resident and would have to be released first
+[22:09:52] processing: device=gpu est_peak_mib=6800
+[22:09:59] ocr: paddleocr-vl-1.6 page 1 at 200 dpi
+[22:10:01] releasing_worker: worker resources released by the adapter
+[22:10:01] restoring_main_model: bringing the original model back
+[22:10:24] ready: lease released
+{
+  "ok": true,
+  "reason": "",
+  "final_status": "ok",
+  "device": "gpu",
+  "freed_physical_mib": 53893,
+  "work": {
+    "peak": {
+      "working_set_mib": 2620,
+      "commit_mib": 10337,
+      "measured": true,
+      "components": {
+        "primary_worker_child": {
+          "working_set_mib": 2620,
+          "commit_mib": 10327,
+          "samples": 23,
+          "measured": true,
+          "definition": "resident = max sampled working set over the process tree; commit = max(sampled commit, job-object peak charge). They are different quantities and neither is a substitute for the other. A null means the quantity was never measured, not that it was zero.",
+          "device_used": "gpu:0"
+        },
+        "owned_tree": {
+          "working_set_mib": 2346,
+          "commit_mib": 10337,
+          "samples": 18,
+          "usable_samples": 18,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 16148,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6e69b220c17e6124f31855552766b9bfd33ee1eb8d3a62179b89bb2fad88067a.json",
+    "units_persisted": 1,
+    "device_used": "gpu:0",
+    "device_echo": {
+      "device": "gpu:0",
+      "cuda_compiled": true,
+      "paddle_version": "3.2.1",
+      "dtype_policy": {
+        "available": true,
+        "requested_precision": "fp32",
+        "requested_device": "gpu",
+        "precision_kwarg_scope": "paddleocr 3.6 maps 'precision' to pptrt_precision, the TensorRT subgraph engine precision; on a CPU inference engine it selects no weight dtype at all",
+        "device": "gpu:0",
+        "cuda_compiled": true,
+        "bfloat16_available_for_device": true,
+        "bfloat16_basis": "this device can select bfloat16; the dtype actually used still has to be read from the predictor's own configuration"
+      },
+      "event": "ready",
+      "stage": "load",
+      "seconds": 7.46,
+      "dropped_kwargs": [],
+      "memory_marker_source": "header",
+      "requested_device": "gpu"
+    },
+    "pages": 1,
+    "recognised": 1,
+    "unresolved": []
+  },
+  "out": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\f79-b9-gpu2-p1.json"
+}

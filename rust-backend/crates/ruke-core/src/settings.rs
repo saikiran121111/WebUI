@@ -216,6 +216,17 @@ impl SettingsStore {
         merged
     }
 
+    /// Replace the whole stored object (engine-preference migration purges
+    /// retired keys, which a merge-patch cannot express). Atomic, same cache
+    /// invalidation as `update_settings`.
+    pub fn replace_settings(&self, next: &Map<String, Value>) -> Map<String, Value> {
+        self.write_atomic(next);
+        let mut c = self.cache.lock();
+        c.data = next.clone();
+        c.mtime = None;
+        next.clone()
+    }
+
     /// Parity of `clearSettings()`: remove the file and drop the cache.
     pub fn clear_settings(&self) {
         let _ = std::fs::remove_file(&self.path);

@@ -97,7 +97,12 @@ def load_document(path: str | Path, max_entries: int = 4096) -> Document:
     src = p.read_bytes()
     source_hash = sha256_hex(src)
     source_id = p.name
-    if suffix in (".xlsx", ".docx", ".pptx"):
+    # F71: the macro-enabled twins are the same OOXML containers plus a
+    # vbaProject.bin part; the "no parser is configured for .docm" refusal
+    # pushed macro documents into raw archive dumps downstream.
+    if suffix in (".xlsx", ".xlsm", ".xltm", ".xlam",
+                  ".docx", ".docm", ".dotm",
+                  ".pptx", ".pptm", ".potm", ".ppsm"):
         return _parse_ooxml(p, suffix, source_id, source_hash, src, max_entries)
     if suffix in (".odt", ".ods", ".odp", ".epub"):
         import io
@@ -161,9 +166,9 @@ def _parse_ooxml(p: Path, suffix: str, source_id: str, source_hash: str, src: by
     audit_zip_members(zf)
     if len(zf.infolist()) > max_entries:
         raise ExtractionRejected("too many OOXML parts")
-    if suffix == ".xlsx":
+    if suffix in (".xlsx", ".xlsm", ".xltm", ".xlam"):
         return _xlsx(zf, source_id, source_hash)
-    if suffix == ".docx":
+    if suffix in (".docx", ".docm", ".dotm"):
         return _docx(zf, source_id, source_hash)
     return _pptx(zf, source_id, source_hash)
 
@@ -575,10 +580,21 @@ def _chart_lines(chart_name: str, root) -> list[str]:
             return out
         cats = cached_values(ser.find(f"{_C_NS}cat"))
         vals = cached_values(ser.find(f"{_C_NS}val"))
-        pairs = ", ".join(f"{c}={v}" for c, v in zip(cats, vals))
+        if cats and vals:
+            pairs = ", ".join(f"{c}={v}" for c, v in zip(cats, vals))
+            shape = ""
+        else:
+            # F64: scatter/bubble series cache PAIRED points under
+            # c:xVal/c:yVal — a cat/val-only reader skipped every scatter
+            # series and the deck lost its data (deck-4.pptx: the model saw
+            # only the slide words "My/Scatter/Chart", never "Sales" / 8.2).
+            xs = cached_values(ser.find(f"{_C_NS}xVal"))
+            ys = cached_values(ser.find(f"{_C_NS}yVal"))
+            pairs = ", ".join(f"({x}, {y})" for x, y in zip(xs, ys))
+            shape = " scatter points"
         if not pairs:
             continue
-        label = f' [chart {chart_name} series "{name}"]' if name else f" [chart {chart_name}]"
+        label = f' [chart {chart_name} series "{name}"{shape}]' if name else f" [chart {chart_name}{shape}]"
         lines.append(f"{label} {pairs}")
     return lines
 

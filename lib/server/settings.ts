@@ -44,7 +44,7 @@ const ENV_MODEL = "RUKE_LLM_MODEL";
 const ENV_AUTOMATIC_HANDOFF = "RUKE_LLM_AUTOMATIC_HANDOFF";
 const ENV_LEGACY_ALLOW_UNLOAD = "RUKE_OCR_ALLOW_UNLOAD";
 
-interface SettingsShape {
+export interface SettingsShape {
   llm_api_url?: string;
   llm_api_key?: string;
   /**
@@ -53,6 +53,19 @@ interface SettingsShape {
    * server only persists it; it never touches the LLM endpoint.
    */
   compact_thresholds?: { auto: 0 | 1; tokens: number };
+  /**
+   * The ASR preference. The final decision (2026-11-22) froze ONE engine —
+   * the pinned Parakeet — so the key now exists only to migrate an obsolete
+   * stored selection VISIBLY to the fixed id (app/api/settings/route.ts,
+   * settings_routes.rs). Model IDs, never paths.
+   */
+  speech_model?: string;
+  /** The named OCR engine; unset means the PaddleOCR default. */
+  ocr_engine?: "paddle" | "tesseract" | "";
+  // `model_mirror` and `hf_token` are REMOVED (final-decision addendum
+  // 2026-11-22): the model-manager surface that read them (supervisor
+  // /models, ml_models.rs, the Settings picker) is gone, and the settings
+  // routes purge any stored value on read.
 }
 
 let cachedMtimeMs: number | null = null;
@@ -289,6 +302,22 @@ export function getSettings(): SettingsShape {
  */
 export function updateSettings(patch: Partial<SettingsShape>): SettingsShape {
   const next = { ...readSettings(), ...patch };
+  const tmp = SETTINGS_FILE + ".tmp";
+  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+  fs.renameSync(tmp, SETTINGS_FILE);
+  cachedMtimeMs = null; // force a re-stat on the next read
+  cachedData = next;
+  return next;
+}
+
+/**
+ * Replaces the whole stored object. The engine-preference migration purges
+ * retired keys, which a merge-patch cannot express. Atomic, with the same
+ * cache invalidation as updateSettings. Parity: SettingsStore::replace_settings
+ * in rust-backend/crates/ruke-core/src/settings.rs.
+ */
+export function replaceSettings(next: SettingsShape): SettingsShape {
   const tmp = SETTINGS_FILE + ".tmp";
   fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");

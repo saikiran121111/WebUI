@@ -4,8 +4,8 @@ import { OwnedResource, parseIdleTtl } from "@/lib/lifecycle/ownedResource";
 
 /**
  * Local embedding model for the attachment index. Weights live under
- * `.data/models` — same cache dir and singleton pattern as Whisper
- * (lib/server/extract/audio.ts), so nothing is downloaded twice.
+ * `.data/models` — the app's project-local model store — held by the shared
+ * OwnedResource singleton law below, so the weights load once per process.
  *
  * I26/F09: the id is EXPORTED because it becomes part of the durable index
  * format. A vector is only comparable with vectors from the same model +

@@ -115,13 +115,15 @@ class FaultInjectionIsHonest(unittest.TestCase):
 
         # The ceiling for this call is given explicitly and wide enough to hold the declared
         # demand, because this host's NORMAL ceiling legitimately refuses the spawn before the
-        # child exists (the pinned CPU build loads float32 weights: measured 2026-11-18). Without
-        # that, this assertion would be about admission, not about the fault environment - and the
+        # child exists (the pinned CPU build loads float32 weights: measured 2026-11-18). The
+        # demand is now charged from the row's measured COMMIT peak (10,327 MiB, 2026-11-23),
+        # so "wide enough" means over that figure plus the 256 MiB margin. Without that, this
+        # assertion would be about admission, not about the fault environment - and the
         # admission refusal has its own test in tests/test_ocr_resource_window.py.
         with mock.patch.object(ocr_paddle.subprocess, "Popen", fake_popen2):
             with self.assertRaises(OcrUnavailable) as second:
                 ocr_paddle.ocr_pdf_pages(str(SCANNED), [1], language="en",
-                                         per_worker_limit_bytes=8_000_000_000)
+                                         per_worker_limit_bytes=12_000_000_000)
         self.assertEqual(second.exception.kind, "engine_spawn_failed",
                          "a ceiling that fits the declared demand must reach the spawn, not refuse it")
         self.assertIn("env", seen2, "the child environment was never observed")

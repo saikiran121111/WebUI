@@ -6,6 +6,7 @@ the pool never touches a pid it did not create and verify.
 from __future__ import annotations
 
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -14,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..config import ENV_PARENT_PID, LIMITS, child_env
+from ..config import ENV_MEM_CEILING, ENV_PARENT_PID, LIMITS, child_env
 from ..contracts import JobRequest, JobResult, ModelIdentity, StructuredError
 from ..security import egress_blocked_for_workers
 from . import job_limits
@@ -28,7 +29,12 @@ from .registry import catalog
 # 2 GiB PaddleOCR-VL primary (which has its own device plan and optional exclusive handoff). The
 # pool still applies the model-backed free-RAM floor, so a saturated host still gets a typed
 # refusal instead of a page-stall.
-CALLER_GATED_ADMISSION = frozenset({"documents.ocr"})
+# The supervisor must not pre-empt the caller that owns the engine/device/window decision.
+# documents.ocr: the cascade. speech.asr: the F117 dispatcher in workers/speech_jobs.py, which
+# plans coexistence, the exclusive handoff, or the recorded CPU path. F91 law (2026-11-23): a
+# tight NORMAL-window commit ceiling must not refuse the worker before that dispatcher sees the
+# job - the exclusive window is exactly the state the ceiling shortage is meant to trigger.
+CALLER_GATED_ADMISSION = frozenset({"documents.ocr", "speech.asr"})
 
 # The commit ceiling is derived from a MEASURED commit peak (see `_ceiling_bytes`). Processing
 # allocates on top of the load, so the ceiling is the demand plus headroom: 1.5x the demand,
@@ -298,7 +304,19 @@ class WorkerPool:
                                       "least the resident set, so this cap is what keeps a "
                                       "growing worker from paging the resident model")
                 ceiling = avail_cap
-        ceiling = max(256 << 20, min(ceiling, LIMITS.mem_ceiling_bytes))
+        # The upper bound is the MEASURED normal-window budget (B8 final decision 2026-11-22),
+        # not the retired fixed 5 GB number: the tree cap, the host's commit headroom and the
+        # resident-model physical clamp are the same arithmetic, so a per-worker ceiling can
+        # never exceed what the runtime tree is actually allowed to hold right now. An operator
+        # who sets RUKE_ML_MEM_CEILING_BYTES explicitly gets their number honoured as a cap.
+        window_ceiling, window_report = job_limits.normal_ceiling_bytes()
+        note["window_ceiling_bytes"] = int(window_ceiling)
+        note["window_bound_by"] = str(window_report.get("bound_by", ""))
+        ceiling = min(ceiling, int(window_ceiling))
+        if os.environ.get(ENV_MEM_CEILING):
+            note["operator_ceiling_bytes"] = int(LIMITS.mem_ceiling_bytes)
+            ceiling = min(ceiling, int(LIMITS.mem_ceiling_bytes))
+        ceiling = max(job_limits.CEILING_FLOOR_BYTES, ceiling)
         # The refusal condition, recorded where the spawn path can see it. A ceiling under the
         # measured demand is not "tight but workable": the load fails inside the engine's
         # allocator and the error text arrives as an unrelated-looking engine crash.
@@ -417,7 +435,9 @@ class WorkerPool:
         is permitted, so the pool must not pre-empt it by charging the worker for a model it may
         never load - that would delete the recovery path along with the heavy one. What the pool
         still requires is the model-backing floor: on a genuinely saturated host the job is
-        refused typed, exactly as before.
+        refused typed, exactly as before. The registry's measured PaddleOCR-VL peaks (B9,
+        2026-11-22) are charged where the engine load really happens - the exclusive handoff's
+        device plan and commit ceiling - never as a concurrent worker charge.
         """
         specs = [s for s in catalog().for_capability(capability) if s.adapter]
         model_backed = any(str(getattr(s, "asset", "") or "").strip() for s in specs)
@@ -427,9 +447,7 @@ class WorkerPool:
         # `admission` uses that to decide how much margin the load must leave behind.
         caller_planned = capability in CALLER_GATED_ADMISSION
         est = max((int(s.est_peak_mib) for s in specs
-                   if int(s.est_peak_mib) > 0
-                   and not (caller_planned and not resources.estimate_is_measured(
-                       str(getattr(s, "est_peak_basis", "") or "")))),
+                   if int(s.est_peak_mib) > 0 and not caller_planned),
                   default=0)
         basis = next((str(getattr(s, "est_peak_basis", "") or "") for s in specs
                       if int(s.est_peak_mib or 0) == est and est > 0), "")
@@ -453,6 +471,31 @@ class WorkerPool:
         out["limit_mib"] = int(limit) >> 20
         return out
 
+    def _defer_shortfall(self, capability: str) -> dict[str, Any] | None:
+        """The commit-ceiling shortfall, unless the caller owns a wider window it can take.
+
+        F91 law (2026-11-23): a caller-gated capability (the OCR cascade, the F117 ASR
+        dispatcher) plans coexistence, the exclusive handoff, or a recorded CPU path. On a
+        tight normal window the exclusive path is exactly the answer - after the main model
+        is released, the per-worker ceiling is re-measured from real free memory, and the
+        GPU placement's host commit demand is not the CPU run's 4 GiB. Refusing here would
+        delete the handoff the shortage is meant to trigger (measured: the fr-U1 batch run,
+        ceiling floored to 256 MiB by the reserve, the ASR job never reaching its planner).
+        With the automatic-handoff policy OFF there is no wider window - the only placement
+        left is the CPU squeeze that this shortfall exists to prevent - so the typed refusal
+        stands, with the policy recorded as the reason.
+        """
+        short = self._commit_ceiling_shortfall(capability)
+        if short is None or capability not in CALLER_GATED_ADMISSION:
+            return short
+        from . import provider_config
+        if bool(provider_config.load().automatic_handoff):
+            return None
+        short["refuse_reason"] = (str(short.get("refuse_reason") or "") +
+                                  "; the automatic-handoff policy is off, so no exclusive "
+                                  "window can widen this ceiling").strip("; ")
+        return short
+
     def _admission_refusal(self, req: JobRequest) -> JobResult | None:
         """Refuse to load a heavy worker the host cannot hold - before it starts paging.
 
@@ -466,12 +509,12 @@ class WorkerPool:
         and never output quality.
         """
         est, adm = self._admission(req.capability)
-        short = self._commit_ceiling_shortfall(req.capability)
+        short = self._defer_shortfall(req.capability)
         if (not adm.get("measured") or adm.get("fits")) and short is None:
             return None
         dropped = self._unload_other_heavy(req.capability)
         est, adm = self._admission(req.capability)
-        short = self._commit_ceiling_shortfall(req.capability)
+        short = self._defer_shortfall(req.capability)
         if (adm.get("measured") and adm.get("fits")) and short is None:
             return None
         if short is not None:

@@ -187,6 +187,7 @@ def estimate() -> dict[str, Any]:
              if s.capability == "documents.ocr" and s.provider == "paddle"]
     if not specs:
         return {"est_peak_mib": 0, "est_peak_basis": "no pinned OCR row",
+                "est_peak_commit_mib": 0, "est_peak_commit_basis": "no pinned OCR row",
                 "est_peak_vram_mib": 0, "est_vram_basis": "no pinned OCR row"}
     spec = specs[0]
     # A declared number with no recorded measurement must never be printed as "measured":
@@ -195,6 +196,8 @@ def estimate() -> dict[str, Any]:
     # states it in one word so a caller cannot infer "measured" from a non-zero number.
     ram_est = int(spec.est_peak_mib or 0)
     ram_basis = (spec.est_peak_basis or "").strip()
+    commit_est = int(getattr(spec, "est_peak_commit_mib", 0) or 0)
+    commit_basis = str(getattr(spec, "est_peak_commit_basis", "") or "").strip()
     vram_est = int(getattr(spec, "est_peak_vram_mib", 0) or 0)
     vram_basis = str(getattr(spec, "est_vram_basis", "") or "").strip()
 
@@ -208,6 +211,17 @@ def estimate() -> dict[str, Any]:
                                (f"declared {ram_est} MiB with no recorded measurement on this host"
                                 if ram_est else "no OCR row declares a RAM estimate")),
             "estimate_kind": kind(ram_basis, ram_est),
+            # The COMMIT peak, separately from the resident working set: the CUDA build charges
+            # its DLL and CUDA mappings to the commit charge, so a ceiling bounded by commit
+            # must be sized from THIS figure. The working-set row above stays what the device
+            # plan's RAM admission uses (measured 2026-11-23: a 6675 MiB commit ceiling sized
+            # from the 2620 MiB working set killed the pipeline load mid-model, 0xC0000409).
+            "est_peak_commit_mib": commit_est,
+            "est_peak_commit_basis": (commit_basis or
+                                      (f"declared {commit_est} MiB with no recorded commit "
+                                       f"measurement on this host" if commit_est
+                                       else "no OCR row declares a commit peak")),
+            "est_commit_kind": kind(commit_basis, commit_est),
             "est_peak_vram_mib": vram_est,
             "est_vram_basis": (vram_basis or
                                (f"declared {vram_est} MiB with no recorded GPU measurement on this host"
@@ -392,8 +406,10 @@ def ocr_pdf_pages(pdf_path: str | Path, pages: Sequence[int], *, language: str,
     env.setdefault("PADDLE_PDX_CACHE_HOME", str(repo_root() / ".data" / "ml-cache" / "paddle"))
     env.setdefault("OMP_NUM_THREADS", "4")
     if device == "cpu":
-        # Belt and braces: the pinned wheel is the CPU build, but CUDA_VISIBLE_DEVICES=-1
-        # makes an accidental GPU allocation impossible rather than merely unlikely.
+        # Belt and braces: the pinned wheel is the CUDA build (the CPU wheel is the recorded
+        # fallback), so a cpu placement on a CUDA build is a real placement, not a no-op -
+        # CUDA_VISIBLE_DEVICES=-1 makes an accidental GPU allocation impossible rather than
+        # merely unlikely, and the worker's paddle.device echo is checked against the plan.
         env["CUDA_VISIBLE_DEVICES"] = "-1"
         env["FLAGS_selected_gpus"] = "-1"
 
@@ -415,14 +431,28 @@ def ocr_pdf_pages(pdf_path: str | Path, pages: Sequence[int], *, language: str,
     # demand the pinned row declares, and the arithmetic deciding whether they fit all live in
     # models/job_limits.py, so this adapter does not invent its own ceiling maths - it asks, and
     # the answer is either a bounded OS ceiling or a typed refusal.
-    demand_bytes = int(state.get("est_peak_mib") or 0) * job_limits.MIB
+    # The job object bounds the child's COMMIT charge, so the demand is charged from the row's
+    # measured COMMIT peak when it has one: the CUDA build's DLL and CUDA mappings never show
+    # up in the resident working-set figure, and sizing the ceiling from that figure squeezed
+    # the worker into a ceiling it could not load under - the 2026-11-18 allocator death, and
+    # again 2026-11-23 when a 6675 MiB ceiling killed the load mid-model (0xC0000409). The RAM
+    # estimate stays what the device plan's admission uses; only the ceiling maths moves here.
+    commit_demand = int(state.get("est_peak_commit_mib") or 0)
+    demand_mib = commit_demand if commit_demand > 0 else int(state.get("est_peak_mib") or 0)
+    demand_basis = (str(state.get("est_peak_commit_basis") or "") if commit_demand > 0
+                    else str(state.get("est_peak_basis") or ""))
+    demand_bytes = demand_mib * job_limits.MIB
     ceiling, ceiling_report = job_limits.worker_ceiling_bytes(
         inside_window=bool(inside_window),
         declared_demand_bytes=demand_bytes,
-        demand_basis=str(state.get("est_peak_basis") or ""),
+        demand_basis=demand_basis,
         ceiling_override_bytes=int(per_worker_limit_bytes or 0))
     ceiling_evidence = dict(ceiling_report)
-    ceiling_evidence["declared_demand_source"] = "registry ModelSpec for documents.ocr"
+    ceiling_evidence["declared_demand_source"] = (
+        "registry ModelSpec for documents.ocr: "
+        + ("est_peak_commit_mib, the kernel job commit peak (the ceiling bounds commit)"
+           if commit_demand > 0 else
+           "est_peak_mib, the resident working set (this row records no commit peak)"))
     if injected == "crash":
         # The fault-injected worker loads no weights at all, so a demand-based refusal here would
         # describe a load that was never attempted. The ceiling is still attached and still

@@ -45,7 +45,14 @@ param(
     # Brief section 10 isolation seam: which conversation store the app under
     # test uses. "" = the launcher's own e2e store (see below). An already
     # exported WEBUI_DATA_DIR always wins.
-    [string]$DataDir = ""
+    [string]$DataDir = "",
+    # F129 (user brief 2026-11-23 sections 2-5): the exclusive batch grants the
+    # ML handoff window INSIDE its own lock, so the GPU/Parakeet acceptance rows
+    # run real handoffs during real uploads (the batch is the only inference
+    # owner; Claude stays dormant; zero :8080 inference while Strata is
+    # unloaded). -NoMlGrant keeps the pre-F129 law: the lock refuses every
+    # ML handoff for the whole window.
+    [switch]$NoMlGrant
 )
 
 $ErrorActionPreference = "Stop"
@@ -124,8 +131,9 @@ New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
 # holder keeps its handle open (no FileShare.Delete) so a live lock is
 # physically undeletable by anyone else.
 $lock = $null
+$mlWindow = $(if ($NoMlGrant) { "" } else { "grant" })
 try {
-    $lock = Acquire-PlaywrightLock -Path $lockPath -Phase "test"
+    $lock = Acquire-PlaywrightLock -Path $lockPath -Phase "test" -MlWindow $mlWindow
 } catch [System.IO.IOException] {
     # PS 5.1 (.NET Framework) has no FileAlreadyExistsException — CreateNew
     # on an existing file surfaces as IOException 0x80070050 (ERROR_FILE_EXISTS;
@@ -146,12 +154,13 @@ try {
         if (-not (Remove-PlaywrightLockStale -Path $lockPath)) {
             throw "Refusing to break the lock: the holder is live (or staleness is unprovable)."
         }
-        $lock = Acquire-PlaywrightLock -Path $lockPath -Phase "test"
+        $lock = Acquire-PlaywrightLock -Path $lockPath -Phase "test" -MlWindow $mlWindow
     } else {
         throw "Another Playwright session owns the test lock: $lockPath (use -LockInfo to inspect; -BreakStaleLock breaks ONLY a provably-dead holder)"
     }
 }
-Write-Output ("Playwright lock acquired: $lockPath (runId " + $lock.RunId + ")")
+Write-Output ("Playwright lock acquired: $lockPath (runId " + $lock.RunId +
+    "; ML window: " + $(if ($mlWindow) { "GRANTED to product ML handoffs for this window" } else { "refused for the whole window" }) + ")")
 
 # From here this script is definitely going to run tests, so the isolated
 # conversation store becomes real. Done BEFORE any app child starts, so both the
@@ -159,6 +168,17 @@ Write-Output ("Playwright lock acquired: $lockPath (runId " + $lock.RunId + ")")
 New-Item -ItemType Directory -Force -Path $store.Path | Out-Null
 $env:WEBUI_DATA_DIR = $store.Path
 Write-Output "e2e conversation store isolated: $($store.Path) (source: $($store.Source))"
+
+# The model-asset cache is a SHARED download root (PaddlePaddle/PaddleOCR-VL-1.6,
+# PP-DocLayoutV3, HF snapshots), not per-store user data. Isolating it made the
+# Paddle primary "not executable here" in the e2e store (F91.1/fr-P10 fell to
+# Tesseract with "no snapshot for this repo id in any configured cache root").
+# Isolate conversations/settings; share the model cache. An explicit override
+# wins. Propagates: launcher -> dev supervisor -> Python supervisor -> workers.
+if (-not (Get-Item Env:RUKE_ML_CACHE_DIR -ErrorAction SilentlyContinue).Value) {
+    $env:RUKE_ML_CACHE_DIR = Join-Path $root ".data\ml-cache"
+    Write-Output "model cache shared: $env:RUKE_ML_CACHE_DIR"
+}
 
 # Heartbeat child: refreshes the lock's heartbeat while this script runs, so
 # §1.2 waiters can tell "alive and grinding" from "hung". Killed in finally.

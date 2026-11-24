@@ -228,10 +228,14 @@ GATED: tuple[Gated, ...] = (
           "documents.ocr",
           "per-page OCR CER, reading order and table structure on scanned/mixed PDFs",
           model="PaddleOCR-VL-1.6"),
-    Gated("asr_multilingual",
+    # The English release keeps exactly one ASR gate: WER/timestamp quality on labelled
+    # human recordings for the frozen engine. Multilingual WER gates are DEFERRED with the
+    # multilingual scope (final decision 2026-11-22) and their Whisper candidate is gone.
+    Gated("asr_english_quality",
           "speech.asr",
-          "WER/CER per language including Telugu and Hindi on real human recordings",
-          model="openai/whisper-large-v3"),
+          "English WER/CER and token-timestamp error on real human recordings with "
+          "labelled ground truth",
+          model="nvidia/parakeet-tdt-0.6b-v3"),
     Gated("speaker_diarization",
           "speech.diarize",
           "DER on overlapping speech (license acceptance also required)",

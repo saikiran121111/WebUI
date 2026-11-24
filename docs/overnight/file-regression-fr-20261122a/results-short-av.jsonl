@@ -1,0 +1,67 @@
+{"ts":"2026-11-23T11:16:57.769Z","row":"fr-F123-shortav","phase":"queued","at":1795432617769,"file":"short-av.mp4"}
+{"ts":"2026-11-23T11:16:58.090Z","row":"milestone","phase":"ready","at":1795432618090}
+{"ts":"2026-11-23T12:44:06.228Z","row":"fr-F123-shortav","phase":"queued","at":1795437846228,"file":"short-av.mp4"}
+{"ts":"2026-11-23T12:44:06.545Z","row":"milestone","phase":"ready","at":1795437846545}
+{"ts":"2026-11-23T13:30:27.037Z","row":"fr-F123-shortav","phase":"queued","at":1795440627037,"file":"short-av.mp4"}
+{"ts":"2026-11-23T13:30:27.358Z","row":"milestone","phase":"pending","at":1795440627358}
+{"ts":"2026-11-23T13:30:27.617Z","row":"milestone","phase":"ready","at":1795440627617}
+{"ts":"2026-11-23T14:07:54.044Z","row":"fr-F123-shortav","phase":"queued","at":1795442874044,"file":"short-av.mp4"}
+{"ts":"2026-11-23T14:07:54.365Z","row":"milestone","phase":"pending","at":1795442874365}
+{"ts":"2026-11-23T14:07:54.625Z","row":"milestone","phase":"ready","at":1795442874625}
+{"ts":"2026-11-23T15:14:42.082Z","row":"fr-F123-shortav","phase":"queued","at":1795446882082,"file":"short-av.mp4"}
+{"ts":"2026-11-23T15:14:42.403Z","row":"milestone","phase":"processing","at":1795446882403}
+{"ts":"2026-11-23T15:14:42.663Z","row":"milestone","phase":"ready","at":1795446882663}
+{"ts":"2026-11-23T15:14:42.984Z","row":"milestone","phase":"send-enabled","at":1795446882984}
+{"ts":"2026-11-23T15:14:56.998Z","row":"milestone","phase":"answer-complete","at":1795446896998,"said":"The record contains no speech at all — the clip's shown moments are a color-bar countdown leader (numerals \"2\" at 0:02 and \"8\" at 0:08) with no spoken words rec"}
+{"ts":"2026-11-23T15:55:35.753Z","row":"fr-F123-shortav","phase":"queued","at":1795449335753,"file":"short-av.mp4"}
+{"ts":"2026-11-23T15:55:36.073Z","row":"milestone","phase":"processing","at":1795449336073}
+{"ts":"2026-11-23T15:55:36.333Z","row":"milestone","phase":"ready","at":1795449336333}
+{"ts":"2026-11-23T15:55:36.656Z","row":"milestone","phase":"send-enabled","at":1795449336656}
+{"ts":"2026-11-23T15:55:49.725Z","row":"milestone","phase":"answer-complete","at":1795449349725,"said":"I can't give that phrase: the record you supplied carries no spoken words for the clip at all — nothing is transcribed, and the only content it holds for 0:02 a"}
+{"ts":"2026-11-23T16:26:11.656Z","row":"fr-F123-shortav","phase":"queued","at":1795451171656,"file":"short-av.mp4"}
+{"ts":"2026-11-23T16:26:11.977Z","row":"milestone","phase":"processing","at":1795451171977}
+{"ts":"2026-11-23T16:26:12.236Z","row":"milestone","phase":"ready","at":1795451172236}
+{"ts":"2026-11-23T16:26:12.559Z","row":"milestone","phase":"send-enabled","at":1795451172559}
+{"ts":"2026-11-23T16:26:24.483Z","row":"milestone","phase":"answer-complete","at":1795451184483,"said":"I can't give that phrase: the record of this clip carries no speech content at all, so there's nothing to quote. The only things it holds are two on-screen mome"}
+{"ts":"2026-11-23T16:55:42.882Z","row":"fr-F123-shortav","phase":"queued","at":1795452942882,"file":"short-av.mp4"}
+{"ts":"2026-11-23T16:55:43.202Z","row":"milestone","phase":"processing","at":1795452943202}
+{"ts":"2026-11-23T16:55:43.462Z","row":"milestone","phase":"ready","at":1795452943462}
+{"ts":"2026-11-23T16:55:43.772Z","row":"milestone","phase":"send-enabled","at":1795452943772}
+{"ts":"2026-11-23T16:56:36.217Z","row":"milestone","phase":"answer-complete","at":1795452996217,"said":"I can't give his exact words — the record of this clip contains no spoken words at all, only the on-screen test pattern with the countdown figures at 0:02 and 0"}
+{"ts":"2026-11-23T17:30:10.984Z","row":"fr-F123-shortav","phase":"queued","at":1795455010984,"file":"short-av.mp4"}
+{"ts":"2026-11-23T17:30:11.303Z","row":"milestone","phase":"processing","at":1795455011303}
+{"ts":"2026-11-23T17:30:11.563Z","row":"milestone","phase":"ready","at":1795455011563}
+{"ts":"2026-11-23T17:30:11.887Z","row":"milestone","phase":"send-enabled","at":1795455011887}
+{"ts":"2026-11-23T17:30:23.757Z","row":"milestone","phase":"answer-complete","at":1795455023757,"said":"The record gives no spoken words to quote — the only content supplied for the clip is the on-screen test pattern (color bars with a \"2\" at 0:02 and an \"8\" at 0:"}
+{"ts":"2026-11-23T17:57:17.451Z","row":"fr-F123-shortav","phase":"queued","at":1795456637451,"file":"short-av.mp4"}
+{"ts":"2026-11-23T17:57:17.770Z","row":"milestone","phase":"processing","at":1795456637770}
+{"ts":"2026-11-23T17:57:18.030Z","row":"milestone","phase":"ready","at":1795456638030}
+{"ts":"2026-11-23T17:57:18.355Z","row":"milestone","phase":"send-enabled","at":1795456638355}
+{"ts":"2026-11-23T17:57:33.011Z","row":"milestone","phase":"answer-complete","at":1795456653011,"said":"The record's content is only a test-pattern countdown (color bars with the numerals at 0:02 and 0:08) — it includes no spoken words, so I can't give you his exa"}
+{"ts":"2026-11-23T18:35:43.615Z","row":"fr-F123-shortav","phase":"queued","at":1795458943615,"file":"short-av.mp4"}
+{"ts":"2026-11-23T18:35:43.934Z","row":"milestone","phase":"processing","at":1795458943934}
+{"ts":"2026-11-23T18:35:47.624Z","row":"milestone","phase":"ready","at":1795458947624}
+{"ts":"2026-11-23T18:35:47.949Z","row":"milestone","phase":"send-enabled","at":1795458947949}
+{"ts":"2026-11-23T18:36:28.656Z","row":"milestone","phase":"answer-complete","at":1795458988656,"said":"The record gives no spoken words at all — the video's content is only a test-card style screen (vertical color bars with a small countdown-style digit, \"2\" at 0"}
+{"ts":"2026-11-23T19:08:39.425Z","row":"fr-F123-shortav","phase":"queued","at":1795460919425,"file":"short-av.mp4"}
+{"ts":"2026-11-23T19:08:39.745Z","row":"milestone","phase":"processing","at":1795460919745}
+{"ts":"2026-11-23T19:08:40.005Z","row":"milestone","phase":"ready","at":1795460920005}
+{"ts":"2026-11-23T19:08:40.330Z","row":"milestone","phase":"send-enabled","at":1795460920330}
+{"ts":"2026-11-23T19:08:53.415Z","row":"milestone","phase":"answer-complete","at":1795460933415,"said":"There's no speech in the record to quote from. The record contains no spoken words at all, so I can't give you his exact phrase — I'd only be inventing one.\n\nWh"}
+{"ts":"2026-11-23T19:42:19.293Z","row":"fr-F123-shortav","phase":"queued","at":1795462939293,"file":"short-av.mp4"}
+{"ts":"2026-11-23T19:42:19.614Z","row":"milestone","phase":"ready","at":1795462939614}
+{"ts":"2026-11-23T19:53:00.572Z","row":"fr-F123-shortav","phase":"queued","at":1795463580572,"file":"short-av.mp4"}
+{"ts":"2026-11-23T19:53:00.895Z","row":"milestone","phase":"processing","at":1795463580895}
+{"ts":"2026-11-23T19:53:01.683Z","row":"milestone","phase":"ready","at":1795463581683}
+{"ts":"2026-11-23T19:53:01.996Z","row":"milestone","phase":"send-enabled","at":1795463581996}
+{"ts":"2026-11-23T19:54:13.370Z","row":"milestone","phase":"answer-complete","at":1795463653370,"said":"I can't give that phrase: the record of this clip carries nothing of what the speaker says — it holds only the on-screen color-bar countdown pictures (a \"2\" at "}
+{"ts":"2026-11-23T20:12:42.048Z","row":"fr-F123-shortav","phase":"queued","at":1795464762048,"file":"short-av.mp4"}
+{"ts":"2026-11-23T20:12:42.368Z","row":"milestone","phase":"processing","at":1795464762368}
+{"ts":"2026-11-23T20:12:42.630Z","row":"milestone","phase":"ready","at":1795464762630}
+{"ts":"2026-11-23T20:12:42.955Z","row":"milestone","phase":"send-enabled","at":1795464762955}
+{"ts":"2026-11-23T20:13:29.543Z","row":"milestone","phase":"answer-complete","at":1795464809543,"said":"The record of this clip contains no spoken words at all — the content on screen is a color-bar test pattern (with the digits \"2\" at 0:02 and \"8\" at 0:08), and t"}
+{"ts":"2026-11-23T21:49:28.499Z","row":"fr-F123-shortav","phase":"queued","at":1795470568499,"file":"short-av.mp4"}
+{"ts":"2026-11-23T21:49:28.818Z","row":"milestone","phase":"processing","at":1795470568818}
+{"ts":"2026-11-23T21:49:34.315Z","row":"milestone","phase":"ready","at":1795470574315}
+{"ts":"2026-11-23T21:49:34.654Z","row":"milestone","phase":"send-enabled","at":1795470574654}
+{"ts":"2026-11-23T21:49:48.387Z","row":"milestone","phase":"answer-complete","at":1795470588387,"said":"The record of this clip contains no spoken words at all — only two on-screen moments (SMPTE color bars with the countdown numerals \"2\" and \"8\") — so the exact p"}

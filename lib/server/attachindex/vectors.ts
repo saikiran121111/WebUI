@@ -31,7 +31,9 @@ export function assessVectors(meta: IndexMeta, chunks: IndexChunk[]): VectorAsse
   let reason: string | undefined;
   if (!withVec) {
     mode = "lexical_only";
-    reason = "no vectors stored";
+    // F79: quote the build's own persisted reason when there is one — the real
+    // cause of the degradation, not a generic phrase.
+    reason = meta.embedNote || "no vectors stored";
   } else if (ragged) {
     mode = "lexical_only";
     reason = `ragged vector dimensions (${[...dims.keys()].sort((a, b) => a - b).join(", ")})`;

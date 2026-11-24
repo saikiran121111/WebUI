@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from ..config import runtime_dir
-from ..models import provider_config, resources
+from ..models import lifecycle, provider_config, resources
 from . import ocr_paddle, ocr_tesseract
 from .ocr_tesseract import OcrPage
 
@@ -42,6 +42,102 @@ FALLBACK = "tesseract"
 # Recognised and empty are both answers; they are NOT retried and NOT sent to the fallback.
 NEEDS_RECOVERY = ("ocr_failed", "raster_failed")
 
+# F136 (2026-11-23, accept-12): the Paddle worker can die INSIDE its loader (libpaddle/torch
+# DLL imports) while the system-managed pagefile's commit limit is mid-collapse - the sampler
+# shape shows the release expanding the limit (~84 GB free, ~30-45 s plateau) and the collapse
+# finishing within 15 s, with WinError 1455 deaths inside that window (accept-11 workers,
+# accept-12's F91.1 CPU-Paddle attempt: provenance showed ONLY Tesseract pages because the
+# settled post-collapse headroom (~19-25 GB free commit) never got a second Paddle attempt).
+# The SAME engine on the SAME device gets ONE retry after settling out of the transient; a
+# second death records the fact and the units fall through to recovery as before. Seam-patched
+# to no-ops in the fixtures.
+_LOADER_SETTLE_S = 20.0
+# F137 (2026-11-23, accept-13): "settled" must mean FIT, not elapsed time. accept-13's
+# sampler caught the fixed 20 s settle landing INSIDE the collapse (a death at an instant
+# the 16 s grid read as 19-25 GB free), and the recorded CPU-Paddle import needs
+# 21,068 MiB of free commit (the gate's own import_required formula: 2x the measured peak
+# + margin, handoff.py F133 axis) while the post-collapse steady state sits at ~18.8-20.5 GB
+# for ~90 s before reaching the quiet 22.5 GB. So when the import's commit demand is known,
+# poll the gate's free-commit probe at 1 s cadence until it covers the demand for
+# _LOADER_FIT_STABLE_S CONSECUTIVE samples (consecutive, so a momentary dip does not send
+# the retry into a fresh death), capped at _LOADER_FIT_CAP_S - on the cap the retry runs
+# anyway and records its own fact (F136 law). An unreadable probe keeps the fixed settle.
+_LOADER_FIT_CAP_S = 120.0
+_LOADER_FIT_STABLE_S = 10
+_sleep = time.sleep
+
+
+def _free_commit_mib() -> "int | None":
+    """System free commit through the handoff gate's own probe; None = unreadable host.
+
+    None must never be replaced by an invented number: the caller falls back to the
+    fixed settle, exactly like the gate keeps the pre-F133 behaviour on such a host.
+    """
+    try:
+        mem = resources.system_memory()
+    except Exception:                                   # noqa: BLE001 - probe is best-effort
+        return None
+    if mem.source != "GlobalMemoryStatusEx" or int(mem.commit_avail_mib) <= 0:
+        return None
+    return int(mem.commit_avail_mib)
+
+
+def _is_loader_death(exc: BaseException) -> bool:
+    """The OS/loader commit refusal, not an engine fact: WinError 1455 (paging file too small)."""
+    if not isinstance(exc, OSError):
+        return False
+    if getattr(exc, "winerror", None) == 1455:
+        return True
+    return "winerror 1455" in str(exc).lower() and "paging file" in str(exc).lower()
+
+
+def _settle_out_of_shrink(cancel: "Callable[[], bool] | None",
+                          required_mib: int = 0,
+                          deadline_at: float = 0.0) -> bool:
+    """Wait the pagefile collapse out (1 s cancel checks). True = may retry.
+
+    F137: with a known import demand, "settled" means the gate's own probe has read
+    free commit >= required_mib for _LOADER_FIT_STABLE_S consecutive 1 s samples, capped
+    at _LOADER_FIT_CAP_S (at the cap the retry runs anyway and records its own death).
+    With no demand or an unreadable probe this is exactly the F136 fixed settle.
+    F140 (2026-11-24, accept-15): this wait runs INSIDE the exclusive window, so the
+    job's own wall-clock deadline (deadline_at, JobContext.deadline_at) clamps both
+    caps - a 90 s document job must end typed and hand the lease back, never spin in
+    the fit poll past the client's exit. At the clamped cap the retry law is unchanged:
+    it runs anyway and records its own fact. deadline_at = 0 keeps F137 verbatim.
+    """
+    def cancelled() -> bool:
+        return bool(cancel and cancel())
+    if required_mib > 0:
+        cap_s = _LOADER_FIT_CAP_S
+        if deadline_at:
+            cap_s = max(0.0, min(_LOADER_FIT_CAP_S, float(deadline_at) - time.time()))
+        deadline = time.monotonic() + cap_s
+        stable = 0
+        while time.monotonic() < deadline:
+            if cancelled():
+                return False
+            free = _free_commit_mib()
+            if free is None:
+                break                                   # probe died: fixed settle below
+            if free >= required_mib:
+                stable += 1
+                if stable >= _LOADER_FIT_STABLE_S:
+                    return True
+            else:
+                stable = 0
+            _sleep(1.0)
+        else:
+            return not cancelled()                      # cap: retry anyway; facts get recorded
+    limit = max(1, int(_LOADER_SETTLE_S))
+    if deadline_at:
+        limit = min(limit, max(0, int(float(deadline_at) - time.time())))
+    for _ in range(limit):
+        if cancelled():
+            return False
+        _sleep(1.0)
+    return not cancelled()
+
 
 def _flag(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
@@ -50,20 +146,87 @@ def _flag(name: str, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+PADDLE_ALIASES = ("", "primary", "paddle", "paddleocr", "paddleocr-vl", "paddleocr-vl-1.5", PRIMARY)
+SETTINGS_OCR_KEY = "ocr_engine"  # the same key the Settings→Engines tab writes
+
+
+def _settings_ocr_choice() -> tuple[str, str]:
+    """The user's Settings choice from settings.json, as ("paddle"|"tesseract"|"", source).
+
+    The app-side migration law guarantees the stored value is one of
+    "paddle" / "" (the PaddleOCR default) / "tesseract" (Tesseract-only);
+    anything else here (a hand-edited file) is NOT honoured — the fixed
+    default applies and the source says so. A missing or corrupt file is
+    "unset", not an error: this runs on every OCR job.
+    """
+    try:
+        data = json.loads(provider_config.settings_file().read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, ValueError):
+        return "", "settings.json unreadable (treated as unset)"
+    if not isinstance(data, dict):
+        return "", "settings.json is not an object (treated as unset)"
+    got = data.get(SETTINGS_OCR_KEY)
+    if got is None:
+        return "", "settings.json has no ocr_engine (fixed default)"
+    if not isinstance(got, str):
+        return "", f"settings.json ocr_engine={got!r} is not a named engine (fixed default applies)"
+    got = got.strip().lower()
+    if got in PADDLE_ALIASES:
+        return "paddle", f"settings.json({SETTINGS_OCR_KEY})={got!r}: PaddleOCR (recommended)"
+    if got == FALLBACK:
+        return "tesseract", f"settings.json({SETTINGS_OCR_KEY})=tesseract: Tesseract only"
+    return "", f"settings.json ocr_engine={got!r} is not a named engine (fixed default applies)"
+
+
 def policy() -> dict[str, Any]:
-    """The operator's explicit choices, with the reason each default is what it is."""
-    primary = (os.environ.get("RUKE_OCR_PRIMARY") or PRIMARY).strip().lower()
-    if primary in ("", "primary", "paddle", "paddleocr", "paddleocr-vl", PRIMARY):
-        primary = PRIMARY
+    """The fixed engine choices, with the reason each default is what it is.
+
+    FINAL DECISION 2026-11-22 (freeze English release scope): the primary is
+    FIXED to one of exactly two named choices — the pinned PaddleOCR pipeline
+    (default, with the per-page automatic Tesseract fallback) or Tesseract-only
+    (ZERO Paddle probes). There is no arbitrary engine/repository pin any more:
+    the model-manager surface that allowed one is removed. The user's Settings
+    choice (settings.json `ocr_engine`) wins, matching the app-side chain
+    settings.json > env; RUKE_OCR_PRIMARY stays as the operator override for
+    acceptance scripts, normalised to the SAME two choices — any other value
+    is recorded in `selection_source` and falls back to the fixed default.
+    """
+    choice, source = _settings_ocr_choice()
+    if not choice:
+        raw = (os.environ.get("RUKE_OCR_PRIMARY") or "").strip().lower()
+        if raw in PADDLE_ALIASES:
+            choice = "paddle"
+            source = ("env(RUKE_OCR_PRIMARY) names the fixed PaddleOCR primary" if raw
+                      else f"unset: fixed default ({source})")
+        elif raw == FALLBACK:
+            choice, source = "tesseract", "env(RUKE_OCR_PRIMARY)=tesseract"
+        else:
+            choice = "paddle"
+            source = (f"env(RUKE_OCR_PRIMARY)={raw!r} is not a fixed engine choice; "
+                      f"the release default applies ({source})")
+    primary = PRIMARY if choice == "paddle" else FALLBACK
     cfg = provider_config.load()
     return {
         "primary": primary,
-        "allow_gpu": _flag("RUKE_OCR_ALLOW_GPU", False),
+        "ocr_selection": choice,
+        "selection_source": source,
+        "fixed_choices": [PRIMARY, FALLBACK],
+        "fixed_primary_law": (
+            "the primary is FIXED to one of the two named release choices: the pinned PaddleOCR "
+            "pipeline (recommended; a page Paddle cannot read falls back to Tesseract "
+            "automatically) or Tesseract-only (the Paddle pipeline is never probed or loaded). "
+            "Arbitrary engine/repository pins were removed with the model manager "
+            "(final decision 2026-11-22)."),
+        "allow_gpu": _flag("RUKE_OCR_ALLOW_GPU", True),
         "allow_gpu_default_reason": (
-            "the pinned OCR runtime is the CPU build: paddle.is_compiled_with_cuda() returned "
-            "False on this host (measured 2026-11-17). GPU placement becomes available by "
-            "preparing a CUDA-enabled pinned build in the isolated runtime and setting "
-            "RUKE_OCR_ALLOW_GPU=1; it is never enabled by borrowing the main LLM's device."),
+            "GPU placement is PREFERRED by default (B5 final decision 2026-11-22: GPU "
+            "preferred for Paddle; the pinned OCR runtime is the CUDA 12.6 build, and the "
+            "preparation manifest records the paddle.device probe for the build actually "
+            "installed). This gate only lets GPU be CONSIDERED: devices.device_plan places "
+            "the job from MEASURED free VRAM and places it on CPU when the GPU cannot safely "
+            "proceed, so GPU is never enabled by borrowing the main LLM's device. "
+            "RUKE_OCR_ALLOW_GPU=0 closes the gate; on a CPU-fallback build the gate has "
+            "nothing to open."),
         "allow_unload": cfg.automatic_handoff,
         "allow_unload_source": cfg.sources.get("automatic_handoff", ""),
         "allow_unload_default_reason": (
@@ -78,6 +241,19 @@ def policy() -> dict[str, Any]:
                    "ruke_ml.models.provider_config (settings.json > env > .env.local > default)"),
         "provider": cfg.as_dict(),
     }
+
+
+def _tesseract_only_state(policy_cfg: dict[str, Any]) -> dict[str, Any]:
+    """The PRIMARY block for a Tesseract-only selection: the Paddle pipeline is NOT probed.
+
+    The release law is ZERO Paddle probes for a user who chose Tesseract only — calling
+    ocr_paddle.engine_state() would probe the runtime and the pinned snapshots, which is
+    exactly what that choice opted out of. `probed: False` is the marker the report
+    carries so no reader can mistake this for a measured "not ready".
+    """
+    return {"engine": PRIMARY, "ready": False, "probed": False,
+            "blockers": [f"the user chose Tesseract only ({policy_cfg.get('selection_source', '')}); "
+                         "the PaddleOCR pipeline is not probed and never loaded"]}
 
 
 def _primary_state() -> dict[str, Any]:
@@ -136,12 +312,18 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
     log = progress or (lambda state, note: None)
     inject_unit = int(inject_failure_unit or 0)
 
-    state = _primary_state()
+    # Tesseract-only: ZERO Paddle probes — engine_state() is not called at all. The rest of
+    # run() then takes the existing "primary not ready" path, so every unit goes to recovery.
+    if casc["policy"]["ocr_selection"] == FALLBACK:
+        state = _tesseract_only_state(casc["policy"])
+    else:
+        state = _primary_state()
     casc["primary"] = state
 
-    if policy()["primary"] != PRIMARY:
-        casc["selection_note"] = (f"the operator pinned the primary engine to "
-                                  f"{policy()['primary']!r}; {PRIMARY} was not attempted")
+    if casc["policy"]["ocr_selection"] == FALLBACK:
+        casc["selection_note"] = ("Tesseract-only selection: every unit is read by Tesseract "
+                                  "directly; the PaddleOCR pipeline was not probed and is never "
+                                  "loaded")
     elif not state["ready"]:
         casc["selection_note"] = ("the primary pipeline is not executable here: "
                                   + "; ".join(state["blockers"]))
@@ -173,29 +355,62 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
         is released in the adapter's finally block, so the units it never read must still get
         recovery. The failure is recorded, then the units fall through to the engine fallback.
         """
-        try:
-            return _paddle_run(pdf_path, want_units, language=language, dpi=dpi,
-                               rotations=rotations, cancel=cancel, progress=progress,
-                               deadline_at=deadline_at,
-                               per_page_timeout_s=per_page_timeout_s, job_id=job_id,
-                               device=device,
-                                allow_gpu=bool(casc["policy"]["allow_gpu"]),
-                                inside_window=inside_window)
-        except ocr_tesseract.OcrUnavailable as exc:
-            casc["primary"]["run_refused"] = (f"{exc.kind}: {exc}"
-                                              + (f" | next step: {exc.human_step}"
-                                                 if exc.human_step else ""))
-            log("ocr", f"primary engine failed as a whole run: {exc.kind}")
-            return [], {"whole_run_failure": exc.kind}
-        except Exception as exc:                            # noqa: BLE001
-            # An unexpected adapter error used to escape here and fail the whole job: the units the
-            # primary had already read were lost, recovery never ran, and nothing was persisted.
-            # The adapter still releases its worker in its own finally block, so the honest answer
-            # is a recorded whole-run failure plus per-unit recovery, with the traceback attached.
-            casc["primary"]["run_refused"] = f"adapter_crash: {type(exc).__name__}: {exc}"
-            casc["primary"]["adapter_traceback"] = traceback.format_exc(limit=8)
-            log("ocr", f"primary adapter raised {type(exc).__name__}: recovering per unit instead")
-            return [], {"whole_run_failure": "adapter_crash"}
+        loader_retried = False
+        while True:
+            try:
+                return _paddle_run(pdf_path, want_units, language=language, dpi=dpi,
+                                   rotations=rotations, cancel=cancel, progress=progress,
+                                   deadline_at=deadline_at,
+                                   per_page_timeout_s=per_page_timeout_s, job_id=job_id,
+                                   device=device,
+                                    allow_gpu=bool(casc["policy"]["allow_gpu"]),
+                                    inside_window=inside_window)
+            except ocr_tesseract.OcrUnavailable as exc:
+                casc["primary"]["run_refused"] = (f"{exc.kind}: {exc}"
+                                                  + (f" | next step: {exc.human_step}"
+                                                     if exc.human_step else ""))
+                log("ocr", f"primary engine failed as a whole run: {exc.kind}")
+                return [], {"whole_run_failure": exc.kind}
+            except Exception as exc:                        # noqa: BLE001
+                # F136: a loader death (WinError 1455 mid-pagefile-collapse) is transient by
+                # measurement, and the post-collapse headroom is proven to fit the plan. ONE
+                # settle-retry on the SAME engine and SAME device; a second death records the
+                # fact below and recovery proceeds as before. Cancellation stops the retry.
+                if (not loader_retried and _is_loader_death(exc)
+                        and not (cancel and cancel())):
+                    loader_retried = True
+                    first_death = f"{type(exc).__name__}: {exc}"
+                    # F137: size the wait to the loader, from the pinned row's own declared
+                    # commit peak - the same source the handoff gate's import_required
+                    # formula (2x the measured peak + the ceiling margin) is built from.
+                    est = ocr_paddle.estimate()
+                    commit_est = int(est.get("est_peak_commit_mib") or 0)
+                    required = (2 * commit_est + lifecycle.COMMIT_CEILING_MARGIN_MIB
+                                if commit_est > 0 else 0)
+                    log("ocr", "the primary engine's process loader died in the paging-file "
+                               "transient: settling, then retrying the same engine once")
+                    t0 = time.monotonic()
+                    settled = _settle_out_of_shrink(cancel, required_mib=required,
+                                                    deadline_at=deadline_at)
+                    record: dict[str, Any] = {
+                        "device": str(device),
+                        "reason": first_death,
+                        "settle_s": round(time.monotonic() - t0, 1),
+                        "required_commit_mib": required,
+                        "note": ("the loader died while the system pagefile's commit limit was "
+                                 "shrinking; the same engine retried once on the same device "
+                                 "after the pagefile settled"),
+                    }
+                    free_at_retry = _free_commit_mib()
+                    if free_at_retry is not None:
+                        record["free_commit_mib_at_retry"] = free_at_retry
+                    casc["primary"]["loader_retry"] = record
+                    if settled:
+                        continue
+                casc["primary"]["run_refused"] = f"adapter_crash: {type(exc).__name__}: {exc}"
+                casc["primary"]["adapter_traceback"] = traceback.format_exc(limit=8)
+                log("ocr", f"primary adapter raised {type(exc).__name__}: recovering per unit instead")
+                return [], {"whole_run_failure": "adapter_crash"}
 
     def _inject_fault() -> None:
         """Discard one PRIMARY answer on purpose, before recovery, so the fallback is exercised.
@@ -237,6 +452,10 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
                   + ",".join(str(u) for u in pending))
         if casc["primary"].get("run_refused"):
             reason = str(casc["primary"]["run_refused"])
+        elif state.get("probed") is False:
+            # Tesseract-only: recovery is not a "fallback after an unavailable pipeline" —
+            # it is the SELECTED engine running as designed, and the reason must say so.
+            reason = "; ".join(state["blockers"])
         elif not state["ready"]:
             reason = "primary pipeline unavailable: " + "; ".join(state["blockers"])
         if state.get("fault"):
@@ -341,7 +560,8 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
     # --resume-results when recovering from an interrupted window.
     resumed = False
     if resume or _flag("RUKE_OCR_RESUME", False):
-        saved = _read_result(pdf_path, want, language=language, dpi=dpi, rotations=rotations)
+        saved = _read_result(pdf_path, want, language=language, dpi=dpi, rotations=rotations,
+                             ocr_selection=str(casc["policy"]["ocr_selection"]))
         for rec in saved.get("units") or []:
             page = _page_from_record(rec)
             if page is not None:
@@ -358,7 +578,10 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
             casc["resume_rejected"] = str(saved.get("detail", ""))
             log("ocr", f"persisted result not reusable: {saved.get('detail', '')}")
 
-    if not resumed and policy()["primary"] == PRIMARY and state["ready"]:
+    # Act on the policy RECORDED in this report (not a fresh policy() read): the evidence and
+    # the executed path can then never disagree. A Tesseract-only selection fails this gate
+    # (primary == FALLBACK, ready == False) and falls through to recovery-only.
+    if not resumed and casc["policy"]["primary"] == PRIMARY and state["ready"]:
         est = ocr_paddle.estimate()
         from ..models import devices, main_model
         snapshot = main_model.snapshot()
@@ -366,7 +589,11 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
             "documents.ocr", est_peak_mib=int(est["est_peak_mib"]),
             est_peak_vram_mib=int(est["est_peak_vram_mib"]),
             est_basis=str(est["est_peak_basis"]), est_vram_basis=str(est["est_vram_basis"]),
-            allow_gpu=bool(casc["policy"]["allow_gpu"]), main_model=snapshot)
+            allow_gpu=bool(casc["policy"]["allow_gpu"]),
+            # The planner must know the operator's release policy: with automatic handoff
+            # OFF a VRAM-only shortage is the supported CPU path ("unload is not
+            # permitted"), not a handoff demand the cascade would then refuse.
+            allow_unload=bool(casc["policy"]["allow_unload"]), main_model=snapshot)
         casc["device_plan"] = plan.as_dict()
 
         if device_override in ("cpu", "gpu"):
@@ -391,16 +618,78 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
                     inside_window=bool(payload.get("main_model_unloaded_by_us"))),
                 est_peak_mib=int(est["est_peak_mib"]),
                 est_peak_vram_mib=int(est["est_peak_vram_mib"]),
+                est_peak_commit_mib=int(est.get("est_peak_commit_mib") or 0),
                 est_basis=str(est["est_peak_basis"]), est_vram_basis=str(est["est_vram_basis"]),
                 allow_gpu=bool(casc["policy"]["allow_gpu"]), allow_unload=True,
-                owner=job_id, progress=log)
+                owner=job_id, progress=log,
+                # F140: the window is bounded by the job's own deadline - the client
+                # leaves at deadline + grace, and a window outliving it holds the lease
+                # and the ML slot against every later row.
+                deadline_at=deadline_at)
             casc["handoff"] = handoff_out
             after = handoff_out.get("plan_after_unload") or handoff_out.get("plan") or {}
             casc["device_plan"] = after
+            if handoff_out.get("reason") == "coordination_held":
+                # F122 (user brief 2026-11-23): a BUSY LEASE leaves this job waiting and
+                # retryable. It is NOT a reason to switch engines: falling through to
+                # recovery here is exactly how a Paddle-selected scan answered all its
+                # pages by Tesseract while the window was held by active inference. The
+                # units stay unread; the worker maps this state onto the wire as
+                # resource_busy (retryable), the same mapping the ASR dispatcher uses.
+                casc["waiting"] = {
+                    "reason": "coordination_held",
+                    "detail": str(handoff_out.get("detail") or ""),
+                    "retryable": True,
+                    "note": ("the exclusive window is held by another owner; the job stays "
+                             "waiting/retryable and NO fallback engine runs — active "
+                             "inference is never interrupted and the selected engine is "
+                             "never silently replaced"),
+                }
             casc["handoff_work_peak"] = handoff_out.get("work_peak") or {}
+            # B10: the restoration dispatch/ready latencies the window MEASURED ride into
+            # the cascade report (and through it into the persisted record), so the
+            # evidence of "restoration dispatched at worker completion, in how long"
+            # survives the window itself.
+            restore_timings = {k: handoff_out[k] for k in
+                               ("restore_dispatch_ms", "restore_ready_ms")
+                               if isinstance(handoff_out.get(k), int)}
+            if restore_timings:
+                casc["handoff_restore"] = restore_timings
             if not by_page and handoff_out.get("reason"):
                 casc["primary"]["run_refused"] = (f"{handoff_out['reason']}: "
                                                   f"{handoff_out.get('detail', '')}")
+                # F127 (c) (user brief 2026-11-23): "unavailable after confirmed release ->
+                # CPU with specific reason". A GPU window that refused on measured commit
+                # headroom, died inside, or was refused the release is NOT the end of the
+                # SELECTED engine: the SAME pinned Paddle pipeline runs on CPU when the
+                # plan says it fits (the device fallback Paddle-GPU -> Paddle-CPU is
+                # recorded by the adapter; Tesseract stays recovery-of-failed-pages - F122).
+                # coordination_held stays waiting/retryable (F122: no engine move while
+                # inference is active); the persistent "neither device fits" says CPU
+                # cannot fit, so a CPU attempt would be a lie; provider_unsupported and
+                # restore_failed never leave `not by_page` with a runnable pipeline.
+                if (handoff_out.get("reason") in ("resource_limit", "handoff_failed",
+                                                  "unload_refused")
+                        and not (cancel and cancel())):
+                    cpu_plan = devices.device_plan(
+                        "documents.ocr", est_peak_mib=int(est["est_peak_mib"]),
+                        est_peak_vram_mib=int(est["est_peak_vram_mib"]),
+                        est_basis=str(est["est_peak_basis"]),
+                        est_vram_basis=str(est["est_vram_basis"]),
+                        allow_gpu=False, allow_unload=False,
+                        main_model=main_model.snapshot())
+                    casc["device_fallback"] = {
+                        "from_device": "gpu", "to_device": "cpu", "same_model": True,
+                        "window": str(handoff_out.get("reason")),
+                        "reason": str(handoff_out.get("detail")
+                                      or handoff_out.get("reason")),
+                        "plan": cpu_plan.as_dict(),
+                    }
+                    if cpu_plan.fits:
+                        log("handoff", "the GPU window did not run the selected engine: the "
+                                       "SAME Paddle pipeline runs on CPU, refusal recorded")
+                        casc["device_plan"] = cpu_plan.as_dict()
+                        _operation("cpu", inside_window=False)
         elif not plan.fits:
             casc["primary"]["run_refused"] = (
                 f"resource_limit: {plan.reason}; the exclusive handoff was not requested "
@@ -418,7 +707,7 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
             # a plan but the RAM freeing happened outside it, so the caller's word is the evidence.
             _operation(plan.device, inside_window=bool(inside_window))
 
-    if not casc["fallback"]:
+    if not casc["fallback"] and not casc.get("waiting"):
         # The primary never ran inside a window: the pipeline is unavailable, admission refused
         # it, the handoff was not granted, or the plan placed it on no device. The primary worker
         # is still released, because its adapter closes it in its own finally block, so recovery
@@ -447,10 +736,13 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
             "cpu" if (casc.get("fallback") or {}).get("attempted") else "")
 
     ordered = [by_page[u] for u in want if u in by_page]
+    skip_detail = ("the job is waiting for the exclusive window (held by another owner); "
+                   "no engine was run and no engine was substituted"
+                   if casc.get("waiting") else "no engine produced a result for this unit")
     for u in want:
         if u not in by_page:
             ordered.append(OcrPage(page=u, state="skipped",
-                                   detail="no engine produced a result for this unit",
+                                   detail=skip_detail,
                                    engine="none", language_code=language))
     # "none" is the marker for a unit no engine produced, not an engine that ran.
     casc["engines_used"] = sorted({p.engine for p in ordered if p.engine and p.engine != "none"})
@@ -564,11 +856,16 @@ def _source_identity(pdf_path: str) -> dict[str, Any]:
 
 
 def _result_key(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
-                rotations: dict[int, int] | None) -> dict[str, Any]:
+                rotations: dict[int, int] | None,
+                ocr_selection: str = "paddle") -> dict[str, Any]:
     """Key the persisted result by what it is an answer ABOUT, not by where the file sits.
 
     Reusing a result is only correct for the same content and the same request, so both are inside
-    the key. Anything that would change the answer (units, language, dpi, rotations) makes a new key.
+    the key. Anything that would change the answer (units, language, dpi, rotations) makes a new
+    key. The OCR SELECTION is inside the key too (F122, user brief 2026-11-23): a record produced
+    by a Tesseract-only job is evidence about Tesseract, and it must not be findable by a
+    Paddle-selected job on identical bytes (or the reverse) — the cached evidence has to stay
+    attributable to the engine that produced it across setting changes.
     """
     ident = _source_identity(pdf_path)
     if not ident["ok"]:
@@ -576,6 +873,7 @@ def _result_key(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
     request = {
         "schema": RESULT_SCHEMA,
         "engine": PRIMARY,
+        "ocr_selection": (ocr_selection or "paddle"),
         "source": ident["identity"],
         "units": sorted({int(u) for u in units}),
         "language": (language or "").strip().lower(),
@@ -601,7 +899,9 @@ def _write_result(pdf_path: str, want: list[int], *, language: str, dpi: int,
     exactly what the previous version of this file promised it would not do. Never raises: a write
     failure is reported, and the caller decides what to say about it.
     """
-    keyed = _result_key(pdf_path, want, language=language, dpi=dpi, rotations=rotations)
+    keyed = _result_key(pdf_path, want, language=language, dpi=dpi, rotations=rotations,
+                        ocr_selection=str((casc.get("policy") or {}).get("ocr_selection")
+                                          or "paddle"))
     unresolved = [u for u in want
                   if u not in pages or pages[u].state not in ("recognised", "empty")]
     # The record's own coverage and engines are derived HERE, from the units this write is about,
@@ -623,7 +923,9 @@ def _write_result(pdf_path: str, want: list[int], *, language: str, dpi: int,
         "job_id": job_id,
         "source": keyed["identity"],
         "request": keyed["request"],
-        "pipeline": {"primary_engine": PRIMARY,
+        # The record describes what the policy SELECTED, not the release default: a
+        # Tesseract-only run must not self-describe Paddle as its primary engine.
+        "pipeline": {"primary_engine": (casc.get("policy") or {}).get("primary") or PRIMARY,
                      "engines_used": engines_used,
                      "policy": casc.get("policy") or {},
                      "device_plan": casc.get("device_plan") or {},
@@ -671,16 +973,20 @@ def _write_result(pdf_path: str, want: list[int], *, language: str, dpi: int,
 
 
 def _read_result(pdf_path: str, want: Sequence[int], *, language: str, dpi: int,
-                 rotations: dict[int, int] | None) -> dict[str, Any]:
+                 rotations: dict[int, int] | None,
+                 ocr_selection: str = "paddle") -> dict[str, Any]:
     """Read a persisted result. ABSENT, UNREADABLE, MALFORMED and STALE are four different answers.
 
     Treating a corrupt record as "nothing persisted" would silently re-run engines and hide the
     corruption; treating it as usable would replay garbage as an answer. Neither is acceptable, so
-    each case says which action it justifies.
+    each case says which action it justifies. A fifth answer is NOT-ATTRIBUTABLE: a record written
+    under a different OCR selection (cached Tesseract evidence for a Paddle job, or the reverse)
+    is not evidence for this job and is never reused (F122).
     """
     out: dict[str, Any] = {"usable": False, "absent": False, "path": "", "units": [], "peaks": {},
                            "detail": ""}
-    keyed = _result_key(pdf_path, want, language=language, dpi=dpi, rotations=rotations)
+    keyed = _result_key(pdf_path, want, language=language, dpi=dpi, rotations=rotations,
+                        ocr_selection=ocr_selection)
     if not keyed.get("ok"):
         out["detail"] = str(keyed.get("detail", ""))
         return out
@@ -716,7 +1022,14 @@ def _read_result(pdf_path: str, want: Sequence[int], *, language: str, dpi: int,
         return out
     if data.get("request") != keyed["request"]:
         out["detail"] = ("the persisted result was written for a different request (units, "
-                         "language, dpi or rotations), so it was NOT reused")
+                         "language, dpi, rotations, or under a different OCR selection), so it "
+                         "was NOT reused")
+        return out
+    stored_sel = str(((data.get("pipeline") or {}).get("policy") or {}).get("ocr_selection") or "")
+    if stored_sel and ocr_selection and stored_sel != ocr_selection:
+        out["detail"] = (f"the persisted units were produced under the {stored_sel!r} OCR "
+                         f"selection; this job selected {ocr_selection!r}, so the cached "
+                         "evidence is NOT attributable to this job and was NOT reused")
         return out
     units = [u for u in (data.get("units") or []) if isinstance(u, dict)]
     peaks = data.get("peaks")
@@ -779,14 +1092,25 @@ def _paddle_run(pdf_path: str, want: list[int], *, language: str, dpi: int,
 def status_report() -> dict[str, Any]:
     """One JSON readiness answer an operator (or an acceptance wrapper) can print and act on.
 
-    It answers only what is knowable WITHOUT loading a model: which engine the policy pins,
-    whether that engine's runtime and pinned snapshots are complete, what the recovery engine
-    can actually do here, and the declared peak costs the device plan will be built from.
-    It is deliberately not a quality claim.
+    It answers only what is knowable WITHOUT loading a model: which engine the release policy
+    selects, whether that engine's runtime and pinned snapshots are complete, what the recovery
+    engine can actually do here, and the declared peak costs the device plan will be built from.
+    It is deliberately not a quality claim. A Tesseract-only selection carries ZERO Paddle
+    probes: both Paddle blocks report the not-probed marker instead of a measured state.
     """
     tess = ocr_tesseract.ocr_status()
+    cfg = policy()
+    if cfg["ocr_selection"] == FALLBACK:
+        return {
+            "policy": cfg,
+            "primary": _tesseract_only_state(cfg),
+            "primary_engine": _tesseract_only_state(cfg),
+            "recovery": tess,
+            "rasterizer": ocr_tesseract.rasterizer_state(),
+            "recovery_languages": tess.get("languages") or tess.get("langs") or [],
+        }
     return {
-        "policy": policy(),
+        "policy": cfg,
         "primary": _primary_state(),
         "primary_engine": ocr_paddle.engine_state(),
         "recovery": tess,
@@ -798,8 +1122,12 @@ def status_report() -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     report = status_report()
     print(json.dumps(report, indent=1, sort_keys=True, ensure_ascii=False))
-    # Non-zero when the PRIMARY engine could not run here, so a wrapper can branch on it
-    # without inventing its own readiness test. Recovery being available is not a pass.
+    # Non-zero when the SELECTED engine could not run here, so a wrapper can branch on it
+    # without inventing its own readiness test. Under the default PaddleOCR selection, recovery
+    # being available is not a pass. Under Tesseract-only, Tesseract IS the selected engine, so
+    # its availability is the honest answer — Paddle readiness is deliberately not probed.
+    if report["policy"]["ocr_selection"] == FALLBACK:
+        return 0 if report["recovery"].get("status") == "available" else 1
     return 0 if report["primary"]["ready"] else 1
 
 

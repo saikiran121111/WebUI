@@ -11,6 +11,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..language_tables import candidate_languages
 from ..language_tables import validate_language_claims
 from . import assets
 from . import binaries
@@ -29,6 +30,17 @@ from ..retrieval.nn_rerank import PINNED_REVISION_COMMIT as CROSS_ENCODER_COMMIT
 # Published coverage, NOT measured quality: every tag here still needs a per-language
 # evaluation on this host before it can be marked verified.
 WHISPER_TAGS = whisper_ct2_languages()
+
+# B3: the PUBLISHED tables of the ASR candidates the brief names, captured as
+# provenanced data files (see ruke_ml/data/*_languages.json for the card URLs
+# and capture dates). Published support is a claim: every row below carries
+# verified flags that are all False, and the measured runs flip them only from
+# evaluations on this machine. PIVOT 2026-11-22: Parakeet is the ONLY built-in ASR
+# recommendation, and its row is a Settings default - a compatible checkpoint that is
+# NOT listed here still runs, because compat.py judges the snapshot itself
+# (architecture, weight format, processor, required outputs), not the registry.
+PARAKEET_ID = "nvidia/parakeet-tdt-0.6b-v3"
+PARAKEET_TAGS = candidate_languages(PARAKEET_ID)
 
 # The snapshot actually prepared INSIDE this project (.data/ml-cache/huggingface/hub/
 # models--Systran--faster-whisper-base/snapshots/<this>) by the explicit preparer.
@@ -262,8 +274,9 @@ class ModelSpec:
 class Catalog:
     def __init__(self, specs: list[ModelSpec]) -> None:
         # Keyed by (capability, id), NOT by id. The same checkpoint can legitimately be
-        # registered for two different capabilities (the CT2 whisper row is both the ASR
-        # backend and the word-timing aligner), and an id-keyed dict silently keeps only
+        # registered for two different capabilities (the CT2 whisper row used to be both
+        # the ASR backend and the word-timing aligner; after the 2026-11-22 freeze it is
+        # the aligner row only), and an id-keyed dict silently keeps only
         # the LAST row: the audit-visible symptom was speech.asr losing the one ASR row
         # that can actually execute, while every routing/status answer kept quoting it.
         self._ordered: list[ModelSpec] = list(specs)
@@ -689,52 +702,13 @@ _DEFAULTS: list[ModelSpec] = [
               claims={"protocol": "documented generative/instruct scoring", "languages": []},
               asset="Qwen/Qwen3-Reranker-0.6B",
               verified={"quality_on_this_host": False}),
-    # --- the ASR backend that actually runs here: faster-whisper on CTranslate2.
-    # The registry row names the SAME package, model id and adapter module the worker
-    # loads, so "available" cannot mean "a different library is importable".
-    ModelSpec(id="Systran/faster-whisper-base", revision=SPEECH_REVISION, capability="speech.asr",
-              provider="huggingface", package="faster_whisper",
-              adapter="ruke_ml.speech.whisper_ct2", asset="Systran/faster-whisper-base",
-              claims={"languages": WHISPER_TAGS, "task": "transcribe+translate",
-                      "language_table": "faster_whisper.tokenizer._LANGUAGE_CODES",
-                      "language_detection": True,
-                      "timestamps": "source-time segments; word timing only with word_timestamps",
-                      "device_policy": "cpu/int8 - a GPU on this host belongs to the main LLM",
-                      # Measured, not inferred: the E03 probe ran this exact pinned snapshot
-                      # on CPU/int8 through the real worker pipe. Sample size is stated with
-                      # the number because one short TTS clip measures the mechanics and this
-                      # language on this host, NOT general multilingual quality.
-                      "measured_on_this_host": {
-                          "en": {"word_error_rate": 0.0769, "truth_words": 13, "clips": 1,
-                                 "device": "cpu", "compute_type": "int8",
-                                 "evidence": "docs/overnight/logs/e03-speech-20261116T16564630343.json",
-                                 "note": "en-US synthetic TTS; a second clip inside an MP4 "
-                                         "container scored 0.0"}},
-                      "not_measured": "multilingual quality (the published table is a claim), "
-                                      "music/speech content classification, speaker separation"},
-              verified={},
-              est_peak_mib=388,
-              # Machine-readable provenance, not prose: with this empty, `admission` charges
-              # the row as provisional (1.5x plus a 1 GiB margin) even though the number below
-              # was actually measured on this host, and a report cannot tell measured from guess.
-              est_peak_basis="measured: E03 2026-11-16 cold-load peak working set summed across "
-                             "the owned worker tree that ran this pinned snapshot on cpu/int8 "
-                             "(docs/overnight/logs/e03-speech-20261116T16564630343.json)",
-              # Resident 388 MiB, commit 1,276 MiB. The enforceable ceiling is in COMMIT, so the
-              # ceiling has to be cleared by this second number, not the first. See
-              # ruke_ml/allocations.py for the failure this exact pair produced.
-              est_peak_commit_mib=1_276,
-              est_peak_commit_basis="measured: same E03 run, peak_commit of the owned worker tree "
-                                    "= 1276.0 MiB (pagefile charge, not resident RAM)",
-              notes="published multilingual table, captured from the pinned package. Every "
-                    "per-language verified flag must come from a measured run on this host; "
-                    "none is assumed. The revision is the snapshot actually prepared inside "
-                    "the project (.data/ml-cache), not a floating main branch. est_peak_mib is "
-                    "measured (E03, 2026-11-16): sum of per-process peak working sets across "
-                    "the worker tree = 388 MiB, largest simultaneous sample = 318 MiB, peak "
-                    "commit = 1276 MiB. It counts the worker tree, because the venv "
-                    "python.exe this supervisor spawns is a redirector and its child "
-                    "interpreter is what holds the weights"),
+    # The faster-whisper speech.asr ROW is REMOVED (final decision 2026-11-22: Parakeet
+    # through Transformers is the SOLE ASR engine; the Whisper fallback is gone). A row
+    # that is installed and acceptable is a routing CANDIDATE, so leaving it would let
+    # language_route name Whisper for English - a silent engine switch the release law
+    # forbids. The E03 measurement evidence stays in docs/overnight/logs and the
+    # published tag table in ruke_ml/data for provenance. The speech.align row below
+    # stays: word-timing alignment is a separate capability, not transcription.
     ModelSpec(id="Systran/faster-whisper-base", revision=SPEECH_REVISION, capability="speech.align",
               provider="huggingface", package="faster_whisper",
               adapter="ruke_ml.speech.whisper_ct2", asset="Systran/faster-whisper-base",
@@ -742,8 +716,9 @@ _DEFAULTS: list[ModelSpec] = [
                                                           "cross-attention, validated on receipt"},
               verified={},
               est_peak_mib=388,
-              est_peak_basis="measured: same checkpoint and same load path as the speech.asr "
-                             "row above (E03, 2026-11-16)",
+              est_peak_basis="measured: same checkpoint and load path the former speech.asr "
+                             "row used (E03, 2026-11-16; the ASR row is removed by the "
+                             "2026-11-22 release decision)",
               est_peak_commit_mib=1_276,
               est_peak_commit_basis="measured: same E03 run as the speech.asr row (same "
                                     "checkpoint, same load path)",
@@ -752,25 +727,70 @@ _DEFAULTS: list[ModelSpec] = [
                     "never passed off as word timing. est_peak_mib is the same measured "
                     "checkpoint as the speech.asr row; word times were observed from the "
                     "provider (E03 C10 verdict counts), not interpolated"),
-    ModelSpec(id="Xenova/whisper-base.en", revision="unpinned", capability="speech.asr",
-              provider="huggingface", package="transformers", heavy=True,
-              claims={"languages": ["en"]}, asset="Xenova/whisper-base.en",
-              verified={},
-              notes="English ONLY - it must never be the universal default"),
-    ModelSpec(id="openai/whisper-large-v3", revision="unpinned", capability="speech.asr",
+    # Xenova/whisper-base.en and openai/whisper-large-v3 ASR candidate rows REMOVED
+    # (final decision 2026-11-22): no Whisper fallback, and routing names the fixed
+    # Parakeet default. Their published tag tables remain in ruke_ml/data as provenance.
+    # --- THE frozen English ASR default (FINAL DECISION 2026-11-22): Parakeet-TDT-0.6B-v3
+    # through the ONE Transformers ASR integration (ruke_ml/speech/transformers_asr.py).
+    # The ASR model selector, the Whisper fallback, the per-family adapters and the
+    # marketplace rows are REMOVED: this row is the selection, the adapter it names is
+    # the engine, and the revision is pinned to the checkpoint measured on this host
+    # (g103 probe: .data/tmp/g103/probe-result.json - CUDA text + 40 token timestamps,
+    # CPU recovery same text; transformers 5.24.0 + torch 2.14.1+cu126). The Granite/
+    # Qwen/Whisper candidate rows are gone; their published language tables remain as
+    # data for provenance.
+    ModelSpec(id=PARAKEET_ID, revision="541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+              capability="speech.asr",
               provider="huggingface", package="transformers",
-              claims={"languages": WHISPER_TAGS}, asset="openai/whisper-large-v3",
-              verified={"te": False, "hi": False, "en": False},
-              notes="candidate for Telugu/Hindi; the tag list is the published Whisper "
-                    "multilingual table, and published support is not quality evidence. No "
-                    "adapter module is implemented for the transformers path here"),
-    ModelSpec(id="Qwen/Qwen3-ASR-1.7B", revision="unpinned", capability="speech.asr",
-              provider="huggingface", package="qwen_asr",
-              claims={"languages": []}, asset="Qwen/Qwen3-ASR-1.7B",
-              verified={"te": False, "hi": False},
-              notes="its published language table was never captured offline, so no language is "
-                    "claimed and nothing routes through it; the earlier prose value ("
-                    "\"as published\") was unreadable by any router and is deliberately gone"),
+              adapter="ruke_ml.speech.transformers_asr",
+              claims={"languages": PARAKEET_TAGS, "language_detection": True,
+                      "language_table": "captured from the model card 2026-11-22 "
+                                        "(ruke_ml/data/parakeet_tdt_06b_v3_languages.json)",
+                      "timestamps": "published: word-level and segment-level, with automatic "
+                                    "punctuation and capitalization",
+                      "input": "16 kHz mono wav/flac",
+                      "runtime": "Hugging Face Transformers (ParakeetForTDT shipped in "
+                                 "transformers>=5.9.0, PR #44171); measured on transformers "
+                                 "5.24.0 + torch 2.14.1+cu126: CUDA load 3.7 s / generate "
+                                 "0.4 s on an 11 s English clip, peak 2463 MiB allocated "
+                                 "(2845 MiB device-used); CPU recovery path measured with the "
+                                 "same text (g104: load 4.8 s / generate 0.6 s)"},
+              asset=PARAKEET_ID,
+              verified={"en": True, "hi": False},
+              # The admission figures for the SOLE ASR engine, measured on THIS host.
+              # The CPU recovery path is the conservative RAM figure (its weights are
+              # fully resident in the process; on CUDA the process itself stays far
+              # smaller), so the ceiling is set from the CPU run, and the GPU run sets
+              # the VRAM figure. 11 s clip, one window: bounded windows cap the
+              # per-window demand, the load is the fixed part.
+              est_peak_mib=3_142,
+              est_peak_basis="measured: g104 CPU probe 2026-11-22 (.data/tmp/g104), pinned "
+                             "revision, offline snapshot, 11 s English clip decoded on CPU: "
+                             "peak working set 3142 MiB (interpreter baseline 31 MiB)",
+              est_peak_commit_mib=4_375,
+              est_peak_commit_basis="measured 2026-11-23 on this host: GPU-path kernel job "
+                                    "COMMIT peak 4375 MiB driving the real adapter over the "
+                                    "11 s English clip inside an exclusive window (uncapped "
+                                    "32 GiB job, weights loaded on gpu) - the GPU path is the "
+                                    "LARGER one, so it governs; the 2026-11-22 g104 CPU "
+                                    "run's 4283 MiB pagefile charge confirms the shape; "
+                                    "g139 2026-11-24 (.data/tmp/g139) confirmed it IS the "
+                                    "whole-import transient: the real CUDA loader, Strata "
+                                    "released on a quiet host (88647 MiB free commit), drew "
+                                    "the system valley 4466 MiB through torch+CUDA+weights "
+                                    "import and 5100 MiB through generate - inside the "
+                                    "formula's 256 MiB margin, so the F133 proxy is truth "
+                                    "and the row needs no separate import-transient field",
+              est_peak_vram_mib=2_845,
+              est_vram_basis="measured: g103 CUDA probe 2026-11-22 "
+                                  "(.data/tmp/g103/probe-result.json), same revision: "
+                                  "2845 MiB device-used at peak (2463 MiB torch-allocated)",
+              notes="THE English release engine (final decision 2026-11-22). The RELEASE "
+                    "SCOPE IS ENGLISH: the integration refuses non-English before loading, "
+                    "so a deferred multilingual request never silently degrades into an "
+                    "English run. The checkpoint publishes 25 European languages plus "
+                    "automatic detection; that published table is kept for provenance, and "
+                    "English quality is MEASURED on this host (g103 probe, CUDA and CPU)"),
     ModelSpec(id="pyannote/speaker-diarization-community-1", revision="unpinned",
               capability="speech.diarize", provider="huggingface", package="pyannote.audio",
               needs_token=True, claims={"speakers": "anonymous labels only", "languages": []},
@@ -832,7 +852,8 @@ _DEFAULTS: list[ModelSpec] = [
     # PaddleOCR-VL 1.6 recognition model, assembled as a document pipeline rather than the VLM
     # alone. Every condition is separately checkable:
     #   implemented   -> ruke_ml.documents.ocr_paddle (a real adapter that spawns a worker)
-    #   dependencies  -> the isolated CPU venv validated from its pinned dist-info, not an import
+    #   dependencies  -> the isolated GPU-first venv validated from its pinned dist-info, not
+    #                    an import (the CPU wheel is the recorded fallback build)
     #   assets        -> BOTH repositories at the pinned revisions, file-by-file
     # It deliberately does NOT claim "available" here: readiness is computed, so on a host whose
     # free RAM cannot admit the pipeline the job answer is a typed refusal, not a green string.
@@ -844,7 +865,11 @@ _DEFAULTS: list[ModelSpec] = [
                                      PADDLE_LAYOUT_FILES),),
               claims={"ocr": "document pipeline: layout analysis + element recognition + "
                              "structured assembly (PP-DocLayoutV3 + PaddleOCR-VL 1.6)",
-                      "device": "cpu only - the pinned paddlepaddle wheel is the x64 CPU build",
+                      "device": "GPU preferred (pinned wheel is the CUDA 12.6 build; CPU wheel "
+                                "is the recorded fallback) - the run-time device plan places each "
+                                "job from MEASURED free VRAM and takes CPU when the GPU cannot "
+                                "safely proceed; the worker echoes paddle.device and a plan/echo "
+                                "contradiction is refused",
                       "languages": ["en", "fr", "de", "ja", "ko", "zh", "es", "pt", "it", "ru",
                                     "ar", "hi", "bn", "te", "ta", "mr", "sa", "fa", "ur"]},
               verified={"te": False, "hi": False, "en": False, "complex_layout": False,
@@ -854,17 +879,35 @@ _DEFAULTS: list[ModelSpec] = [
               # replaced by the recorded cold-load peak the first time the pipeline actually
               # runs under tree accounting. Until then it errs high, because under-estimating a
               # 2 GB model is how a host gets OOM-killed instead of getting a typed refusal.
-              est_peak_mib=3_300,
-              est_peak_basis="provisional: pinned weight bytes 1966 MiB + paddle runtime and "
-                             "activation allowance; NOT yet a measured cold-load peak",
+              est_peak_mib=2_620,
+              est_peak_basis="measured 2026-11-22 on this host: GPU worker cold-load + one page, "
+                             "owned-tree resident working-set peak 2620 MiB (worker child); the "
+                             "kernel job COMMIT peak for the same run was 10327 MiB (CUDA build "
+                             "mappings charge commit, not resident RAM), so a bounded CPU window "
+                             "must size its commit ceiling from that figure, not this one",
+              est_peak_commit_mib=10_406,
+              est_peak_commit_basis="measured 2026-11-23 on this host: kernel job COMMIT peak "
+                                    "10406 MiB driving the real adapter over the full six-page "
+                                    "scanned fixture inside an exclusive window under the "
+                                    "enforced 11444 MiB ceiling (all six pages recognised, "
+                                    "device_used gpu:0, 34 tree samples; the worker frees each "
+                                    "page's results, so the multi-page peak equals the "
+                                    "load+one-page peak); the 2026-11-22 one-page figure "
+                                    "10327 MiB and the load-only 9356 MiB confirm the shape, "
+                                    "and the same load under a 6675 MiB ceiling dies mid-model "
+                                    "with 0xC0000409 - the commit ceiling is sized from this "
+                                    "figure, never from the working-set row above",
               # VRAM is reported separately from system RAM: fitting in RAM says nothing about the
               # device, and on this host the shared 12 GiB GPU is mostly occupied by the main model.
               # The bound errs high on purpose - a GPU estimate that is too low turns a schedulable
               # job into a CUDA allocation failure inside a child we then have to clean up.
-              est_peak_vram_mib=6_000,
-              est_vram_basis="provisional: device-resident weights 1966 MiB + layout model + fp32 "
-                             "activations/page render buffers; NOT yet a measured GPU peak (no GPU "
-                             "run has been executed on this host yet)",
+              est_peak_vram_mib=8_100,
+              est_vram_basis="measured 2026-11-22 on this host (RTX 3060 12288 MiB): nvidia-smi "
+                             "sampler at 2 s during the coordinated GPU window showed the worker "
+                             "phase peak at 8241 MiB used (≈200 MiB desktop baseline included); "
+                             "weights 1966 MiB + layout model + activations for one page. A GPU "
+                             "OCR job therefore needs the coordinated unload window - it does "
+                             "NOT fit beside the resident main model (2737 MiB free)",
               notes="primary OCR engine. Its published language list is a PUBLISHED claim, not "
                     "measured quality: nothing here is verified until the document quality gate "
                     "runs it on real pages on THIS host. Indic coverage stays unverified."),

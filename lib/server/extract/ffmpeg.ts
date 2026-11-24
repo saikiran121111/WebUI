@@ -116,14 +116,40 @@ export interface ImageDecode {
   dataUrl: string;
   /**
    * Extra pages/frames beyond the first. For images the `at` value is the
-   * 1-based PAGE NUMBER, NOT seconds — do not read it as a timestamp.
+   * 1-based PAGE NUMBER, NOT seconds — do not read it as a timestamp. When the
+   * cap bites, `at` values are spread (F67: the LAST page is always kept).
    */
   frames?: { dataUrl: string; at: number }[];
+  /** TRUE page/frame count of the file when the decoder can declare it. */
   pages: number;
+  /**
+   * F68: pixel dimensions of the PRIMARY (first) image as the file declares
+   * them — the container/decoded source, NEVER the downscaled delivery raster
+   * (a 1080×4000 portrait ships ≤1280 but is still 1080×4000) and never a
+   * thumbnail. The answer path quotes these verbatim so "what are the pixel
+   * dimensions?" is a fact, not a vision estimate (fr-I4 said 1250×612 of a
+   * 1280×720 HEIC).
+   */
+  width?: number;
+  height?: number;
 }
 
 /** Multi-page/animated decode cap — a 500-frame GIF is not worth 500 images. */
 const MAX_IMAGE_PAGES = 8;
+
+/**
+ * F67: which page indices the cap keeps. Taking the FIRST `cap` pages hid the
+ * end of every long animation (the live fr-I3 GIF has 24 frames — the last
+ * frame's fact was undeliverable). An evenly spread subset ALWAYS includes the
+ * first AND the last page, and every kept page carries its true 1-based
+ * position, so "page N" / "the last frame" stay addressable.
+ */
+function pagePicks(n: number, cap: number): number[] {
+  if (n <= cap) return Array.from({ length: n }, (_, i) => i);
+  const idx = new Set<number>([0, n - 1]);
+  for (let k = 1; k < cap - 1; k++) idx.add(Math.round((k * (n - 1)) / (cap - 1)));
+  return [...idx].sort((a, b) => a - b);
+}
 
 /**
  * libvips (sharp) page decode — the F78-B primary image decoder.
@@ -141,7 +167,7 @@ async function decodePagesWithSharp(
   src: string,
   maxPages: number,
   signal?: AbortSignal,
-): Promise<{ pages: Buffer[]; declared: number } | null> {
+): Promise<{ pages: Buffer[]; idxs: number[]; declared: number; width?: number; height?: number } | null> {
   let sharp: any;
   try {
     const mod: any = await import("sharp");
@@ -153,7 +179,8 @@ async function decodePagesWithSharp(
     const meta = await sharp(src).metadata();
     const declared = Math.max(1, meta.pages ?? 1);
     const pages: Buffer[] = [];
-    for (let i = 0; i < Math.min(declared, maxPages); i++) {
+    const idxs: number[] = [];
+    for (const i of pagePicks(declared, maxPages)) {
       if (signal?.aborted) break;
       try {
         const png = await sharp(src, { page: i })
@@ -162,11 +189,14 @@ async function decodePagesWithSharp(
           .png()
           .toBuffer();
         pages.push(png);
+        idxs.push(i);
       } catch {
         break; // page N undecodable — keep what came before it
       }
     }
-    return pages.length ? { pages, declared } : null;
+    return pages.length
+      ? { pages, idxs, declared, width: meta.width, height: meta.height }
+      : null;
   } catch {
     return null; // container not readable by libvips
   }
@@ -181,7 +211,7 @@ async function decodePagesWithSharp(
 async function decodePagesWithHeic(
   src: string,
   maxPages: number,
-): Promise<{ pages: Buffer[]; declared: number } | null> {
+): Promise<{ pages: Buffer[]; idxs: number[]; declared: number; width?: number; height?: number } | null> {
   let decode: any;
   try {
     const mod: any = await import("heic-decode");
@@ -205,8 +235,11 @@ async function decodePagesWithHeic(
       const sharpMod: any = await import("sharp");
       const s = sharpMod.default ?? sharpMod;
       const pages: Buffer[] = [];
-      for (const handle of imgs.slice(0, maxPages)) {
-        const { width, height, data } = await handle.decode();
+      const idxs: number[] = [];
+      let dims: { width: number; height: number } | undefined;
+      for (const i of pagePicks(imgs.length, maxPages)) {
+        const { width, height, data } = await imgs[i].decode();
+        dims ??= { width, height }; // F68: the primary image's decoded raster
         pages.push(
           await s(Buffer.from(data.buffer, data.byteOffset, data.byteLength), {
             raw: { width, height, channels: 4 },
@@ -216,8 +249,9 @@ async function decodePagesWithHeic(
             .png()
             .toBuffer(),
         );
+        idxs.push(i);
       }
-      return { pages, declared: imgs.length };
+      return { pages, idxs, declared: imgs.length, ...dims };
     } finally {
       try { imgs.dispose?.(); } catch { /* wasm free is best-effort */ }
     }
@@ -226,10 +260,21 @@ async function decodePagesWithHeic(
   }
 }
 
-function pagesToDecode(pages: Buffer[]): ImageDecode {
+function pagesToDecode(
+  pages: Buffer[],
+  idxs: number[],
+  declared: number,
+  dims?: { width?: number; height?: number },
+): ImageDecode {
   const [first, ...rest] = pages;
-  const frames = rest.map((p, i) => ({ dataUrl: toDataUrl(p), at: i + 2 }));
-  return { dataUrl: toDataUrl(first), ...(frames.length ? { frames } : {}), pages: pages.length };
+  // `at` is the page's TRUE 1-based position — spread subsets stay addressable.
+  const frames = rest.map((p, i) => ({ dataUrl: toDataUrl(p), at: idxs[i + 1] + 1 }));
+  return {
+    dataUrl: toDataUrl(first),
+    ...(frames.length ? { frames } : {}),
+    pages: declared,
+    ...(dims?.width && dims?.height ? { width: dims.width, height: dims.height } : {}),
+  };
 }
 
 /**
@@ -251,9 +296,11 @@ export async function imageToDataUrlFromPath(
   opts: { signal?: AbortSignal } = {},
 ): Promise<ImageDecode> {
   const sharpPages = await decodePagesWithSharp(src, MAX_IMAGE_PAGES, opts.signal);
-  if (sharpPages) return pagesToDecode(sharpPages.pages);
+  if (sharpPages)
+    return pagesToDecode(sharpPages.pages, sharpPages.idxs, sharpPages.declared, sharpPages);
   const heicPages = await decodePagesWithHeic(src, MAX_IMAGE_PAGES);
-  if (heicPages) return pagesToDecode(heicPages.pages);
+  if (heicPages)
+    return pagesToDecode(heicPages.pages, heicPages.idxs, heicPages.declared, heicPages);
   const base = tmpName("");
   const pattern = base + "_%03d.png";
   const written: string[] = [];
@@ -267,12 +314,24 @@ export async function imageToDataUrlFromPath(
       else break;
     }
     if (!written.length) throw new Error("Could not decode this image");
-    const dataUrl = toDataUrl(fs.readFileSync(written[0]));
+    const first = fs.readFileSync(written[0]);
+    const dataUrl = toDataUrl(first);
     const frames = written.slice(1).map((p, i) => ({
       dataUrl: toDataUrl(fs.readFileSync(p)),
       at: i + 2, // page number of this frame (page 1 is `dataUrl`)
     }));
-    return { dataUrl, ...(frames.length ? { frames } : {}), pages: written.length };
+    // F68: the ffmpeg fallback targets containers libvips cannot open (ico…)
+    // whose SCALE_FILTER never downscales in practice — the decoded primary
+    // PNG's own dimensions are the file's. Read them from the raster; omit
+    // the claim when they cannot be established (never invent).
+    let dims: { width?: number; height?: number } = {};
+    try {
+      const sharpMod: any = await import("sharp");
+      const s = sharpMod.default ?? sharpMod;
+      const m = await s(first).metadata();
+      if (m.width && m.height) dims = { width: m.width, height: m.height };
+    } catch { /* dimensions unknown — omit */ }
+    return { dataUrl, ...(frames.length ? { frames } : {}), pages: written.length, ...dims };
   } finally {
     try {
       const dir = path.dirname(base);
@@ -487,14 +546,14 @@ export async function videoKeyframesFromPath(
 }
 
 /**
- * Decode audio to raw 32-bit float PCM (16 kHz mono) — the exact layout the
- * whisper pipeline expects. Reads from a path on disk and decodes the WHOLE
- * track (no duration cap): ffmpeg writes the PCM to a scratch file instead of
- * piping it through a RAM buffer, so hour-long recordings cost disk, not a
- * maxBuffer ceiling. The file is then mapped into a Float32Array with a
- * zero-copy view (f32le on disk == native little-endian float32).
- * Whisper itself processes the PCM in 30 s chunks, so transcription time
- * scales with the recording's length — long audio just takes longer.
+ * Decode audio to raw 32-bit float PCM (16 kHz mono) — the layout ASR engines
+ * consume. Reads from a path on disk and decodes the WHOLE track (no duration
+ * cap): ffmpeg writes the PCM to a scratch file instead of piping it through a
+ * RAM buffer, so hour-long recordings cost disk, not a maxBuffer ceiling. The
+ * file is then mapped into a Float32Array with a zero-copy view (f32le on disk
+ * == native little-endian float32). F123: the remaining caller is video
+ * narration (the short-track path); the removed TypeScript whisper pipeline
+ * is gone.
  */
 export async function audioPcmFromPath(
   src: string,
@@ -524,109 +583,10 @@ export async function audioPcm(buf: Buffer, ext: string): Promise<Float32Array> 
   });
 }
 
-/**
- * I15 (RAM law): decode a media file's audio track to a raw f32le scratch
- * file WITHOUT holding the whole track in RAM. audioPcmFromPath's Float32Array
- * costs 8 bytes per sample: a 3-hour track is ~690 MB of float, on top of the
- * source file itself — enough to sink a consumer laptop while whisper churns.
- * The decode lands on disk; the caller reads 30 s windows with readPcmRange
- * (or the whole thing only when the track is short) and deletes the file.
- * The caller OWNS the returned file — whoever decodes must remove it.
- */
-export async function decodeAudioPcmFile(
-  src: string,
-  opts: { signal?: AbortSignal } = {},
-): Promise<{ file: string; samples: number }> {
-  const out = tmpName(".f32");
-  try {
-    const ff = await ffmpegPath();
-    await execFileP(ff, ["-hide_banner", "-loglevel", "error", "-y", "-i", src,
-      "-f", "f32le", "-ac", "1", "-ar", "16000", out],
-      { timeout: 600_000, ...(opts.signal ? { signal: opts.signal } : {}) });
-    if (!fs.existsSync(out) || fs.statSync(out).size === 0) {
-      throw new Error("Audio decoded to nothing");
-    }
-    return { file: out, samples: Math.floor(fs.statSync(out).size / 4) };
-  } catch (err) {
-    try { fs.rmSync(out, { force: true }); } catch { /* ignore */ }
-    throw err;
-  }
-}
-
-/**
- * F78 (2026-11-22): channel COUNT of the first audio stream, read off the
- * `ffmpeg -i` layout line (the probeInfo law: no ffprobe dependency). Two
- * speakers recorded on SEPARATE channels (interview split left/right) merge
- * into one unattributable voice under `-ac 1`, so the audio path asks how
- * many channels exist before deciding how to decode. 0 = a layout this
- * parser does not name — the caller keeps the proven mono path.
- */
-export function parseAudioChannelCount(probeStderr: string): number {
-  const line = /Audio:.*$/m.exec(probeStderr)?.[0] ?? "";
-  if (/\bmono\b/i.test(line)) return 1;
-  if (/\bstereo\b/i.test(line)) return 2;
-  if (/\bquad\b/i.test(line)) return 4;
-  if (/\b5\.1\w*\b/i.test(line)) return 6;
-  if (/\b7\.1\w*\b/i.test(line)) return 8;
-  if (/\boctal\b/i.test(line)) return 8;
-  // PCM containers (wav) print NO layout NAME — ffmpeg-static's probe line is
-  // "Audio: pcm_s16le (...), 22050 Hz, 2 channels, s16, ..." (reproduced on
-  // the overlap.wav fixture). The numeric form is the honest fallback.
-  const nc = /\b(\d{1,2}) channels\b/i.exec(line);
-  if (nc) return Number(nc[1]);
-  return 0;
-}
-
-export async function probeAudioChannels(
-  src: string,
-  opts: { signal?: AbortSignal } = {},
-): Promise<number> {
-  return parseAudioChannelCount(await probeInfo(src, opts));
-}
-
-/**
- * F78: decode ONE channel of the audio track as 16 kHz mono float PCM —
- * `pan=mono|c0=cK` downmixes the selected channel ALONE, so each channel's
- * speech transcribes on its own timeline and keeps its channel identity.
- * Same scratch-file law as decodeAudioPcmFile (disk, not RAM): the caller
- * owns the returned file and must delete it.
- */
-export async function decodeAudioPcmFileChannel(
-  src: string,
-  channel: number,
-  opts: { signal?: AbortSignal } = {},
-): Promise<{ file: string; samples: number }> {
-  const out = tmpName(".f32");
-  try {
-    const ff = await ffmpegPath();
-    await execFileP(ff, ["-hide_banner", "-loglevel", "error", "-y", "-i", src,
-      "-af", `pan=mono|c0=c${channel}`, "-f", "f32le", "-ac", "1", "-ar", "16000", out],
-      { timeout: 600_000, ...(opts.signal ? { signal: opts.signal } : {}) });
-    if (!fs.existsSync(out) || fs.statSync(out).size === 0) {
-      throw new Error("Audio decoded to nothing");
-    }
-    return { file: out, samples: Math.floor(fs.statSync(out).size / 4) };
-  } catch (err) {
-    try { fs.rmSync(out, { force: true }); } catch { /* ignore */ }
-    throw err;
-  }
-}
-
-/**
- * Read pcm[fromSample..toSample) out of a decodeAudioPcmFile scratch file —
- * a positional pread, so only the requested window is ever in memory.
- */
-export function readPcmRange(file: string, fromSample: number, toSample: number): Float32Array {
-  const b0 = Math.max(0, Math.floor(fromSample)) * 4;
-  const size = fs.statSync(file).size;
-  const b1 = Math.min(size, Math.max(b0, Math.floor(toSample) * 4));
-  const fd = fs.openSync(file, "r");
-  try {
-    const buf = Buffer.alloc(b1 - b0);
-    let off = 0;
-    while (off < buf.length) off += fs.readSync(fd, buf, off, buf.length - off, b0 + off);
-    return new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 4));
-  } finally {
-    fs.closeSync(fd);
-  }
-}
+// F123 (2026-11-23): the I15 scratch-file decoders (decodeAudioPcmFile,
+// decodeAudioPcmFileChannel, probeAudioChannels, parseAudioChannelCount,
+// readPcmRange) are removed with lib/server/extract/audio.ts. They existed to
+// feed the TypeScript whisper pipeline window-by-window from disk; the pinned
+// Python speech job decodes the selected stream itself, so no caller remains
+// (verified by search across src and tests). audioPcmFromPath/audioPcm stay —
+// video narration still decodes whole short tracks here.

@@ -212,6 +212,12 @@ pub fn build_router(state: AppState) -> Router {
         // bridge-authed, path-allowlisted, typed-envelope errors. See
         // ml_job.rs for why capability state never uses a status code.
         .route("/api/ruke/ml/job", post(ml_job::job_post))
+        // The model-manager control plane (/api/ruke/ml/models) was REMOVED
+        // (final-decision addendum 2026-11-22): the Hugging Face search/picker/
+        // token/mirror/download surface is gone, provisioning of the pinned
+        // assets is automatic through the Python prepare path, and Parakeet +
+        // PaddleOCR/Tesseract are fixed engines. Supervisor parity: its
+        // /models plane answers 404.
         .with_state(state)
 }
 

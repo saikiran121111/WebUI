@@ -1,6 +1,6 @@
 /**
  * F21 lifecycle law: ONE heavyweight in-process resource (headless Chromium,
- * an ONNX embedder, a CPU whisper pipeline), owned by this process, with a
+ * an ONNX embedder, a CPU speech pipeline), owned by this process, with a
  * single set of rules that the ad-hoc `let promise: Promise<T> | null`
  * singletons got wrong:
  *

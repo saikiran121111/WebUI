@@ -64,14 +64,15 @@ export function capabilityLabel(id: string): string {
  *  describing work that is not happening. Chat "thinking" is deliberately NOT here -
  *  turn thinking belongs to lib/progress/turnProgress.ts, not to a capability job. */
 export const JOB_STAGES = [
-  "queued", "preparing", "download_required", "extracting", "ocr", "transcribing",
-  "indexing", "retrieving", "analysing", "writing", "ready", "failed", "cancelled",
+  "queued", "preparing", "preparing_model", "download_required", "extracting", "ocr",
+  "transcribing", "indexing", "retrieving", "analysing", "writing", "ready", "failed", "cancelled",
 ] as const;
 export type JobStage = (typeof JOB_STAGES)[number];
 
 const JOB_STAGE_LABEL: Record<JobStage, string> = {
   queued: "Queued - waiting for the single heavy slot",
   preparing: "Preparing",
+  preparing_model: "Preparing the pinned model (first use)",
   download_required: "Download required - not started automatically",
   extracting: "Extracting",
   ocr: "Reading text from images",

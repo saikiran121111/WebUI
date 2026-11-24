@@ -17,7 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .config import (ENV_RPC_TOKEN, ENV_SECRET_FILE, LIMITS, ensure_dirs, fingerprint, runtime_dir)
+from . import handoff               # light (urllib/ctypes only): keeps the startup contract
+from .config import (ENV_MEM_CEILING, ENV_RPC_TOKEN, ENV_SECRET_FILE, LIMITS, ensure_dirs,
+                     fingerprint, runtime_dir)
 from .contracts import CAPABILITIES, JobRequest, JobResult, StructuredError, canon_json
 from .health import Health
 from .models import job_limits          # stdlib ctypes only: this stays a light startup
@@ -165,6 +167,11 @@ def make_handler(health: Health, pool: WorkerPool, secret: str, audit: list[str]
                 self._send(200, {"state": "draining"})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
+            # The /models model-manager control plane (hub search/inspect/
+            # download/delete) is REMOVED (final-decision addendum 2026-11-22): OCR/ASR
+            # selection is fixed defaults, provisioning of the pinned assets is
+            # automatic through models/prepare (the pinned-revision law in assets.py),
+            # and a user-facing hub surface with a token field has no place left.
             if not self.path.startswith("/job"):
                 self._send(404, {"error": "not found"})
                 return
@@ -207,8 +214,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--discovery", default="", help="where to write the discovery JSON")
     ap.add_argument("--idle-ttl", type=float, default=LIMITS.idle_ttl_s)
-    ap.add_argument("--mem-ceiling-bytes", type=int, default=LIMITS.mem_ceiling_bytes,
-                    help="hard commit ceiling for this process and every worker it spawns")
+    ap.add_argument("--mem-ceiling-bytes", type=int, default=0,
+                    help="hard commit ceiling for this process and every worker it spawns; "
+                         f"0 (default) MEASURES the host budget at startup (B8 law), and a "
+                         f"{ENV_MEM_CEILING} environment value is honoured as the operator cap")
     args = ap.parse_args(argv)
 
     # Bind safety first. It is a pure function of the arguments and must produce the
@@ -227,10 +236,16 @@ def main(argv: list[str] | None = None) -> int:
     # spawned. Children created by a job member join the job at create time, so a lazily
     # loaded heavy model cannot walk past the cap on its way in. If the OS refuses, that is
     # logged as an acceptance failure rather than folded into a normal startup line.
-    ceiling = job_limits.install_process_job(args.mem_ceiling_bytes)
+    # 0 = measure the host budget at startup (B8 law); an explicit CLI value wins, and an
+    # explicit RUKE_ML_MEM_CEILING_BYTES environment value is honoured as the operator cap.
+    ceiling_bytes = int(args.mem_ceiling_bytes)
+    if ceiling_bytes <= 0 and os.environ.get(ENV_MEM_CEILING):
+        ceiling_bytes = int(LIMITS.mem_ceiling_bytes)
+    ceiling = job_limits.install_process_job(ceiling_bytes)
     if ceiling.get("enforced"):
         sys.stderr.write(f"ruke-ml commit ceiling enforced: {ceiling.get('limit_bytes')} bytes "
-                         f"via {ceiling.get('mechanism')} ({ceiling.get('name')})\n")
+                         f"via {ceiling.get('mechanism')} ({ceiling.get('name')}) "
+                         f"source: {ceiling.get('limit_source')}\n")
     else:
         sys.stderr.write(f"ruke-ml memory ceiling NOT enforced: {ceiling.get('mechanism')} "
                          f"reason={ceiling.get('reason')} win32={ceiling.get('win32_error')}\n")
@@ -254,6 +269,20 @@ def main(argv: list[str] | None = None) -> int:
 
     health.state = "ready"
     sys.stderr.write(f"ruke-ml supervisor ready on 127.0.0.1:{port} pid={os.getpid()}\n")
+    # B10: one reload owner on restart. The journal is the evidence of whether a previous
+    # window unloaded the main model; if the window was interrupted, finishing the
+    # restoration is THIS process's job — dispatched here, in the background (a real model
+    # load takes minutes and must not block serving /job), yielding to a live lease.
+    # No UI poll ever drives the reload.
+    def _startup_recovery() -> None:
+        try:
+            report = handoff.recover_at_startup()
+        except Exception as exc:                               # noqa: BLE001
+            report = {"detail": f"{type(exc).__name__}: {exc}"}
+        sys.stderr.write(f"ruke-ml startup handoff recovery: {canon_json(report)}\n")
+
+    threading.Thread(target=_startup_recovery, name="handoff-startup-recovery",
+                     daemon=True).start()
     try:
         httpd.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:

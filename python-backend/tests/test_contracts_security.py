@@ -136,7 +136,67 @@ class Egress(unittest.TestCase):
         self.assertEqual(env["RUKE_EGRESS"], "blocked")
         self.assertEqual(env["TRANSFORMERS_OFFLINE"], "1")
         self.assertEqual(env["HF_HUB_OFFLINE"], "1")
-        self.assertEqual(env["no_proxy"], "")
+        # F91 (2026-11-23): the block is a blackhole PROXY, so no_proxy defines what
+        # the worker can still reach: loopback ONLY (its own model server's control
+        # endpoint). The exemption must be EXACTLY loopback - anything off-machine
+        # still routes to the dead sink.
+        for k in ("no_proxy", "NO_PROXY"):
+            self.assertIn("127.0.0.1", env[k])
+            self.assertIn("localhost", env[k])
+        self.assertNotIn("example.com", env[k])
+
+    def test_the_blocked_env_still_reaches_the_loopback_control_endpoint(self):
+        """F91 accept-4 regression: the placement gate's main_model probe runs INSIDE
+        an egress-blocked worker. Blackholing loopback made every probe
+        connection-refused (WinError 10061), recorded as "the main model is not
+        loaded, so there is nothing to reclaim", and disabled the GPU handoff for
+        OCR/ASR admission. A real urllib request under the real blocked env must
+        answer from a loopback server and must NOT reach an off-machine host."""
+        import os
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from ruke_ml import security
+
+        class Ok(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"loaded": true}')
+
+            def log_message(self, *a):
+                pass
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Ok)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        env = security.egress_blocked_for_workers({})
+        saved = {k: os.environ.get(k) for k in env}
+        try:
+            os.environ.update(env)
+            # A DEDICATED opener, not urllib's process-global one. The product's worker
+            # builds its opener from exactly this env at startup; urllib's global opener
+            # caches that config for the whole process, so urlopen() here would leak the
+            # blackhole proxy into every later in-process request whose no_proxy env has
+            # since been restored (proxy_bypass is re-read live) - which is exactly the
+            # suite poisoning this test order exposed on 2026-11-23.
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler())
+            with opener.open(f"http://127.0.0.1:{port}/health", timeout=5) as resp:
+                self.assertIn(b'"loaded": true', resp.read())
+            with self.assertRaises(urllib.error.URLError) as cm:
+                opener.open("http://example.invalid./x", timeout=5)
+            self.assertIn("10061", str(cm.exception))
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            srv.shutdown()
+            srv.server_close()
 
 
 class WireReasons(unittest.TestCase):

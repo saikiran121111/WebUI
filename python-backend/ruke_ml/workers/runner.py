@@ -53,7 +53,13 @@ def _retrieval_failure(reason: str, message: str) -> tuple[str, str]:
 # numeric extension first, so its thread pool is built alone). Deliberately per-capability:
 # a document parse that never touches BLAS must not pay for a numpy import it does not use.
 _PRELUDE: dict[str, tuple[str, ...]] = {
-    "speech.asr": ("numpy", "faster_whisper"),
+    # B6 (final decision 2026-11-22): this graph is the SOLE engine's, not Whisper's.
+    # It used to preload faster_whisper (CT2's native library) into every transcription
+    # worker - implicit Whisper execution in the production ASR path, ahead of the
+    # selected-model dispatch. The release engine is Parakeet through Transformers, so
+    # the heavy graph built single-threaded at the handshake is numpy (its thread pool
+    # builds alone), then torch, then transformers.
+    "speech.asr": ("numpy", "torch", "transformers"),
     "speech.align": ("numpy",),
     # The two neural retrieval capabilities were the last ones to import a native extension
     # lazily, inside a running worker, and it failed the same measured way the ASR path used

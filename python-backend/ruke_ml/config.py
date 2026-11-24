@@ -25,8 +25,10 @@ ENV_MEM_BUDGET = "RUKE_ML_MEM_BUDGET_MIB"
 ENV_MEM_CEILING = "RUKE_ML_MEM_CEILING_BYTES"
 
 DEFAULT_MEM_BUDGET_MIB = 4096
-# Hard maximum for the Ruke runtime tree plus its processing children, excluding the main
-# LLM and the coding agent. Enforced, not polled: see models/job_limits.py.
+# OPERATOR cap for the Ruke runtime tree plus its processing children, excluding the main LLM
+# and the coding agent. Under the MEASURED law (B8, 2026-11-22) this cap applies only when
+# RUKE_ML_MEM_CEILING_BYTES is set explicitly; unset, the ceiling is derived from the host's
+# measured headroom at startup. Enforced, not polled: see models/job_limits.py.
 DEFAULT_MEM_CEILING_BYTES = 5_000_000_000
 DEFAULT_LIGHT_WORKER_CEILING_MIB = 1536
 

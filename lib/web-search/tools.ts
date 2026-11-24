@@ -39,11 +39,18 @@ import { domainWithin } from "./domain-match";
 // them, so a search-tool argument can be derived from stored evidence while
 // the derivation law stays single-owned.
 import {
+  MEDIA_HINT_MAX,
   MEDIA_HINT_QUERY_CAP,
   clueKey,
   mediaHintQueryPairs,
   type MediaHint,
 } from "../server/attachindex/media-hints";
+// F80 (2026-11-23): the source-scope gate reads the turn's stored attachment
+// indexes directly (the same pure retrieval surface the chat route uses), so
+// "does the supplied file answer this claim?" is a LOOKUP, never a heuristic.
+import { readIndex } from "../server/attachindex/store";
+import { evidenceFromRanked, rankCandidates } from "../server/attachindex/retrieve";
+import { routeQuery } from "../server/attachindex/router";
 import {
   isEnforceableScope,
   isOperationalScope,
@@ -295,6 +302,19 @@ export interface WebToolSession {
    * always labelled, never laundered into a model-authored query.
    */
   mediaHints: MediaHint[];
+  /**
+   * F80 (2026-11-23): the attachment ids THIS turn references (same bounded
+   * collection as mediaHints — Rust `turn_attachment_ids` ⇔ TS
+   * `collectTurnAttachmentIds`, forwarded on the create RPC). The
+   * source-scope gate in the exec layer resolves a call's claims against
+   * these stored indexes at dispatch: a supplied file is primary evidence,
+   * and the web boundary is reached only for claims the files do not carry
+   * (or when the model declares external scope via
+   * `external_verification: true`). Empty ⇒ the turn supplies no files and
+   * the web tools run ungated. No keyword lists and no filename lists:
+   * scope is resolved by LOOKING UP the model's own claims.
+   */
+  attachmentIds: string[];
 }
 
 /** Conversation identity a tool session journals research under. */
@@ -461,6 +481,7 @@ export function makeWebToolSession(
   liveRequired = false,
   conversation: WebToolConversation | null = null,
   mediaHints: MediaHint[] = [],
+  attachmentIds: string[] = [],
 ): WebToolSession {
   return {
     searchSessionId: "ws-" + Math.random().toString(36).slice(2, 10),
@@ -475,6 +496,7 @@ export function makeWebToolSession(
     liveRequired,
     conversation,
     mediaHints,
+    attachmentIds,
     sourceRegistry: new Map(),
     docStore: new Map(),
   };
@@ -664,6 +686,11 @@ export function webToolDefinitions(): WebToolDefinition[] {
               type: "string",
               description: "one short line: why this search is needed",
             },
+            external_verification: {
+              type: "boolean",
+              description:
+                "true declares this claim needs current-world verification the attachments supplied with this turn cannot provide; on an attachment turn this declaration is the ONLY way a web call runs",
+            },
           },
           required: ["queries", "missing_claims"],
           additionalProperties: false,
@@ -699,6 +726,11 @@ export function webToolDefinitions(): WebToolDefinition[] {
               type: "boolean",
               description:
                 "true re-serves sections of THIS session's already-fetched pages that an earlier read left out (dropped blocks, un-returned focus windows) — no re-fetch; use it when a page reports truncated/dropped content instead of fetching it again",
+            },
+            external_verification: {
+              type: "boolean",
+              description:
+                "true declares these pages serve current-world verification the attachments supplied with this turn cannot provide; on an attachment turn this declaration is the ONLY way a web fetch runs",
             },
           },
           required: ["urls"],
@@ -1424,6 +1456,128 @@ function invalidArgsEnvelope(
   };
 }
 
+/* ── F80 source-scope gate (2026-11-23): dispatch-enforced, one seam for
+   BOTH transports (the Rust transport's argsRaw arrives here untouched). ──
+ *
+ * C3 law (fr-P1): a question about an ATTACHED PDF escaped to real web
+ * searches and died with no completed answer, while the keyed fact sat in
+ * the attachment's own stored index. The rule: a supplied file is PRIMARY
+ * evidence, and that is enforced at DISPATCH, not in a prompt. The gate
+ * LOOKS UP the model's own stated claims (missing_claims / urls+focus) in
+ * the turn's stored attachment indexes — no keyword lists, no filename
+ * lists, no prompt-phrase matchers, no per-format exceptions. Scope
+ * resolves from MEANING: the claim's content tokens, ranked against the
+ * chunks the server already holds.
+ */
+
+/** Grammar, not topics: the function words stripped from a claim before
+ *  token overlap is counted. Deliberately tiny and closed — it names no
+ *  subject matter, so it cannot smuggle a keyword list into the gate. */
+const CLAIM_STOPWORDS = new Set([
+  "the", "a", "an", "of", "in", "for", "and", "to", "is", "it", "this", "that",
+  "with", "on", "at", "from", "by", "as", "or", "be", "are", "was", "were",
+  "what", "which", "when", "where", "how", "who", "why", "do", "does", "did",
+  "can", "could", "would", "should", "will", "show", "shown", "tell", "give",
+]);
+
+function claimTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    if (raw.length < 3 || CLAIM_STOPWORDS.has(raw)) continue;
+    out.add(raw);
+  }
+  return out;
+}
+
+function scopeRefusalEnvelope(
+  session: WebToolSession,
+  tool: string,
+  error: "local_attachment_evidence" | "attachment_scope_required",
+  detail: string,
+  targets: { queries?: string[]; urls?: string[] },
+): Record<string, unknown> {
+  // WS18 law: a refusal names WHAT it refused, and a refusal is NOT a
+  // lookup — requested/retrieved stay 0, and NO budget is consumed (the
+  // gate runs before every budget counter).
+  recordAction(session, {
+    tool, ok: false, error, requested: 0, retrieved: 0, failed: 0,
+    queries: targets.queries && targets.queries.length > 0 ? targets.queries : undefined,
+    urls: targets.urls && targets.urls.length > 0 ? targets.urls : undefined,
+  });
+  return {
+    ok: false,
+    tool,
+    searchSessionId: session.searchSessionId,
+    error,
+    detail,
+    remainingBudget: remainingBudget(session),
+  };
+}
+
+/**
+ * Resolve one web call's claims against this turn's attachment indexes.
+ *  - no attachments on the turn           ⇒ proceed (web tools ungated);
+ *  - `external_verification: true`       ⇒ proceed (the routing contract's
+ *    structural declaration that the claim needs current-world
+ *    verification the files cannot provide);
+ *  - claim carried by an attachment      ⇒ refuse with the attachment's own
+ *    passages (web is never a re-lookup of a fact the human supplied);
+ *  - claim NOT carried                   ⇒ refuse with the
+ *    report-limitation law (the web is not a substitute for a supplied
+ *    file; current-world verification needs the explicit declaration).
+ * A match is a top-ranked chunk sharing ≥2 content tokens with the claim:
+ * one incidental function word ("page") is never a match.
+ */
+function sourceScopeGate(
+  session: WebToolSession,
+  tool: "web_search" | "read_page",
+  claimText: string,
+  externalVerification: boolean,
+  notices: string[],
+  targets: { queries?: string[]; urls?: string[] },
+): Record<string, unknown> | null {
+  if (session.attachmentIds.length === 0) return null;
+  if (externalVerification) {
+    notices.push("external_verification declared: the claim sits beyond the supplied attachments, web retrieval admitted");
+    return null;
+  }
+  const claim = claimTokens(claimText);
+  const passages: string[] = [];
+  for (const attId of session.attachmentIds.slice(0, MEDIA_HINT_MAX)) {
+    const index = readIndex(attId);
+    if (!index || index.chunks.length === 0) continue; // an unreadable index carries nothing provable
+    try {
+      const routed = routeQuery(claimText);
+      const ranked = rankCandidates(index, claimText, [], routed);
+      let matched = false;
+      for (const chunkIdx of ranked.priority.keys()) {
+        const chunk = index.chunks.find((c) => c.i === chunkIdx);
+        if (!chunk) continue;
+        const chunkSet = claimTokens(chunk.text);
+        let overlap = 0;
+        for (const t of claim) if (chunkSet.has(t)) overlap += 1;
+        if (overlap >= 2) { matched = true; break; }
+      }
+      if (matched) passages.push(`[${attId}] ${evidenceFromRanked(index, ranked, routed).text.slice(0, 1600)}`);
+    } catch {
+      continue; // ranking failure ⇒ this index proves nothing; try the next
+    }
+  }
+  if (passages.length > 0) {
+    return scopeRefusalEnvelope(
+      session, tool, "local_attachment_evidence",
+      "The claim you sent to the web is carried by the attachment(s) supplied with this turn — the server looked it up in the stored indexes and found it. Answer from the attachment; do not spend web lookups re-searching a fact the human already supplied. Passages:\n"
+      + passages.join("\n"),
+      targets,
+    );
+  }
+  return scopeRefusalEnvelope(
+    session, tool, "attachment_scope_required",
+    "This turn supplies attachments. The claim you named is NOT in them, and the web is not a substitute for a supplied file: report the limitation from the attachments plainly. If the claim genuinely needs current-world verification the files cannot provide, call again with external_verification: true.",
+    targets,
+  );
+}
+
 /**
  * Task-scope + read-budget admission for fetched URLs (2026-11-04 audit
  * fix): web_search URL-shaped queries used to bypass BOTH checks that
@@ -1494,6 +1648,10 @@ export async function execWebSearchTool(
   if (queries.length === 0 || missing.length === 0) {
     return invalidArgsEnvelope(session, "web_search", "queries[] (1-4) and missing_claims[] (1+) are both required", { queries });
   }
+  // F80: source scope BEFORE any budget counter — a file-scope refusal
+  // burns nothing, and the model gets the attachment's own passages back.
+  const scopeGate = sourceScopeGate(session, "web_search", missing.join(" "), args.external_verification === true, notices, { queries });
+  if (scopeGate) return scopeGate;
   if (session.searchesUsed >= session.budget.maxSearchCalls) {
     return budgetExhaustedEnvelope(session, "web_search", "web_search", { queries });
   }
@@ -1759,6 +1917,19 @@ export async function execReadPageTool(
     return budgetExhaustedEnvelope(session, "read_page", "read_page", { urls });
   }
   const notices: string[] = [];
+  // F80: the same source-scope law on fetch. `continuation` reads above are
+  // zero-network re-serves of pages THIS session already fetched — not new
+  // external evidence — so the gate runs on the network path only. The
+  // model's claim here is the URLs + focus + the turn's own question.
+  const rpFocus = typeof args.focus === "string" ? args.focus : "";
+  const scopeGate = sourceScopeGate(
+    session, "read_page",
+    `${urls.join(" ")} ${rpFocus} ${session.queryContext}`,
+    args.external_verification === true,
+    notices,
+    { urls },
+  );
+  if (scopeGate) return scopeGate;
   // Task-scope admission for read_page (brief #6/#8): a read_page argument
   // can never BROADEN the scope — an off-scope URL is denied BEFORE the
   // fetch with an honest notice. Shared chokepoint with web_search's

@@ -19,10 +19,15 @@
  *   NO SPEECH (ASR ran, produced nothing) | FAILED (decode/model/backend) |
  *   UNSUPPORTED LANGUAGE (published table verdict).
  *
- * The TypeScript whisper path stays as the retained owner when the Python job is
- * unavailable for a RETRYABLE reason (no endpoint, weights not prepared on this
- * host, resource admission refused, backend crash). A structural verdict is
- * never retried with a second engine: a container with zero audio streams does
+ * F123 (2026-11-23): the Python job's pinned Parakeet row is the SOLE transcription
+ * engine for uploaded audio AND video audio tracks. The old TypeScript whisper
+ * substitution is removed - "no endpoint", "weights not prepared", "resource
+ * admission refused" and "backend crash" are no longer reasons to run a different
+ * model; they are ACTIONABLE admission states this module reports (message,
+ * human_step, retryable) and the upload path propagates them to the user, who
+ * retries the SAME engine once the condition clears. A structural verdict
+ * (zero audio streams, corrupt container, unsupported language) is final for the
+ * file and never retried with any engine: a container with zero audio streams does
  * not get a second chance from a different decoder, and a MEASURED silent track
  * does not get re-decoded by an engine that will invent words over silence.
  */
@@ -45,7 +50,9 @@ export const SPEECH_ASR_DEADLINE_MS = 240_000;
 
 /** Explicit operator switch, never defaulted and never guessed per file. */
 export const SPEECH_LANGUAGE_ENV = "RUKE_SPEECH_LANGUAGE";
-/** Set to "off" to keep the TypeScript speech path as the only engine. */
+/** Set to "off" to disable the Python speech job (F123: with it off, speech
+ *  uploads report the actionable "no engine available" admission state - the
+ *  removed TypeScript whisper substitution never returns through this switch). */
 export const SPEECH_CAPABILITY_ENV = "RUKE_SPEECH_CAPABILITY";
 
 /** Segments on the wire are bounded by the adapter (MAX_RETAINED_SEGMENTS). */

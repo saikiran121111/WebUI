@@ -30,28 +30,21 @@ import {
 } from "./document-capability";
 import { sniffMagic } from "./sniff";
 import { decodeText, type DecodedText } from "../../files/encoding";
+import { annotateCsvRecords, isTabularName } from "../../files/csv-records";
 import {
-  decodeAudioPcmFile,
-  decodeAudioPcmFileChannel,
   imageToDataUrlFromPath,
-  probeAudioChannels,
   probeInfo,
-  readPcmRange,
   videoFramesFromPath,
   videoKeyframesFromPath,
 } from "./ffmpeg";
 import { fmtStamp } from "../attachindex/format";
-import {
-  asrCapabilityNote,
-  transcribePcmFile,
-  transcribePcmSegments,
-  type AsrSegment,
-} from "./audio";
-// E (migration): the Python speech backend gets the first attempt on an audio or
-// video upload, because it is the multilingual engine with a published language
-// table, a measured loudness probe and prepared CPU weights. The TypeScript
-// whisper owner below stays as the retained fallback for a RETRYABLE capability
-// failure only — never for a structural verdict about the file itself.
+// F123 (2026-11-23): the Python speech job's pinned Parakeet row is the SOLE
+// transcription engine for audio uploads and video audio tracks. The TypeScript
+// whisper substitution (lib/server/extract/audio.ts) is removed: "no endpoint",
+// "weights not prepared", "admission refused" and "backend crash" are actionable,
+// retryable admission states the user is told about - never a second engine.
+// Structural verdicts about the FILE (zero audio streams, corrupt container,
+// unsupported language) stay final: no engine re-runs them.
 import {
   speechBlockerLine,
   speechEngineNote,
@@ -77,7 +70,7 @@ export interface ExtractResult {
   text?: string;
   truncated?: boolean;
   pages?: number;
-  /** Whisper transcript for audio (and audio tracks we could read). */
+  /** Transcript from the pinned Python speech job for audio (and video audio tracks we could read). */
   transcript?: string;
   /** Image as a PNG data URL — only when the browser could not decode it. */
   dataUrl?: string;
@@ -88,6 +81,13 @@ export interface ExtractResult {
    * consumer pairing frames with time windows must check `category` first.
    */
   frames?: { dataUrl: string; at: number }[];
+  /**
+   * F68: the primary image's TRUE pixel dimensions (container/decoded source,
+   * not the downscaled delivery raster). The model is told these verbatim so
+   * "what are the pixel dimensions?" never becomes a vision estimate.
+   */
+  width?: number;
+  height?: number;
   durationSec?: number;
   error?: string;
   /**
@@ -115,6 +115,14 @@ const ATT_ID_RE = /^att_[a-z0-9]{4,32}$/;
 /** Head of the content shown inline for indexed attachments. */
 const PREVIEW_CHARS = 4000;
 
+/** One transcript segment with its position in the recording. The Python
+ *  verdict mapping produces this shape (F123: the only producer left). */
+export interface AsrSegment {
+  text: string;
+  start: number;
+  end: number | null;
+}
+
 function asSegments(segments: AsrSegment[]): TranscriptSegment[] {
   return segments.map(s => ({ text: s.text, start: s.start, end: s.end }));
 }
@@ -135,106 +143,6 @@ export function timedTranscriptText(segments: AsrSegment[]): string {
     })
     .filter(Boolean)
     .join("\n");
-}
-
-/**
- * F78: pair per-channel ASR into ONE honest transcript. Each channel's
- * segments keep their channel label + times; time ranges where two channels
- * carry speech SIMULTANEOUSLY are stated explicitly — inside an overlap the
- * words of one recording bleed into the other's transcription, and an honest
- * record says so instead of presenting a merged mono word salad.
- */
-export function composeChannelTranscript(
-  perChannel: { ch: number; segments: AsrSegment[] }[],
-): { body: string; segments: AsrSegment[] } {
-  const rows: { ch: number; start: number; end: number; line: string; seg: AsrSegment }[] = [];
-  for (const pc of perChannel) {
-    for (const s of pc.segments) {
-      const t = s.text.trim();
-      if (!t) continue;
-      rows.push({
-        ch: pc.ch,
-        start: s.start,
-        end: s.end ?? s.start,
-        line: `[channel ${pc.ch}] [${fmtStamp(s.start)} - ${fmtStamp(s.end ?? s.start)}] ${t}`,
-        seg: { text: `[channel ${pc.ch}] ${t}`, start: s.start, end: s.end },
-      });
-    }
-  }
-  rows.sort((a, b) => a.start - b.start);
-
-  // Overlap ranges per channel PAIR, merged and capped (a long two-speaker
-  // recording can pair every segment against every other).
-  const pairs = new Map<string, { a: number; b: number; ranges: [number, number][] }>();
-  for (let i = 0; i < rows.length; i++) {
-    for (let j = i + 1; j < rows.length; j++) {
-      const ra = rows[i], rb = rows[j];
-      if (ra.ch === rb.ch) continue;
-      const lo = Math.max(ra.start, rb.start), hi = Math.min(ra.end, rb.end);
-      if (hi - lo < 0.5) continue;
-      const key = `${ra.ch}:${rb.ch}`;
-      const slot = pairs.get(key) ?? { a: ra.ch, b: rb.ch, ranges: [] };
-      slot.ranges.push([lo, hi]);
-      pairs.set(key, slot);
-    }
-  }
-  const overlapParts: string[] = [];
-  for (const slot of pairs.values()) {
-    slot.ranges.sort((x, y) => x[0] - y[0]);
-    const merged: [number, number][] = [];
-    for (const [lo, hi] of slot.ranges) {
-      const last = merged[merged.length - 1];
-      if (last && lo - last[1] <= 1) last[1] = Math.max(last[1], hi);
-      else merged.push([lo, hi]);
-    }
-    for (const [lo, hi] of merged.slice(0, 12)) {
-      overlapParts.push(
-        `channel ${slot.a} and channel ${slot.b} carry speech simultaneously between ${fmtStamp(lo)} and ${fmtStamp(hi)}`,
-      );
-    }
-  }
-  const head =
-    `[This recording carries ${perChannel.length} separate audio channels; each channel was transcribed on its own, and every line is labeled with the channel it came from. ` +
-    (overlapParts.length
-      ? `Where two lines share a time range the two speakers talk OVERLAPPING: ${overlapParts.join("; ")}. Inside those ranges the words of one recording bleed into the other's transcription, so exact words there cannot be attributed with confidence.]`
-      : `No time range carries speech on more than one channel at once.]`);
-  return {
-    body: `${head}\n${rows.map(r => r.line).join("\n")}`,
-    segments: rows.map(r => r.seg),
-  };
-}
-
-/** Ceiling on per-channel sequential ASR — 8 channels is the widest common
- *  layout (octal); wider layouts keep the proven mono path. */
-const MAX_ASR_CHANNELS = 8;
-
-/**
- * Transcribe every channel of a multi-channel recording SEPARATELY
- * (decode → transcribe, one channel at a time: the whisper slot and the
- * scratch-file RAM law are unchanged — a channel costs exactly what the
- * mono path costs). Channels whose speech is empty are dropped.
- */
-async function transcribeChannelsTs(
-  srcPath: string,
-  chans: number,
-  signal?: AbortSignal,
-): Promise<{ perChannel: { ch: number; segments: AsrSegment[] }[]; durationSec: number }> {
-  const perChannel: { ch: number; segments: AsrSegment[] }[] = [];
-  let durationSec = 0;
-  for (let k = 0; k < chans; k++) {
-    const dec = await decodeAudioPcmFileChannel(srcPath, k, { ...(signal ? { signal } : {}) });
-    try {
-      const d = dec.samples / 16000;
-      if (d > durationSec) durationSec = d;
-      const r = d <= 90
-        ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { ...(signal ? { signal } : {}) })
-        : await transcribePcmFile(dec.file, dec.samples, { ...(signal ? { signal } : {}) });
-      if (r.text.trim()) perChannel.push({ ch: k + 1, segments: r.segments });
-    } finally {
-      try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
-    }
-  }
-  return { perChannel, durationSec };
 }
 
 /**
@@ -466,9 +374,10 @@ function readHead(srcPath: string, maxBytes: number): { buf: Buffer; partial: bo
 }
 
 /** RTF/notebook bodies need a text transform before they read as prose. */
-function transformText(category: FileCategory, text: string): string {
+function transformText(category: FileCategory, text: string, name: string): string {
   return category === "rtf" ? rtfToText(text)
     : category === "notebook" ? notebookText(text)
+    : isTabularName(name) ? annotateCsvRecords(text, name) // F63: logical CSV rows
     : text;
 }
 
@@ -488,7 +397,7 @@ function textLikeResult(
   dec: DecodedText,
   partial: boolean,
 ): ExtractResult {
-  const capped = cap(transformText(category, dec.text));
+  const capped = cap(transformText(category, dec.text, name));
   return {
     name,
     category,
@@ -502,11 +411,12 @@ function textLikeResult(
  * handle on its own (documents, archives, audio, video, exotic images).
  *
  * This is the path-based core: the upload has already been streamed to a
- * scratch file, and ffmpeg/whisper read the media straight from that path —
- * a multi-GB video is seeked inside the file, never buffered whole in RAM.
+ * scratch file, and ffmpeg and the Python speech job read the media straight
+ * from that path — a multi-GB video is seeked inside the file, never buffered
+ * whole in RAM.
  *
  * I15: `signal` (the upload request's own abort signal) cancels the heavy
- * ffmpeg/whisper work mid-extraction when the client goes away, instead of
+ * ffmpeg/speech-job work mid-extraction when the client goes away, instead of
  * letting it run to completion for an upload nobody is waiting for anymore.
  */
 export async function extractFileFromPath(
@@ -552,7 +462,7 @@ export async function extractFileFromPath(
       const size = fs.statSync(srcPath).size;
       if (att && size > TEXT_READ_BYTES) {
         const dec = decodeText(fs.readFileSync(srcPath));
-        const body = transformText(category, dec.text).replace(/\r\n/g, "\n").trim();
+        const body = transformText(category, dec.text, name).replace(/\r\n/g, "\n").trim();
         if (!body) return { name, category, text: "", truncated: false };
         const clean = encodingNote(dec) + body;
         const indexed = await indexContent(name, category, att, clean, {}, signal);
@@ -563,7 +473,7 @@ export async function extractFileFromPath(
       if (att && !partial) {
         // Fully in hand but over the prompt budget (multi-byte text): index
         // the WHOLE decoded text, not the capped one textLikeResult would cut.
-        const clean = encodingNote(dec) + transformText(category, dec.text).replace(/\r\n/g, "\n").trim();
+        const clean = encodingNote(dec) + transformText(category, dec.text, name).replace(/\r\n/g, "\n").trim();
         if (clean.length > TEXT_CHAR_LIMIT) {
           const indexed = await indexContent(name, category, att, clean, {}, signal);
           return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
@@ -775,14 +685,18 @@ export async function extractFileFromPath(
         name, category, dataUrl: img.dataUrl,
         pages: img.pages,
         ...(img.frames ? { frames: img.frames } : {}),
+        ...(img.width && img.height ? { width: img.width, height: img.height } : {}),
       };
     }
 
     case "audio": {
-      // I15: the decode lands in a scratch FILE and whisper reads 30 s
-      // windows from it — a 3 h recording used to be buffered whole in RAM
-      // (~1.15 GB of float PCM), and neither the decode nor the grind could
-      // be cancelled when the user removed the upload mid-way.
+      // F123 (2026-11-23): the Python speech job (pinned Parakeet, GPU-first with
+      // the measured handoff law, CPU recovery on the SAME model) is the SOLE
+      // transcription engine. The old TypeScript whisper substitution — the
+      // scratch-file decode, the three-stage VRAM ladder, the per-channel grind —
+      // is removed, and no replacement for it exists: a blocked run is an
+      // ACTIONABLE admission state the user is told about, retried with the SAME
+      // engine once the blocker clears.
       const sp = await transcribeViaCapability(srcPath, {
         ...(opts?.runJob ? { runJob: opts.runJob } : {}),
         ...(signal ? { signal } : {}),
@@ -793,94 +707,32 @@ export async function extractFileFromPath(
       if (sp.state === "unavailable" && sp.structural) {
         // The refusal is a measured fact about THIS file (ffprobe found zero audio
         // streams, the container is corrupt, or the named language is outside the
-        // pinned backend's published table). A second engine cannot un-measure it,
-        // and re-decoding a silent track is how whisper invents words over nothing.
+        // pinned backend's published table). No engine can un-measure it, and
+        // re-decoding a silent track is how a model invents words over nothing.
         throw new Error(`${name}: ${sp.message}`);
       }
       if (sp.state === "unavailable" && sp.reason === "cancelled") {
         throw new Error("The user aborted this request.");
       }
-      // Retained TypeScript speech owner (NOT a completed Python migration): used
-      // when the capability backend is absent, unprepared or failed for a retryable
-      // reason. The blocker line is surfaced so the user knows which engine answered.
-      try {
-        // I14: the default whisper checkpoint is English-only — a Hindi
-        // recording used to read as "no speech" with no hint why. The note
-        // rides on the transcript AND on the no-speech error.
-        const note = asrCapabilityNote();
-        const blocker =
-          sp.state === "unavailable" ? speechBlockerLine(sp) + " " : "";
-        let durationSec = 0;
-        let body: string;
-        let segments: AsrSegment[];
-        const chans = Math.min(MAX_ASR_CHANNELS, await probeAudioChannels(srcPath, { signal }));
-        if (chans >= 2) {
-          // F78 (2026-11-22): two speakers recorded on SEPARATE channels merge
-          // into one unattributable word salad under `-ac 1`. Decode +
-          // transcribe each channel on its own (sequential — the whisper slot
-          // and the scratch-file RAM law are unchanged), label every line with
-          // its channel, and state the time ranges where two channels speak at
-          // once: inside an overlap the words of one recording bleed into the
-          // other's transcription and cannot be attributed with confidence.
-          const r = await transcribeChannelsTs(srcPath, chans, signal);
-          if (!r.perChannel.length) {
-            throw new Error(
-              "No speech detected in this audio file" + (note ? ` ${note}` : ""),
-            );
-          }
-          const composed = composeChannelTranscript(r.perChannel);
-          body = composed.body;
-          segments = composed.segments;
-          durationSec = r.durationSec;
-        } else {
-          const dec = await decodeAudioPcmFile(srcPath, { signal });
-          try {
-            durationSec = dec.samples / 16000;
-            // Short clips still go through in one call; only long recordings
-            // pay the windowed file-based path.
-            const r = durationSec <= 90
-              ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
-              : await transcribePcmFile(dec.file, dec.samples, { signal });
-            if (!r.text) {
-              // The outer catch appends the primary backend's typed reason, so it is
-              // not repeated here.
-              throw new Error(
-                "No speech detected in this audio file" + (note ? ` ${note}` : ""),
-              );
-            }
-            body = timedTranscriptText(r.segments) || r.text;
-            segments = r.segments;
-          } finally {
-            try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
-          }
-        }
-        const transcript = [blocker, note, body].filter(Boolean).join("\n");
-        if (att && transcript.length > TEXT_CHAR_LIMIT) {
-          const indexed = await indexContent(name, category, att, transcript, {
-            segments: asSegments(segments),
-            durationSec,
-          }, signal);
-          return {
-            name, category, ...indexed,
-            transcript: transcript.slice(0, PREVIEW_CHARS),
-            truncated: true,
-            durationSec,
-          };
-        }
-        return { name, category, transcript, ...cap(transcript), durationSec };
-      } catch (err: unknown) {
-        if (signal?.aborted) throw err as Error; // cancellation is not a media defect
-        // The retained engine's own failure stays the headline, but the primary
-        // backend's typed reason is appended: "the fallback could not read it
-        // either" and "the multilingual engine refused because its weights were
-        // never prepared" are different sentences for the user.
-        if (sp.state === "unavailable") {
-          throw new Error(
-            `${err instanceof Error ? err.message : String(err)} ${speechBlockerLine(sp)}`,
-          );
-        }
-        throw err;
+      if (sp.state === "none") {
+        throw new Error(
+          `${name}: its spoken content could not be read: the pinned speech backend is not ` +
+          `available on this host (no Python ML endpoint, or speech is switched off). ` +
+          `Start the app's ML backend (Settings shows the speech engine status) and send the ` +
+          `upload again; the same pinned engine (Parakeet) will run. This is a retryable ` +
+          `admission state.`,
+        );
       }
+      // Retryable-unavailable (weights not prepared, resource admission refused,
+      // resource pressure, backend crash) and the remaining non-retryable states
+      // (policy refusal) propagate with the worker's OWN reason and human step.
+      throw new Error(
+        `${name}: its spoken content could not be read. ${speechBlockerLine(sp)}` +
+        (sp.retryable
+          ? " This is a retryable admission state: send the upload again once the blocker " +
+            "clears; the same pinned engine (Parakeet) runs."
+          : ""),
+      );
     }
 
     case "video": {
@@ -927,7 +779,7 @@ export async function extractFileFromPath(
       // one so the model hears the video, not just its sampled frames.
       // Keyframes run CONCURRENTLY with audio decode + transcription: on a
       // multi-hour lecture the keyframe pass is pure wall-clock we would
-      // otherwise pay after whisper finishes. It is only started when an
+      // otherwise pay after transcription finishes. It is only started when an
       // index could actually use the frames (att present), and it is cleaned
       // up below whenever the transcript turns out not to need an index.
       const kfPromise: Promise<{ at: number; name: string }[] | null> = att
@@ -940,23 +792,20 @@ export async function extractFileFromPath(
       // already paid ffmpeg for. The failure reason is kept so the honest
       // outcome states exactly what could and could not be read.
       let speechIssue: string | null = null;
-      // E (migration): the Python speech backend answers first when a capability
-      // route exists. Its verdicts about the FILE are final and are NOT re-run
-      // through the TypeScript whisper path: "ffprobe found 0 audio streams" and
-      // "the track was measured silent" are measurements, and a second engine gets
-      // the retryable failures only (no backend, unprepared weights, admission
-      // refusal, backend crash).
+      // F123 (2026-11-23): the Python speech job (pinned Parakeet) is the SOLE
+      // engine for the video's audio track. Its verdicts about the FILE are final
+      // ("ffprobe found 0 audio streams" and "the track was measured silent" are
+      // measurements no engine can un-measure), and its blocked states are
+      // reported, never retried with a substitute model.
       const sp = await transcribeViaCapability(srcPath, {
         ...(opts?.runJob ? { runJob: opts.runJob } : {}),
         ...(signal ? { signal } : {}),
       });
-      let speechEngine: "python" | "typescript" | null = null;
       let pythonAsr: CapabilityAsr | null = null;
       if (sp.state === "ready") {
         transcript = sp.asr.text || undefined;
         segments = sp.asr.segments.map((s) => ({ text: s.text, start: s.start, end: s.end }));
         pythonAsr = sp.asr;
-        speechEngine = "python";
         if (!transcript) speechIssue = "the speech backend decoded its audio track and found no speech in it";
       } else if (sp.state === "silence") {
         const level = sp.asr.audioLevel as { max_volume_db?: number };
@@ -964,51 +813,38 @@ export async function extractFileFromPath(
           `no speech was detected in its audio track, which was decoded and measured at ` +
           `${typeof level.max_volume_db === "number" ? level.max_volume_db.toFixed(1) + " dBFS" : "the noise floor"} ` +
           `(a measured verdict, not an inference)`;
-        speechEngine = "python";
       } else if (sp.state === "unavailable" && sp.reason === "cancelled") {
         throw new Error("The user aborted this request.");
       } else if (sp.state === "unavailable" && sp.structural) {
-        // A zero-audio-stream probe is the same structural fact the TS path reports,
-        // just measured: keep the frozen wording and add the evidence behind it.
+        // A zero-audio-stream probe is the same structural fact the old TS path
+        // reported, just measured: keep the frozen wording and the evidence.
         speechIssue = /0 audio streams/i.test(sp.message)
           ? "it has no audio track (ffprobe found 0 audio streams)"
           : sp.message;
-        speechEngine = "python";
-      } else try {
-        // Retained TypeScript speech owner for a retryable capability failure.
-        speechEngine = "typescript";
-        const dec = await decodeAudioPcmFile(srcPath, { signal });
-        try {
-          const spokenDur = dec.samples / 16000;
-          const r = spokenDur <= 90
-            ? await transcribePcmSegments(readPcmRange(dec.file, 0, dec.samples), { signal })
-            : await transcribePcmFile(dec.file, dec.samples, { signal });
-          transcript = r.text || undefined;
-          segments = r.segments;
-          if (!transcript) speechIssue = "no speech was detected in its audio track";
-        } finally {
-          try { fs.rmSync(dec.file, { force: true }); } catch { /* ignore */ }
-        }
-      } catch (err: unknown) {
-        if (signal?.aborted) throw err as Error; // cancellation is not an audio defect
-        // A failed probe answers in milliseconds, so classifying the
-        // failure here can never hang the request.
-        const info = await probeOnce();
-        speechIssue = /^\s*Stream\s+#\d+:\d+[^\r\n]*Audio/m.test(info)
-          ? `its audio track could not be read (${(err as Error)?.message ?? "decode failed"})`
-          : "it has no audio track";
+      } else {
+        // F123 (2026-11-23): the pinned Parakeet job is the SOLE engine - the
+        // TypeScript whisper substitution is gone. A blocked run (no endpoint,
+        // weights not prepared, admission refused, backend crash) leaves the
+        // video's FRAMES intact: they were paid for and they are honest visual
+        // evidence. The spoken fact is reported as blocked with the worker's OWN
+        // reason and human step, so the user can clear the blocker and resend -
+        // the same pinned engine runs then, never a substitute model.
+        speechIssue = sp.state === "none"
+          ? "its spoken content could not be read: the pinned speech backend is not available " +
+            "on this host (no Python ML endpoint, or speech is switched off); start the app's " +
+            "ML backend and send the upload again (retryable; the same pinned engine runs)"
+          : `its spoken content could not be read. ${speechBlockerLine(sp)}` +
+            (sp.retryable
+              ? " (retryable: send the upload again once the blocker clears; the same pinned " +
+                "engine runs)"
+              : "");
       }
       const key = await kfPromise;
-      // The English-only warning describes the TypeScript checkpoint, so it is only
-      // allowed on a transcript that engine actually produced. Attaching it to a
-      // multilingual backend's transcript would be a false claim about the evidence.
       // F78 (2026-11-22): the inline/preview transcript keeps the segment
       // times the ASR produced (the merged text alone cannot answer "when",
       // and the indexed path already cites [HH:MM:SS - HH:MM:SS] headers).
       const timed = timedTranscriptText(segments);
       if (transcript && timed) transcript = timed;
-      const note = speechEngine === "typescript" ? asrCapabilityNote() : "";
-      if (transcript && note) transcript = `${note}\n${transcript}`;
       if (transcript && pythonAsr) {
         transcript = `${speechEngineNote(pythonAsr)}\n${transcript}`;
       }

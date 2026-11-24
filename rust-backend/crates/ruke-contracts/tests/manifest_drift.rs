@@ -457,6 +457,8 @@ fn settings_shape_field_ledger() {
             auto: 1,
             tokens: 96_000,
         }),
+        speech_model: Some("nvidia/parakeet-tdt-0.6b-v3".into()),
+        ocr_engine: Some("tesseract".into()),
     };
     assert_eq!(top_level_keys(&serde_json::to_string(&s).unwrap()), all);
     for f in fields.as_array().unwrap() {

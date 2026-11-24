@@ -122,7 +122,12 @@ class RuntimeTreeJob(unittest.TestCase):
             self.assertIsNotNone(report.get("win32_error"), report)
             self.skipTest(f"OS refused the runtime-tree ceiling: {report}")
         self.assertEqual(report["mechanism"], "windows-job-object")
-        self.assertEqual(report["limit_bytes"], jl.AGGREGATE_LIMIT_BYTES)
+        # MEASURED law (B8): the default install derives the tree cap from the host at startup
+        # - bounded by the exclusive-window ceiling, the widest window the policy allows - and
+        # the report names the provenance; the number must sit inside the documented band.
+        self.assertIn("measured exclusive-window", report.get("limit_source", ""))
+        self.assertGreaterEqual(report["limit_bytes"], jl.CEILING_FLOOR_BYTES)
+        self.assertLessEqual(report["limit_bytes"], jl.EXCLUSIVE_LIMIT_BYTES_DEFAULT)
         self.assertTrue(report["self_assigned"])
         self.assertIn("outer_job", report)
         self.assertTrue(jl.status()["enforced"])
@@ -161,7 +166,21 @@ class RuntimeTreeJob(unittest.TestCase):
         self.assertIn("reason", report, report)
 
     def test_limits_match_the_agreed_budget(self):
+        """The MEASURED law's constants, pinned as numbers (B8 final decision 2026-11-22).
+
+        AGGREGATE_LIMIT_BYTES survives as the documented fallback for an unmeasurable host,
+        not as the operating ceiling; the normal window's configured maximum is an operator
+        cap (7 GB) whose band keeps a bad environment value from disabling protection.
+        """
         self.assertEqual(jl.AGGREGATE_LIMIT_BYTES, 5_000_000_000)
+        self.assertEqual(jl.NORMAL_LIMIT_BYTES_DEFAULT, 7_000_000_000)
+        self.assertEqual(jl.NORMAL_LIMIT_ENV, "RUKE_LIMIT_BYTES")
+        self.assertEqual(jl.NORMAL_LIMIT_CONFIG_MIN, 1 << 30)
+        self.assertEqual(jl.NORMAL_LIMIT_CONFIG_MAX, 12_000_000_000)
+        self.assertLess(jl.NORMAL_LIMIT_CONFIG_MIN, jl.NORMAL_LIMIT_BYTES_DEFAULT)
+        self.assertGreater(jl.NORMAL_LIMIT_CONFIG_MAX, jl.NORMAL_LIMIT_BYTES_DEFAULT)
+        self.assertEqual(jl.CEILING_FLOOR_BYTES, 256 << 20)
+        self.assertEqual(jl.SYSTEM_RESERVE_BYTES_DEFAULT, 2 * (1 << 30))
         job, _ = jl.create(jl.AGGREGATE_LIMIT_BYTES, name="ruke-test-aggregate")
         assert job is not None
         try:

@@ -42,6 +42,30 @@ def whisper_ct2_provenance() -> dict[str, Any]:
     return _read("whisper_language_tags.json")
 
 
+# B3: the published ASR-candidate tables, keyed by the REGISTRY model id so a
+# registry row's claims trace to a named data file (and the file's card URL).
+# The ids are the repositories that EXIST on the hub; the brief's "IBM
+# granite-speech-..." form is not one, and registering a fictional id is the
+# PaddleOCR-VL failure mode the registry comments already document.
+CANDIDATE_TAG_FILES = {
+    "nvidia/parakeet-tdt-0.6b-v3": "parakeet_tdt_06b_v3_languages.json",
+    "ibm-granite/granite-speech-5.0-470m-turboctc":
+        "granite_speech_5_470m_turboctc_languages.json",
+    "Qwen/Qwen3-ASR-0.6B": "qwen3_asr_languages.json",
+    "Qwen/Qwen3-ASR-1.7B": "qwen3_asr_languages.json",
+}
+
+
+def candidate_language_tags(model_id: str) -> dict[str, Any]:
+    """The captured published table for a candidate id, {} when there is none."""
+    name = CANDIDATE_TAG_FILES.get((model_id or "").strip())
+    return _read(name) if name else {}
+
+
+def candidate_languages(model_id: str) -> list[str]:
+    return _tags(candidate_language_tags(model_id))
+
+
 def validate_language_claims(claims: dict[str, Any], *, model_id: str = "") -> str:
     """Return "" when a manifest's optional language metadata is well formed.
 

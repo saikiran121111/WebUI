@@ -87,6 +87,21 @@ class PptxLaws(unittest.TestCase):
         self.assertEqual(charts[0].loc.get("slide"), 3)
         self.assertIn("East=83, West=42", body(doc))
 
+    def test_scatter_xval_yval_points_reach_the_body(self):
+        """F64: scatter charts cache under c:xVal/c:yVal, NOT c:cat/c:val.
+
+        The audit deck (deck-4.pptx) showed the model ONLY the slide words
+        "My/Scatter/Chart": a cat/val-only chart reader skips every scatter
+        series, so "Sales" and its largest value 8.2 never reach the answer.
+        """
+        doc = load(AR, "scatter.pptx")
+        charts = [b for b in doc.blocks if str(b.loc.get("chart", ""))]
+        self.assertTrue(charts, f"scatter series missing; blocks={[b.text for b in doc.blocks]}")
+        self.assertIn('series "Sales"', charts[0].text)
+        self.assertIn("(1st Qtr, 8.2", charts[0].text)   # cached float noise kept
+        self.assertIn("(4th Qtr, 1.2)", charts[0].text)
+        self.assertIn("Sales", body(doc))
+
     def test_unresolvable_sldid_refs_fall_back_to_filename_order(self):
         """An sldIdLst whose r:id has no relationship must NOT silently move slides."""
         def slide(text: str) -> str:
@@ -248,6 +263,35 @@ class MalformedPackageLaws(unittest.TestCase):
                     self.assertEqual(doc.kind, "unsupported",
                                      f"{suffix} must refuse typed, not raise")
                     self.assertIn("not a readable", doc.coverage.note)
+
+
+class MacroOoxmlLaws(unittest.TestCase):
+    """F71: macro-enabled OOXML is the SAME container plus a vbaProject.bin part.
+
+    The structured reader must parse .docm/.pptm (and macro-enabled .xlsm)
+    through the identical part paths as the plain format; the refusal "no
+    parser is configured for .docm" is what pushed the live upload into the
+    archive byte-dump path.
+    """
+
+    def test_docm_parses_as_the_wordprocessing_body(self):
+        doc = load(AR, "macro-word.docm")
+        self.assertEqual(doc.kind, "docx")
+        text = body(doc)
+        self.assertIn("Section alpha reports 118 and 271 as the pair.", text)
+        self.assertIn("The macro-bearing body text ends here.", text)
+        self.assertTrue(doc.blocks, "body paragraphs must be real blocks")
+        self.assertTrue(all("vbaProject" not in b.text for b in doc.blocks))
+
+    def test_pptm_parses_as_the_presentation_body(self):
+        doc = load(AR, "macro-deck.pptm")
+        self.assertEqual(doc.kind, "pptx")
+        self.assertIn("Slide one carries the value 90210.", body(doc))
+
+    def test_xlsm_parses_as_the_workbook(self):
+        doc = load(AR, "sample.xlsm")
+        self.assertNotEqual(doc.kind, "unsupported",
+                            "the workbook reader must serve macro-enabled workbooks")
 
 
 if __name__ == "__main__":

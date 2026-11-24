@@ -68,8 +68,11 @@ describe("indexing obeys cancellation (F10)", () => {
     expect(nChunks).toBeGreaterThan(1);
     expect(idx!.chunks).toHaveLength(nChunks);
     expect(idx!.meta.embed).toBeUndefined();
+    // F79: the build-time reason is PERSISTED, so every later turn quotes the
+    // real cause of the degradation on disk, not a generic phrase.
+    expect(idx!.meta.embedNote).toMatch(/embeddings disabled \(ATTACH_EMBED=off\)/);
     expect(idx!.vectors?.mode).toBe("lexical_only");
-    expect(idx!.vectors?.reason).toMatch(/no vectors/i);
+    expect(idx!.vectors?.reason).toMatch(/embeddings disabled \(ATTACH_EMBED=off\)/);
     expect(idx!.chunks.every(c => !c.vec?.length)).toBe(true);
   });
 

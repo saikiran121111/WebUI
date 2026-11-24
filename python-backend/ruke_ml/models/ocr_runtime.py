@@ -1,7 +1,7 @@
-"""The isolated CPU OCR runtime, validated WITHOUT importing the framework.
+"""The isolated OCR runtime (GPU-first, CPU fallback), validated WITHOUT importing the framework.
 
 PaddleOCR-VL's dependency set (paddlepaddle + paddlex + opencv-contrib) conflicts with the
-backend venv that carries onnxruntime and faster-whisper, so the amendment authorizes a
+backend venv that carries onnxruntime and the torch/transformers ASR stack, so the amendment authorizes a
 SEPARATE interpreter inside `python-backend`, wired into the OCR worker launcher. That
 interpreter is a dependency of the capability, so "installed" must mean a validated copy
 of it, not a hope that an import would work.
@@ -13,9 +13,9 @@ So:
   * the interpreter is resolved from an explicit override or the project-local venv,
   * the pinned dependency set is read from the `*.dist-info` directories that the
     installer itself lays down, which is the same evidence `uv pip freeze` reads,
-  * the CPU-only claim is read from the preparation manifest, which recorded a real
+  * the device-placement claim is read from the preparation manifest, which recorded a real
     `paddle.device` probe at install time. A missing manifest is a reported gap, never an
-    assumed GPU.
+    assumed GPU and never an assumed CPU.
 
 Nothing here downloads anything.
 """
@@ -31,7 +31,11 @@ from typing import Any, Sequence
 
 from ..config import repo_root
 
-RUNTIME_ID = "paddle-ocr-cpu"
+# The runtime is device-neutral from B9 (2026-11-22) on: the pinned wheel is the CUDA 12.6
+# GPU build, the CPU wheel is the accepted fallback, and WHICH one runs is the run-time device
+# plan's decision from measured VRAM. A "cpu" in this id was a claim about the old pinned wheel
+# and is a lie about this one.
+RUNTIME_ID = "paddle-ocr"
 
 # Where the authorized preparer creates the isolated environment, in preference order.
 VENV_DIRS = (".venv-ocr", ".venv-paddle")
@@ -42,11 +46,14 @@ ENV_INTERPRETER = "RUKE_OCR_PYTHON"
 # The manifest written by scripts/prepare-ocr-runtime.ps1. Kept inside the project.
 MANIFEST_REL = ".data/models/ocr/ocr-runtime.json"
 
-# The exact dependency set prepare-ocr-runtime.ps1 installs from the documented CPU wheel
-# index (https://www.paddlepaddle.org.cn/packages/stable/cpu/). Exact pins, not ranges:
-# "the pinned release" is only a checkable statement if the version is part of the check.
+# The exact dependency set prepare-ocr-runtime.ps1 installs. GPU-first per the B5 final
+# decision (2026-11-22): the paddle pin is the CUDA 12.6 build from
+# https://www.paddlepaddle.org.cn/packages/stable/cu126/ (the PaddleOCR-VL model card's own
+# command), with the x64 CPU index (https://www.paddlepaddle.org.cn/packages/stable/cpu/) as
+# the preparer's documented fallback. Exact pins, not ranges: "the pinned release" is only a
+# checkable statement if the version is part of the check.
 PINNED: dict[str, str] = {
-    "paddlepaddle": "3.2.1",
+    "paddlepaddle-gpu": "3.2.1",
     "paddleocr": "3.6.0",
     "paddlex": "3.6.1",
     "opencv-contrib-python": "4.10.0.84",
@@ -64,6 +71,16 @@ PINNED: dict[str, str] = {
     # gencode_floor below).
     "protobuf": "7.36.2",
 }
+
+# The paddle slot and its accepted fallback. The x64 CPU wheel (distribution name
+# "paddlepaddle") is what the preparer installs when a host cannot take the CUDA wheel; the
+# release law is "GPU preferred, CPU when the GPU can't safely proceed", so a CPU-fallback
+# venv is a SUPPORTED shape: it validates as a runtime whose GPU placement is unavailable -
+# the manifest probe records which build is really there - never as a broken runtime. It is
+# deliberately not a second pin: two co-equal pins would let "the pinned release" stop
+# meaning one specific thing.
+PADDLE_PIN = "paddlepaddle-gpu"
+PADDLE_FALLBACK_DIST = "paddlepaddle"
 
 _NAME_SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -141,10 +158,23 @@ class RuntimeStatus:
     abi_issues: list[str] = field(default_factory=list)
 
     @property
-    def cpu_only_verified(self) -> bool:
-        """True only when a preparation-time device probe actually recorded CPU."""
+    def recorded_device(self) -> str:
+        """The device the preparation-time paddle probe recorded, verbatim; "" when never probed.
+
+        The GPU-first runtime must report what the manifest actually saw: "gpu:0" for a CUDA
+        build, "cpu" for the fallback build, and a recorded-but-unprobed manifest ("not_probed")
+        is the honest gap, not a device claim.
+        """
         probe = self.manifest.get("device_probe")
-        return isinstance(probe, dict) and str(probe.get("device", "")).lower() == "cpu"
+        if not isinstance(probe, dict):
+            return ""
+        device = str(probe.get("device", "")).strip().lower()
+        return "" if device in ("", "not_probed") else device
+
+    @property
+    def placement_verified(self) -> bool:
+        """True only when a preparation-time paddle.device probe actually recorded a device."""
+        return bool(self.recorded_device)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -156,7 +186,8 @@ class RuntimeStatus:
             "missing": self.missing,
             "mismatched": self.mismatched,
             "abi_issues": list(self.abi_issues),
-            "cpu_only_verified": self.cpu_only_verified,
+            "recorded_device": self.recorded_device,
+            "placement_verified": self.placement_verified,
             "detail": self.detail,
         }
 
@@ -269,6 +300,18 @@ def status(runtime: str = RUNTIME_ID) -> RuntimeStatus:
         mismatched = [f"{d}=={dists[_normalize(d)]} (pinned {PINNED[d]})"
                       for d in PINNED
                       if _normalize(d) in dists and dists[_normalize(d)] != PINNED[d]]
+        # The paddle slot resolves through the CPU fallback wheel when the GPU wheel is absent:
+        # a host the preparer built CPU-only is a supported shape ("CPU when the GPU can't
+        # safely proceed"), so the runtime validates, the note names the fallback, and the
+        # manifest probe carries the device truth a run-time plan checks against.
+        paddle_fallback = (_normalize(PADDLE_PIN) not in dists
+                           and PADDLE_FALLBACK_DIST in dists)
+        if paddle_fallback:
+            fb = dists[PADDLE_FALLBACK_DIST]
+            missing = [d for d in missing if d != PADDLE_PIN]
+            if fb != PINNED[PADDLE_PIN]:
+                mismatched.append(f"{PADDLE_FALLBACK_DIST}=={fb} (paddle slot pinned "
+                                  f"{PINNED[PADDLE_PIN]})")
         # The ABI check is deliberately separate from the pin check. An environment can hold the
         # pinned protobuf and still be unable to build the pipeline (a wheel that ships a newer
         # gencode than its own dependency resolution allows), and vice versa: the pin reports the
@@ -290,12 +333,19 @@ def status(runtime: str = RUNTIME_ID) -> RuntimeStatus:
             notes.append("version disagrees with the pin: " + ", ".join(mismatched))
         if abi_issues:
             notes.append("; ".join(abi_issues))
+        if paddle_fallback:
+            notes.append(f"paddle slot resolved by the CPU fallback wheel "
+                         f"{PADDLE_FALLBACK_DIST}=={dists[PADDLE_FALLBACK_DIST]}: GPU placement "
+                         "is unavailable on this build, the manifest probe records the device")
         if found and not manifest:
             notes.append(f"no preparation manifest at {MANIFEST_REL}; the pinned distributions "
-                         "are installed but no recorded device probe proves CPU placement")
+                         "are installed but no recorded device probe proves the device placement "
+                         "(GPU preferred, CPU fallback)")
+        resolved = {d: dists.get(_normalize(d), "") for d in PINNED}
+        if paddle_fallback:
+            resolved[PADDLE_PIN] = dists[PADDLE_FALLBACK_DIST]
         result = RuntimeStatus(RUNTIME_ID, exe, found, "; ".join(notes),
-                               {d: dists.get(_normalize(d), "") for d in PINNED},
-                               missing, mismatched, manifest, inside, abi_issues)
+                               resolved, missing, mismatched, manifest, inside, abi_issues)
     with _LOCK:
         _CACHE[key] = result
     return result

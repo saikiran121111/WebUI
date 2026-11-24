@@ -117,3 +117,120 @@ describe("video frames carry their video timestamps into the prompt (I18a)", () 
     expectLabelledImages(parts, ["At 1:02:03 in the video"]);
   });
 });
+
+/**
+ * F66/F67 (fr-20261122b): the server decoder (F78-B) decodes every page of a
+ * multi-page TIFF and every frame of an animated GIF, and docProcessor carries
+ * them in `att.frames` — but the delivery seam dropped them: category "image"
+ * sent ONLY `att.dataUrl`. The model truthfully reported "I can only see the
+ * first page" (fr-I1) and answered from frame-1 content on a last-frame
+ * question (fr-I3, frame-1 title = designed trap).
+ * The law: when an image attachment carries a sequence, EVERY image arrives,
+ * IN ORDER, each labelled with its position, and the intro says the file IS a
+ * sequence — never one anonymous first page.
+ */
+function imageAtt(extra: Partial<Attachment>): Attachment {
+  return {
+    id: "att_img", name: "img-1.tiff", kind: "image", mime: "image/tiff", size: 4096,
+    status: "ready", category: "image",
+    dataUrl: "data:image/png;base64,AAAA",
+    ...extra,
+  } as Attachment;
+}
+
+describe("multipage/animated image delivery (F66/F67)", () => {
+  const seq = (n: number) =>
+    Array.from({ length: n - 1 }, (_, i) => ({ dataUrl: `data:image/png;base64,BB${i}`, at: i + 2 }));
+
+  it("TIFF with 3 decoded pages: all 3 images arrive in order, page 2 addressable", () => {
+    const parts = attachmentParts(imageAtt({ pages: 3, frames: seq(3) }));
+    expectLabelledImages(parts, ["Image 1 of 3", "Image 2 of 3", "Image 3 of 3"]);
+    const joined = parts.filter(p => p.type === "text").map(p => p.text as string).join("\n");
+    expect(joined).toContain("3 images in sequence");
+    // Questions say "page 2" / "the last frame" — the label law must bridge both.
+    expect(joined).toContain("page N");
+    expect(joined).toContain("frame N");
+  });
+
+  it("animated GIF with 4 frames: the LAST frame is present and labelled, not just frame 1", () => {
+    const parts = attachmentParts(
+      imageAtt({ name: "lecture.gif", mime: "image/gif", pages: 4, frames: seq(4) }),
+    );
+    expectLabelledImages(parts, ["Image 1 of 4", "Image 2 of 4", "Image 3 of 4", "Image 4 of 4"]);
+    const last = parts[parts.length - 1];
+    expect(last.type).toBe("image_url");
+  });
+
+  it("capped animation: partial set is disclosed, the LAST frame is labelled with its true position", () => {
+    // The live GIF has 24 frames; the decoder ships an evenly spread subset
+    // (first + last + spread). The intro must disclose the coverage, and the
+    // last shown frame must be labelled Image 24 of 24 — "the last frame".
+    const frames = [3, 7, 10, 13, 16, 20, 24].map(at => ({ dataUrl: `data:image/png;base64,BB${at}`, at }));
+    const parts = attachmentParts(imageAtt({ name: "lecture.gif", mime: "image/gif", pages: 24, frames }));
+    const images = parts.filter(p => p.type === "image_url").length;
+    expect(images).toBe(8); // first + 7 spread frames, all shown
+    for (const label of ["Image 1 of 24", "Image 3 of 24", "Image 24 of 24"]) {
+      const k = parts.findIndex(p => p.type === "text" && (p.text as string).includes(label));
+      expect(k, label).toBeGreaterThanOrEqual(0);
+      expect(parts[k + 1].type, `image directly after ${label}`).toBe("image_url");
+    }
+    const joined = parts.filter(p => p.type === "text").map(p => p.text as string).join("\n");
+    expect(joined).toContain("24 images in sequence");
+    expect(joined).toContain("Showing 8 of them IN ORDER, including the first and the LAST");
+  });
+
+  it("single-frame image keeps the exact old two-part shape (control)", () => {
+    const parts = attachmentParts(imageAtt({ pages: 1 }));
+    expect(parts.length).toBe(2);
+    expect(parts[0].text).toBe("Attached file: img-1.tiff (image)");
+    expect(parts[1].image_url.url).toBe("data:image/png;base64,AAAA");
+  });
+
+  it("browser detail strips (no page count): overview plus EVERY labelled strip", () => {
+    const parts = attachmentParts(imageAtt({
+      name: "long-screenshot.png",
+      frames: [
+        { dataUrl: "data:image/png;base64,SS1", at: 1 },
+        { dataUrl: "data:image/png;base64,SS2", at: 2 },
+      ],
+    }));
+    expectLabelledImages(parts, ["(image)", "Detail 1 of 2", "Detail 2 of 2"]);
+  });
+
+  it("unreadable image keeps the typed refusal", () => {
+    const parts = attachmentParts(imageAtt({ dataUrl: undefined }));
+    expect(parts.length).toBe(1);
+    expect(parts[0].text).toContain("could not be read");
+  });
+});
+
+/**
+ * F68 (fr-20261122b, fr-I4): asked for the pixel dimensions of an uploaded
+ * HEIC, the model answered "1250 × 612" — a vision estimate of 1280×720,
+ * because the delivery NEVER stated the decoder-verified dimensions. The law:
+ * when the pipeline KNOWS the image's pixel dimensions, the model is told
+ * verbatim; when it doesn't, nothing is claimed.
+ */
+describe("image dimensions are stated verbatim (F68)", () => {
+  it("single image with verified dimensions: label carries W × H pixels", () => {
+    const parts = attachmentParts(imageAtt({ name: "img-4.heic", mime: "image/heic", width: 1280, height: 720 }));
+    const text = parts[0].text as string;
+    expect(text).toContain("1280 × 720");
+    expect(text).toContain("pixels");
+  });
+
+  it("sequence intro carries the verified dimensions too", () => {
+    const parts = attachmentParts(imageAtt({ pages: 3, width: 918, height: 3564, frames: [
+      { dataUrl: "data:image/png;base64,BB1", at: 2 },
+      { dataUrl: "data:image/png;base64,BB2", at: 3 },
+    ] }));
+    const intro = parts.find(p => p.type === "text")!.text as string;
+    expect(intro).toContain("918 × 3564");
+  });
+
+  it("unknown dimensions claim NOTHING (no invented numbers)", () => {
+    const parts = attachmentParts(imageAtt({ pages: 1 }));
+    expect(parts[0].text).toBe("Attached file: img-1.tiff (image)");
+    expect(parts.map(p => p.text ?? "").join(" ")).not.toMatch(/\d+ × \d+/);
+  });
+});

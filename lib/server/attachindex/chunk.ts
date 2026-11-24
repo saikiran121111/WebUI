@@ -68,7 +68,7 @@ function splitOversized(u: Unit, size: number): Unit[] {
 /**
  * Group sentence units into ~`size`-char chunks with ~`overlap` chars of
  * carry-over, so a thought is never cut at a chunk boundary. Timestamped
- * units (Whisper segments) carry their min/max times onto the chunk.
+ * units (ASR segments) carry their min/max times onto the chunk.
  */
 function groupUnits(units: Unit[], size: number, overlap: number): IndexChunk[] {
   const expanded = units.flatMap(u => splitOversized(u, size));
@@ -108,7 +108,7 @@ function groupUnits(units: Unit[], size: number, overlap: number): IndexChunk[] 
   return chunks;
 }
 
-/** Timestamped chunks from Whisper segments. */
+/** Timestamped chunks from ASR segments. */
 export function chunkSegments(
   segments: TranscriptSegment[],
   size = CHUNK_CHARS,
@@ -120,4 +120,19 @@ export function chunkSegments(
 /** Untimestamped chunks from plain text. */
 export function chunkText(text: string, size = CHUNK_CHARS, overlap = OVERLAP_CHARS): IndexChunk[] {
   return groupUnits(sentenceUnits(text), size, overlap);
+}
+
+/**
+ * F63: chunks from ROW-LABELLED tabular text (annotateCsvRecords output).
+ * Each logical record is one physical line; the prose chunker's sentence
+ * split would cut records at ". " inside quoted fields, destroying row/col
+ * identity. Here each line is an indivisible unit — a record lands wholly
+ * inside one chunk (oversized records keep splitOversized's exact slices).
+ */
+export function chunkRecords(text: string, size = CHUNK_CHARS, overlap = OVERLAP_CHARS): IndexChunk[] {
+  const units: Unit[] = text
+    .split(/\r?\n/)
+    .map(t => ({ text: t.trim(), startSec: null, endSec: null }))
+    .filter(u => u.text);
+  return groupUnits(units, size, overlap);
 }

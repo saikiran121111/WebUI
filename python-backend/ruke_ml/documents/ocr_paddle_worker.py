@@ -2,7 +2,7 @@
 
 Deliberate constraints, because this file is the memory boundary:
   * it imports ONLY the standard library plus paddleocr - never ruke_ml. Importing the
-    package would drag the supervisor's own dependency set (onnxruntime, faster-whisper,
+    package would drag the supervisor's own dependency set (onnxruntime, torch/transformers,
     numpy builds) into the process that is already loading 2 GB of OCR weights.
   * it is one process per JOB, not per page: a second copy of the runtime would double the
     peak the budget is measured against.

@@ -15,8 +15,8 @@
  * Infallible by design: every failure tier (kill switch, pool
  * exhausted, unsafe/unparseable URL, nav error, no captions) returns
  * null/"" — callers degrade exactly like the existing InnerTube
- * `catch` arms. Whisper is NOT involved: audio.ts only handles uploaded
- * attachments, never streamed URLs.
+ * `catch` arms. The speech engine is NOT involved: transcription in
+ * lib/server/extract only handles uploaded attachments, never streamed URLs.
  */
 import { acquirePoolContext, browserPoolDisabled, releasePoolContext } from "./agentBrowser";
 import { isSafeUrl } from "./ssrf";

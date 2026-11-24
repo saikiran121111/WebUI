@@ -94,7 +94,7 @@ def _prepare_row(spec, *, override_revision: str, force: bool,
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Prepare pinned model assets explicitly.")
     group = ap.add_mutually_exclusive_group(required=True)
-    group.add_argument("--model", help="repo id, e.g. Systran/faster-whisper-base")
+    group.add_argument("--model", help="repo id, e.g. nvidia/parakeet-tdt-0.6b-v3")
     group.add_argument("--pipeline", help="registered pipeline/display id, e.g. PaddleOCR-VL-1.6; "
                                           "prepares every asset that adapter loads")
     ap.add_argument("--revision", default="",

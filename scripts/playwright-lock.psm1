@@ -25,7 +25,14 @@ function Get-PlaywrightLockRecord {
         [int]$PidValue,
         [string]$Phase,
         [string]$Started,
-        [string]$Heartbeat
+        [string]$Heartbeat,
+        # F129 ML-window grant (user brief 2026-11-23 sections 2-5): the
+        # exclusive acceptance batch is the ONLY inference owner of the
+        # workspace while it runs, so it may grant the ML handoff window to
+        # product jobs its own uploads trigger. "grant" is carried as a plain
+        # field; the default record stays byte-identical, the heartbeat child
+        # rewrites ONLY the heartbeat field, and readers parse per-field.
+        [string]$MlWindow = ""
     )
     # Fixed-width JSON-ish record (not strict JSON after padding — parse by
     # regex). Fixed lengths: ISO-8601 'o' round-trip format is 29 chars in
@@ -35,7 +42,8 @@ function Get-PlaywrightLockRecord {
             ',"pid":' + $PidValue +
             ',"phase":"' + $Phase + '"' +
             ',"started":"' + $Started + '"' +
-            ',"heartbeat":"' + $Heartbeat + '"}'
+            ',"heartbeat":"' + $Heartbeat + '"' +
+            $(if ($MlWindow) { ',"ml_window":"' + $MlWindow + '"' }) + '}'
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($text)
     if ($bytes.Length -gt $Script:LockRecordWidth) {
         throw "lock record too long ($($bytes.Length) > $Script:LockRecordWidth): shorten owner/runId"
@@ -51,7 +59,8 @@ function Acquire-PlaywrightLock {
     param(
         [string]$Path,
         [string]$Owner = ($env:USERNAME + '@' + $env:COMPUTERNAME),
-        [string]$Phase = "test"
+        [string]$Phase = "test",
+        [string]$MlWindow = ""
     )
     $runId = [guid]::NewGuid().ToString()
     $now = (Get-Date).ToString('o')
@@ -62,7 +71,7 @@ function Acquire-PlaywrightLock {
         [System.IO.FileShare]::ReadWrite)   # no Delete share: undeletable while alive
     try {
         $rec = Get-PlaywrightLockRecord -RunId $runId -Owner $Owner -PidValue $PID `
-            -Phase $Phase -Started $now -Heartbeat $now
+            -Phase $Phase -Started $now -Heartbeat $now -MlWindow $MlWindow
         $stream.Write($rec, 0, $rec.Length)
         $stream.Flush()
     } catch {

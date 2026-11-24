@@ -1,0 +1,66 @@
+S-P4/fr-P4 model-free probe 2026-11-22 — 242 MB 3,970-page report, late-page glossary citation
+(fixture .data/tmp/file-regression/fr-20261122a/dl/live/doc-d.pdf; key ANSWER-KEY S-P4:
+"AMS Glossary of Meteorology (2021)" — physically on p3948, key said p3949, corrected)
+
+Live rows:
+- F78 run (HEAD 83bbce3): fr-P4 PASS, 6.2 min build, answered "AMS Glossary of Meteorology".
+- fr-20261122a run: fr-P4 FAIL (results-live.jsonl:67). readyMs=240,240 (vs 372,000 old);
+  answer = confabulated reasoning stream, never cites AMS; supervisor log lines 3871–3959
+  (12:22:26–12:23:32 local = 06:52–06:53Z) show the app mid-turn WEB-SEARCHED with tokens
+  ["ar6","wgi","annex","vii","glossary","ipcc","terms","source"] — filled the retrieval gap
+  from the web.
+
+Probe (__tests__/server/tmp-sp4-probe.test.ts, production path, ATTACH_EMBED=off = the live
+degraded mode; index deleted after; 24.6 s):
+- extractFileFromPath builds SYNCHRONOUSLY before the chip goes ready (23.4 s lexical) — there
+  is NO readiness race; the 240 s live build was a full LEXICAL build (a MiniLM embed of 14k
+  chunks on CPU takes minutes; the 372 s old build embedded).
+- chunks=14,216; AMS citation line sits in chunk idx 14205 (mid-chunk, inside Annex VII
+  glossary-definition text).
+- BM25 (exact channel rankCandidates uses with no query vector): score 11.804 = rank 203 of
+  13,965 positive chunks. TOP12 = glossary-definition chunks 14124–14195 (scores 23.5→17.6) —
+  dense common-term prose beats the short clean citation line; the live "said" reasons over
+  exactly this Annex VII content.
+- Production point_qa at the live budget: cap=20 candidate lens, TOP_K=8 fusion seeds (+/-1
+  neighbors), budget 24,000 chars of 15,515,427 = 0.15% of the corpus. picked=20, AMS chunk
+  delivered: FALSE. Widening cap does not help: rank-203 RRF contribution cannot enter the
+  top-8 seeds; BM25 will never rank it top-8. The hybrid cosine channel (MiniLM) is what put
+  the citation region in the top-20 in the passing 6.2-min run.
+
+Store census (live, .data/attach-index metas): 4 published indexes carry embed=None
+(ai_index_report_2026.pdf 849 chunks, two pw-longdocs, ledger) — the build embedder fails
+INTERMITTENTLY on this host (RAM/GPU pressure) and degrades to lexical silently: build.ts
+generated the embedNote ("embeddings unavailable (...)") at build time but NEVER PERSISTED it
+(meta.json wrote only the success stamp), so the on-disk reason was the generic
+"no vectors stored" and the operator switch printed double-wrapped text.
+
+Verdict (first failing layer = build seam, NOT retrieval math):
+1. The retrieval law behaved as designed and disclosed: coverage marker said "lexical only";
+   a rank-203 fact is structurally unreachable inside a 20-candidate/8-seed/24k lens — the
+   pass/fail flip is explained by embedder availability, not by a ranking defect. No change to
+   retrieve.ts math (byte-exact Rust mirror + goldens; probe shows math faithful).
+2. Real product defect (F79): the embed-failure CAUSE was not persisted, so later turns and
+   the coverage marker could not disclose WHY the index degraded; host-side embedder
+   reliability under the budget law is B8/B9 territory (fixed 5 GB ceiling removal).
+3. F74-family contributor: with the fact absent, the model WEB-SEARCHED its way to a
+   plausible non-AMS answer despite the no-guessing rules() — answer-fidelity law (F74 (b)(c),
+   predeclared tolerances) stays open.
+
+Fix applied (F79, content-neutral, both sides of the shared contract):
+- build.ts: persist embedNote into meta.json; keep the operator-switch message verbatim
+  (no double wrap) via embedDisabled().
+- vectors.ts assessVectors: reason = meta.embedNote || "no vectors stored" — the persisted
+  cause now rides every later turn's "lexical only (reason)" coverage marker (store.ts:155
+  stamps vectors at readIndex).
+- Rust mirror: types.rs IndexMeta.embed_note (serde default, tolerant); vectors.rs quotes the
+  note identically; new mirror test a_persisted_embed_failure_note_is_the_disclosed_reason.
+- TS laws: attach-index-cancel.test.ts lexical-build law now asserts the persisted note +
+  quoted reason; attach-index-tx.test.ts F09b describe gained
+  "a persisted build-time embed-failure note becomes the disclosed reason (F79)".
+RED->GREEN confirmed (2 failed -> 23/23). Gates 2026-11-22: cargo **742/0**, full vitest
+**2635/0** (25 skipped), tsc exit **0**.
+
+Residual (not fixable in code): a lexical 14k-chunk corpus CANNOT surface this fact — the
+fr-P4 row passes only when the build embedder is available (hybrid). C3 must record the
+embed stamp state per row (meta.embed present/absent + meta.embedNote) so a lexical-mode
+fr-P4 failure is classified as host budget (B8/B9), not retrieval regression.

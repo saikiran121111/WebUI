@@ -1,0 +1,90 @@
+{
+  "schema": "ruke-engine-manifest/v1",
+  "updated": "2026-11-22",
+  "decision": "B5 FINAL DECISION (2026-11-22): the English release scope is frozen. This file is the tracked bootstrap+version metadata for the engines Ruke owns: every pin here mirrors the machine truth in code (python-backend/ruke_ml/models/ocr_runtime.py, ruke_ml/models/registry.py, the prepare-*.ps1 bootstraps), and tests/test_engine_manifest.py fails the build when the two drift. Model revisions are pinned INDEPENDENTLY of library versions. The background update check reports stable-channel findings only; it never installs and never activates, so the working version survives active jobs, offline states and failed updates.",
+  "engines": {
+    "speech_asr": {
+      "role": "The SOLE audio/video transcription engine for the English release (final decision 2026-11-22). Exactly ONE Transformers integration; no per-model adapters, no marketplace, no picker.",
+      "framework": "transformers",
+      "integration": "python-backend/ruke_ml/speech/transformers_asr.py",
+      "checkpoint": {
+        "repo": "nvidia/parakeet-tdt-0.6b-v3",
+        "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b"
+      },
+      "measured_stack": {
+        "transformers": "5.24.0",
+        "torch": "2.14.1+cu126",
+        "basis": "measured on this host: g103 CUDA probe + g104 CPU probe, pinned revision, offline snapshot (.data/tmp/g103, .data/tmp/g104)"
+      },
+      "authority": "python-backend/ruke_ml/models/registry.py: the speech.asr row for PARAKEET_ID carries the revision, the runtime claim and the measured admission figures; that row IS the selection.",
+      "bootstrap": {
+        "status": "gap: the measured ASR stack is present in the project venv but is not yet a declared uv extra, so a fresh machine's `npm run dev` does not provision it. See python-backend/pyproject.toml [project.optional-dependencies] and [tool.ruke] capability_extras.",
+        "assets": "the checkpoint is staged project-locally by ruke_ml.models.assets.prepare() with allow_download=False at load; first use provisions with visible progress and verifies files before activation"
+      },
+      "update_channels": [
+        { "kind": "pypi", "package": "transformers", "channel": "stable", "pinned": "5.24.0" },
+        { "kind": "pypi", "package": "torch", "channel": "stable", "pinned": "2.14.1", "note": "the measured build is the +cu126 PyTorch-index wheel; the stable-channel check compares base versions" }
+      ]
+    },
+    "ocr_paddle": {
+      "role": "The recommended OCR primary (the default); every unresolved page falls back to Tesseract automatically. Tesseract-only selections probe this engine ZERO times.",
+      "runtime": {
+        "pinned": {
+          "paddlepaddle-gpu": "3.2.1",
+          "paddleocr": "3.6.0",
+          "paddlex": "3.6.1",
+          "opencv-contrib-python": "4.10.0.84",
+          "protobuf": "7.36.2"
+        },
+        "parity": "ruke_ml/models/ocr_runtime.py PINNED is the machine truth; the dict above is pinned equal to it by tests/test_engine_manifest.py",
+        "index": "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
+        "index_fallback": "https://www.paddlepaddle.org.cn/packages/stable/cpu/",
+        "index_law": "B5 final decision (2026-11-22): GPU preferred. The preparer fetches the CUDA 12.6 paddle wheel (the PaddleOCR-VL model card's own index); the x64 CPU index is the documented fallback for a host that cannot take the CUDA wheel, and the preparation manifest records which build and which paddle.device probe are really there. Placement at run time stays devices.device_plan's measured-VRAM decision.",
+        "validated_from": "the isolated OCR interpreter's *.dist-info metadata checked against the runtime manifest",
+        "manifest": ".data/models/ocr/ocr-runtime.json"
+      },
+      "bootstrap": { "script": "scripts/prepare-ocr-runtime.ps1", "manifest_only": "scripts/prepare-ocr-runtime.ps1 -ManifestOnly" },
+      "assets": [
+        { "repo": "PaddlePaddle/PaddleOCR-VL-1.6", "revision": "132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd", "role": "recognition model" },
+        { "repo": "PaddlePaddle/PP-DocLayoutV3", "revision": "241f8bdfc77a7c7bee915a5057aaee58c235a8d3", "role": "layout model" }
+      ],
+      "update_channels": [
+        { "kind": "pypi_simple", "package": "paddlepaddle-gpu", "index": "https://www.paddlepaddle.org.cn/packages/stable/cu126/", "channel": "stable", "pinned": "3.2.1", "note": "the GPU-first paddle pin; the CPU-index wheel paddlepaddle==3.2.1 is the preparer's recorded fallback (ocr_runtime.PADDLE_FALLBACK_DIST), not a co-equal channel" },
+        { "kind": "pypi", "package": "paddleocr", "channel": "stable", "pinned": "3.6.0", "note": "installed from PyPI by scripts/prepare-ocr-runtime.ps1; only the paddlepaddle-gpu wheel comes from the Paddle CUDA index" }
+      ]
+    },
+    "ocr_tesseract": {
+      "role": "The ONLY other named OCR choice (Settings -> Engines). Under this selection the PaddleOCR pipeline is never probed and never loaded; it is also the automatic per-page fallback under the default.",
+      "bootstrap": {
+        "script": "scripts/prepare-tesseract-runtime.ps1",
+        "installer": {
+          "version": "5.5.3.20260724",
+          "name": "tesseract-ocr-w64-setup-5.5.3.20260724.exe",
+          "url": "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe"
+        },
+        "language_data": {
+          "source": "tessdata_best (quality flavour)",
+          "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/eng.traineddata"
+        },
+        "asset_manifest": ".data/tools/tesseract/ocr-assets.json"
+      },
+      "update_channels": [
+        { "kind": "github_release", "repo": "tesseract-ocr/tesseract", "channel": "stable", "pinned_tag": "5.5.3" }
+      ]
+    }
+  },
+  "vendor": {
+    "note": "Declared, OPTIONAL source-checkout slots. The release works without them: nothing downloads here automatically; they exist for engine work that needs upstream source.",
+    "slots": [
+      { "path": "engine/vendor/transformers", "remote": "https://github.com/huggingface/transformers.git" },
+      { "path": "engine/vendor/PaddleOCR", "remote": "https://github.com/PaddlePaddle/PaddleOCR.git" }
+    ]
+  },
+  "update_check": {
+    "script": "scripts/engine-updates.mjs",
+    "report": ".data/python/engine-updates.json",
+    "log": ".data/python/engine-updates.log",
+    "runs": "spawned detached by scripts/dev-supervisor.mjs in the background on every `npm run dev`; opt out with RUKE_ENGINE_UPDATES=0",
+    "policy": "report-only: findings land in the JSON report with the pinned version beside them; nothing is installed, activated or restarted; an offline run is RECORDED and the working version survives"
+  }
+}

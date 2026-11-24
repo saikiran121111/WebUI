@@ -20,6 +20,26 @@ vi.mock("@/lib/persistence/research-journal", async (importOriginal) => ({
   readResearchJournal: journalMock.readResearchJournal,
 }));
 
+// F80 (2026-11-23): the create→exec source-scope vectors below include ONE
+// escape vector that PASSES the gate and reaches retrieval — the network
+// seams stay mocked so this file keeps its hermetic promise.
+const netMocks = vi.hoisted(() => ({
+  metasearch: vi.fn(async () => []),
+  extractUrl: vi.fn(),
+  applySegmentFilter: vi.fn(),
+  isSafeUrlWithDns: vi.fn(),
+}));
+vi.mock("@/lib/web-search/metasearch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/web-search/metasearch")>()),
+  metasearch: netMocks.metasearch,
+}));
+vi.mock("@/lib/web-search/extractor", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/web-search/extractor")>()),
+  extractUrl: netMocks.extractUrl,
+}));
+vi.mock("@/lib/web-search/segment-filter", () => ({ applySegmentFilter: netMocks.applySegmentFilter }));
+vi.mock("@/lib/web-search/ssrf", () => ({ isSafeUrlWithDns: netMocks.isSafeUrlWithDns }));
+
 const ENFORCEABLE_SCOPE = {
   intent: "site_info" as const,
   targets: [
@@ -85,6 +105,50 @@ describe("web-tools RPC (Rust chat-loop bridge)", () => {
       expect(res.status, `freshness=${String(freshness)}`).toBe(200);
       expect((res.json as any).liveRequired, `freshness=${String(freshness)}`).toBe(expected);
     }
+  });
+
+  it("F80: create carries attachmentIds onto the session; the source-scope gate fires across the bridge", async () => {
+    // The id is deliberately NOT in the real store: an unreadable index
+    // proves the wiring (the gate fired) without touching disk state.
+    const created = (
+      await handleWebToolsRpc({
+        action: "create",
+        depth: "quick",
+        question: "what range does the figure legend span",
+        attachmentIds: ["att_f80rpc0001"],
+      })
+    ).json as any;
+    const res = await handleWebToolsRpc({
+      action: "exec",
+      sessionId: created.sessionId,
+      tool: "web_search",
+      argsRaw: JSON.stringify({
+        queries: ["figure legend range"],
+        missing_claims: ["the axis range of the figure legend"],
+        reason: "r",
+      }),
+      roundsUsed: 1,
+    });
+    const env = (res.json as any).envelope;
+    expect(env).toMatchObject({ ok: false, tool: "web_search", error: "attachment_scope_required" });
+    // A refusal is not a lookup: the quick budget (1 search) is untouched.
+    expect(env.remainingBudget.searches).toBe(1);
+    // The routing-contract escape proceeds: retrieval ran, budget charged.
+    const pass = await handleWebToolsRpc({
+      action: "exec",
+      sessionId: created.sessionId,
+      tool: "web_search",
+      argsRaw: JSON.stringify({
+        queries: ["current published value today"],
+        missing_claims: ["the current published value of that figure today"],
+        external_verification: true,
+      }),
+      roundsUsed: 2,
+    });
+    const env2 = (pass.json as any).envelope;
+    expect(env2.error).toBeUndefined();
+    expect(netMocks.metasearch).toHaveBeenCalled();
+    expect(env2.remainingBudget.searches).toBe(0);
   });
 
   it("exec with unparseable arguments gets the exact invalid_arguments envelope", async () => {

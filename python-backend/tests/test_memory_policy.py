@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 from ruke_ml.contracts import JobRequest
-from ruke_ml.models import resources
+from ruke_ml.models import provider_config, resources
 from ruke_ml.models.lifecycle import WorkerPool
 
 
@@ -111,10 +111,65 @@ class Admission(unittest.TestCase):
         self.assertFalse(refused["fits"], "saturation is still refused, engine choice or not")
 
     def test_commit_exhaustion_is_a_separate_reason(self):
+        # Pinned on a pool-charged capability: since the F91 deferral (2026-11-23) the
+        # pool charges NO engine estimate to a caller-gated capability (the cascade and
+        # the ASR dispatcher own that decision), so the commit-exhaustion distinction
+        # lives where the pool still does the charging. The gated path's commit law is
+        # the dispatcher's own ceiling guard - test_asr_dispatch.Placement.
         self._memory(20000, commit_avail_mib=100)
-        _, adm = self.pool._admission("speech.asr")
+        _, adm = self.pool._admission("rerank")
         self.assertFalse(adm["fits"])
         self.assertIn("commit charge", "; ".join(adm["reasons"]))
+
+    def test_the_asr_and_ocr_callers_are_the_admission_gated_pair(self):
+        from ruke_ml.models.lifecycle import CALLER_GATED_ADMISSION
+        self.assertEqual(CALLER_GATED_ADMISSION, frozenset({"documents.ocr", "speech.asr"}),
+                         "the gate is exactly the two callers that plan their own device, "
+                         "engine and window; a new entry must name its dispatcher first")
+
+    def test_the_asr_commit_shortfall_is_deferred_while_a_wider_window_exists(self):
+        """F91 law, measured batch state 2026-11-23: 2,073 MiB free physical, the reserve
+        floors the normal window to 256 MiB, under the ASR rows' measured commit demand.
+        Pre-F91 the pool refused the worker BEFORE the dispatcher saw the job, so the
+        exclusive window - the state the shortage is meant to trigger - never ran, and
+        fr-U1 settled for the retained whisper fallback. With automatic handoff ON the
+        shortfall must be DEFERRED, not refused, while saturation of free RAM itself
+        stays a refusal (test_refusal_is_typed_retryable...)."""
+        self._memory(2073)
+        with mock.patch.object(provider_config, "load",
+                               return_value=mock.Mock(automatic_handoff=True)):
+            short = self.pool._commit_ceiling_shortfall("speech.asr")
+            self.assertIsNotNone(short,
+                                 "this host state must genuinely carry the shortfall - "
+                                 "otherwise the deferral test below is tautological")
+            req = JobRequest(request_id="m2", run_id="run", job_id="job-m2",
+                             capability="speech.asr",
+                             payload={"path": "a.mp3", "root": "."})
+            self.assertIsNone(self.pool._admission_refusal(req),
+                              "the dispatcher owns the placement; a normal-window ceiling "
+                              "must not delete the exclusive window it can take")
+
+    def test_with_the_handoff_policy_off_the_commit_shortfall_is_still_refused(self):
+        """The deferral is sound only while a wider window can exist. With automatic
+        handoff OFF the only placement left is the CPU squeeze inside the tight ceiling,
+        so the typed pre-spawn refusal stands, naming the policy as the reason."""
+        self._memory(2073)
+        with mock.patch.object(provider_config, "load",
+                               return_value=mock.Mock(automatic_handoff=False)):
+            req = JobRequest(request_id="m3", run_id="run", job_id="job-m3",
+                             capability="speech.asr",
+                             payload={"path": "a.mp3", "root": "."})
+            res = self.pool._admission_refusal(req)
+        self.assertIsNotNone(res)
+        assert res is not None
+        assert res.error is not None
+        self.assertEqual(res.error.reason, "memory_pressure")
+        self.assertTrue(res.error.retryable)
+        self.assertEqual(res.payload["refused_for"], "commit_ceiling_below_measured_demand")
+        self.assertIn("automatic-handoff policy is off",
+                      res.payload["commit_ceiling"]["refuse_reason"])
+        self.assertIn("already on disk", res.error.human_step,
+                      "the remedy is freeing commit charge, never re-downloading weights")
 
     def test_refusal_is_typed_retryable_and_names_what_would_change_it(self):
         self._memory(400)
@@ -153,12 +208,19 @@ class Ceilings(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
-    def test_the_ceiling_is_clamped_to_free_ram_minus_the_floor(self):
-        self._memory(1024 + 376)
+    def test_the_ceiling_is_clamped_to_free_ram_minus_the_floor_and_reserve(self):
+        """B8 measured law: the worker ceiling cannot exceed the measured normal window, and
+        that window pays the 1,024 MiB free-physical floor AND the 2 GiB system reserve.
+
+        3,572 MiB free physical leaves 3,572 - 1,024 - 2,048 = 500 MiB of window: under the
+        1,536 MiB demand-derived ceiling, so 500 MiB is what the worker gets. (The old law
+        clamped to free-minus-floor only, 2,548 MiB here, which was the fiction B8 retired.)
+        """
+        self._memory(1024 + 2048 + 500)
         limit, note = self.pool._ceiling_bytes("documents.parse", heavy=True)
-        self.assertEqual(limit, 376 << 20, note)
-        self.assertIn("clamped_from_bytes", note)
-        self.assertEqual(note["clamped_to_free_physical_mib"], 1400)
+        self.assertEqual(limit, 500 << 20, note)
+        self.assertEqual(note["window_ceiling_bytes"], 500 << 20)
+        self.assertIn("physical", note["window_bound_by"])
 
     def test_below_the_floor_the_ceiling_is_the_smallest_useful_one(self):
         self._memory(300)

@@ -1,0 +1,65 @@
+F89 key-layer verification — 2026-11-23 (model-free, zero Ruke involvement)
+=============================================================================
+Directive: "Verify each affected expected fact against the staged fixture
+independently before replay. Record any necessary key change with evidence;
+keep the key frozen where verification confirms it."
+
+Derivation tools (all local, pinned, offline):
+- Frames: node_modules/ffmpeg-static/ffmpeg.exe direct frame extract from the
+  STAGED files in .data/tmp/file-regression/fr-20261122a/dl/live (the manifest-hashed
+  fixtures the harness uploads).
+- Speech: the SHIPPED production adapter ruke_ml.speech.transformers_asr
+  (nvidia/parakeet-tdt-0.6b-v3 @541d1f99c6b0c3cd0b11a95167540bb8edefd82b,
+  snapshot resolved offline via ruke_ml.models.assets.asset_state,
+  allow_download=False, cuda) on a 95–155 s wav cut with the same ffmpeg.
+  Script: .data/tmp/f89frames/f89-asr-key.py; transcript:
+  v1-95-155-transcript.json (word timestamps included).
+
+S-V1 (vid-1.mp4 CS50 @2:00, "What greeting is spoken near the two-minute
+mark?" keyed `Welcome to CS50`) — KEY FALSE, CHANGE RECORDED.
+- v1-60.jpg: black frame, no text. v1-120.jpg: Pierce Hall building photo,
+  NO text on screen. No frame near 2:00 carries "Welcome to CS50".
+- Parakeet transcript of 95–155 s (v1-95-155-transcript.json, complete,
+  cuda): NO "welcome" anywhere in the window. Verified spoken fact at
+  115.08–116.52 s: "computer science and CS50 in particular was very much
+  this class to beware" (word timestamps: "clas" 20.08+"s" 20.24 "to" 20.4
+  "be" 20.96 "w" 21.12 "are" 21.36, clip-relative → 115.08–116.52 s abs).
+- Corroboration: the C3 fr-V1 live answer (results-live.jsonl ts
+  2026-11-22T20:11:48Z) independently reports the 1:18–1:29 narration is
+  "This is CS50, Harvard University's Introduction…" into a personal story,
+  "with no 'hello'/'hi' spoken". Product transcript and my ASR run agree.
+- Disposition: SUPERSEDE the S-V1 key row (same key-vs-fixture family as
+  S-P5/S-X4). Retarget the row to the verified speech-only fact
+  "this class to beware" (near the 2-minute mark, audio-only: the 2:00
+  frames carry no text, so the row keeps testing the AUDIO channel).
+  Acceptance law unchanged in strength: exact verbatim multi-word phrase.
+
+S-V5 (vid-2.mp4 begin card "Data Analysis with Python"+"Full tutorial for
+beginners" @60 s) — KEY CONFIRMED, NO CHANGE.
+- v2-60.jpg: title card reads EXACTLY "Data Analysis with Python / Full
+  tutorial for beginners" — the key is true of the staged fixture.
+- The card the C3 model quoted ("RMOTR Hands-on, online Data Science
+  training. 12 COURSES 20 OTHER PROJECTS 88 CONTENT 210 LESSONS") is the
+  CLOSING promo page, verified at v2-15600.jpg (~4h20m of the 4h22m file).
+- Disposition: fr-V5 stays a PRODUCT row (begin-window content selection:
+  the answer must come from the opening stretch, not the closing frames).
+
+U6 (canonical "Jo Harper" tolerance) — KEY CONFIRMED, SPEC FIX LANDED.
+- Predeclared F74(b) tolerance is spelling-only (jo|Joe); the old regex
+  /j[oe]o harper/ matches "joo"/"jeo" and can NEVER match "jo" or "joe"
+  (class eats the 'o', literal 'o' demands a 3rd letter). Spec now /joe? harper/.
+
+U1 (au-1.mp3 "sweat") — KEY CONFIRMED, WINDOW WIDENED (measured).
+- C3 milestone (results-live.jsonl ts 2026-11-22T06:01:36Z): readyMs 166,389
+  (39.6% of the 420 s extract window consumed before the send phase),
+  ttft 694 ms, model totalMs 19,615, keyed word "sweat" PRESENT in the
+  completed answer. An earlier C3 attempt closed the model window before
+  the keyed answer completed.
+- Disposition: extract window 420→600 s, model window 240→300 s, justified
+  by the measured phases above (a slower host would burn the old window).
+  Key text unchanged.
+
+S-R1 (txt-6.rtf price row) — KEY CONFIRMED, NO CHANGE.
+- Predeclared F74(c) tolerance "price"+42 is ALREADY the spec encoding
+  (fr-R1 asserts contains "price" AND contains "42"); the key's "Visible
+  price 42" phrasing is consistent. No change at any layer.

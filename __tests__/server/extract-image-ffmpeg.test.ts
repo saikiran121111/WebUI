@@ -64,9 +64,12 @@ describe("ffmpeg image decode — I07", () => {
     ], { timeout: 60_000 }); // ~20 frames
 
     const r = await imageToDataUrlFromPath(src);
-    expect(r.pages).toBe(8); // MAX_IMAGE_PAGES cap, declared honestly
-    expect(r.frames?.length).toBe(7); // overview + 7 extras
-    expect(r.frames?.map((f) => f.at)).toEqual([2, 3, 4, 5, 6, 7, 8]); // PAGE numbers, not seconds
+    // F67 law supersedes the old contiguous-cap law: `pages` is the TRUE total,
+    // and the shipped subset is an evenly spread window that ALWAYS includes
+    // the final frame (the fr-I3 last-frame fact must be deliverable).
+    expect(r.pages, "honest total, not the cap").toBe(20);
+    expect(r.frames?.length).toBe(7); // overview + 7 extras = MAX_IMAGE_PAGES
+    expect(r.frames?.map((f) => f.at)).toEqual([4, 6, 9, 12, 15, 17, 20]); // spread 1-BASED PAGE numbers, last included
     for (const f of r.frames ?? []) expect(f.dataUrl).toMatch(/^data:image\/png/);
   }, 120_000);
 });

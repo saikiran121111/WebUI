@@ -380,6 +380,20 @@ describe("embedding provenance gates the cosine channel (F09b)", () => {
     expect(ev.vectorReason).toMatch(/compared/i);
   });
 
+  it("a persisted build-time embed-failure note becomes the disclosed reason (F79)", () => {
+    // The S-P4 defect: an embed pass failed at build, the index published
+    // lexical, and the CAUSE was lost — later turns could only say the generic
+    // "no vectors stored". The note now rides in meta.json and is quoted.
+    const failed: LoadedIndex = {
+      meta: { ...RAGGED.meta, embedNote: "embeddings unavailable (model load failed)" },
+      chunks: RAGGED.chunks.map(c => ({ ...c, vec: [] })),
+    };
+    expect(assessVectors(failed.meta, failed.chunks).reason).toMatch(/model load failed/i);
+    const ev = retrieveEvidence(failed, "zebra apples", [], { mode: "point_qa" });
+    expect(ev.vectorMode).toBe("lexical_only");
+    expect(ev.vectorReason).toMatch(/model load failed/i);
+  });
+
   it("a stamped index whose stored shapes disagree with its stamp is lexical-only", () => {
     const stamped: LoadedIndex = {
       ...RAGGED,

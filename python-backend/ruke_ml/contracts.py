@@ -18,8 +18,9 @@ CAPABILITIES = (
     "video.timeline", "video.search_hints", "video.frame_ocr",
     "artifacts.xlsx", "artifacts.docx", "artifacts.pptx",
 )
-PROGRESS_STATES = ("queued", "preparing", "download_required", "extracting", "ocr", "transcribing",
-                   "indexing", "retrieving", "analysing", "writing", "ready", "failed", "cancelled")
+PROGRESS_STATES = ("queued", "preparing", "preparing_model", "download_required", "extracting",
+                   "ocr", "transcribing", "indexing", "retrieving", "analysing", "writing",
+                   "ready", "failed", "cancelled")
 ERROR_REASONS = (
     "not_configured", "license_acceptance_required", "model_unavailable", "download_failed",
     "cancelled", "deadline_exceeded", "memory_pressure", "input_rejected", "unsupported_input",

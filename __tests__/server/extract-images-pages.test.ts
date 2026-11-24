@@ -106,13 +106,28 @@ describe("caps and honesty", () => {
     expect(r.frames).toBeUndefined();
   }, 120_000);
 
-  it("a 12-frame GIF is bounded at the 8-page cap, page ids included", async () => {
+  it("a 12-frame GIF ships a bounded spread — `pages` is the TRUE total and the LAST frame is included (F67)", async () => {
     const ff = await ffmpegPath();
     const src = path.join(SCRATCH, "many.gif");
     await execFileP(ff, ["-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:duration=1.2:rate=10", src], { timeout: 60_000 });
     const r = await imageToDataUrlFromPath(src);
-    expect(r.pages).toBe(8);
-    expect(r.frames?.map(f => f.at)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+    expect(r.pages, "honest total, not the cap").toBe(12);
+    const ats = r.frames?.map(f => f.at) ?? [];
+    expect(ats.length).toBe(7); // 8 shown = dataUrl + 7
+    expect(ats[ats.length - 1], "final frame reaches the model").toBe(12);
+    expect(ats, "ascending true 1-based positions").toEqual([...ats].sort((a, b) => a - b));
+    expect(new Set(ats).size, "no duplicate positions").toBe(ats.length);
+  }, 120_000);
+
+  it("a 24-frame GIF (live fr-I3 fixture size) delivers the LAST frame at position 24", async () => {
+    const ff = await ffmpegPath();
+    const src = path.join(SCRATCH, "many24.gif");
+    await execFileP(ff, ["-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:duration=2.4:rate=10", src], { timeout: 60_000 });
+    const r = await imageToDataUrlFromPath(src);
+    expect(r.pages).toBe(24);
+    const ats = r.frames?.map(f => f.at) ?? [];
+    expect(ats.length).toBe(7);
+    expect(ats[ats.length - 1]).toBe(24);
   }, 120_000);
 
   it("single-frame inputs get one page and NO fake frames", async () => {
@@ -123,6 +138,57 @@ describe("caps and honesty", () => {
     }
   }, 60_000);
 
+describe("declared pixel dimensions (F68)", () => {
+  /**
+   * Independent ground truth for HEIC: parse every ispe box straight out of
+   * the ISO-BMFF container. The PRIMARY image is the largest (thumbnails are
+   * smaller); the decoder must declare exactly those dimensions, never the
+   * downscaled delivery raster and never a thumbnail.
+   */
+  function ispeDims(buf: Buffer): { w: number; h: number }[] {
+    const out: { w: number; h: number }[] = [];
+    const walk = (off: number, end: number) => {
+      let p = off;
+      while (p + 8 <= end) {
+        let size = buf.readUInt32BE(p);
+        const type = buf.toString("ascii", p + 4, p + 8);
+        let hdr = 8;
+        if (size === 1) { size = Number(buf.readBigUInt64BE(p + 8)); hdr = 16; }
+        if (size < 8 || p + size > end) break;
+        if (type === "ispe") out.push({ w: buf.readUInt32BE(p + hdr + 4), h: buf.readUInt32BE(p + hdr + 8) });
+        else if (type === "meta" || type === "iprp" || type === "ipco" || type === "iinf")
+          walk(p + hdr + (type === "meta" || type === "iinf" ? 4 : 0), p + size);
+        p += size;
+      }
+    };
+    walk(0, buf.length);
+    return out;
+  }
+
+  it.each(["reference.heic", "reference.heif"])("%s declares the container's primary ispe dimensions", async name => {
+    const buf = fs.readFileSync(path.join(FIX, name));
+    const primary = ispeDims(buf).sort((a, b) => b.w * b.h - a.w * a.h)[0];
+    expect(primary.w * primary.h, `${name} has a primary ispe`).toBeGreaterThan(0);
+    const r = await imageToDataUrlFromPath(path.join(FIX, name));
+    expect([r.width, r.height], `${name} = primary ispe, not the delivery raster`).toEqual([primary.w, primary.h]);
+  }, 120_000);
+
+  it("flat fixtures declare their file dimensions; the oversized portrait declares the SOURCE, not the capped raster", async () => {
+    for (const name of ["panel.png", "panel.jpg"]) {
+      const meta = await sharp(fs.readFileSync(path.join(FIX, name))).metadata();
+      const r = await imageToDataUrlFromPath(path.join(FIX, name));
+      expect([r.width, r.height], name).toEqual([meta.width, meta.height]);
+    }
+    const ff = await ffmpegPath();
+    const src = path.join(SCRATCH, "tall-dims.png");
+    await execFileP(ff, ["-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=1080x4000", "-frames:v", "1", src], { timeout: 60_000 });
+    const r = await imageToDataUrlFromPath(src);
+    expect([r.width, r.height], "source dims survive the <=1280 delivery cap").toEqual([1080, 4000]);
+  }, 120_000);
+});
+});
+
+describe("ffmpeg fallback", () => {
   it("ICO — a container libvips cannot read — still decodes via the ffmpeg fallback", async () => {
     const r = await imageToDataUrlFromPath(path.join(FIX, "panel.ico"));
     expect(r.pages).toBe(1);

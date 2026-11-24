@@ -1,0 +1,42 @@
+B10 final Python gate - 2026-11-22 22:57 +0530 (session F79, HEAD 83bbce3 + working tree)
+
+Command: .venv/Scripts/python.exe -m unittest discover -s tests -t .
+Exit: 0
+Result:  Ran 667 tests in 64.257s
+         OK (skipped=1)
+Baseline before B10: 657/657 (f79-b9-py-gate.txt). +10 tests = 9 in the new
+tests/test_b10_restoration.py + 1 cascade timing test in test_handoff_devices.
+
+B10 laws pinned (tests/test_b10_restoration.py, red -> green in three cycles):
+1. Restoration dispatch from WORKER COMPLETION, inside the window, with MEASURED
+   latency. During the work the provider calls are ["unload"] only; by the time
+   run_exclusive returns they are ["unload","load","ready"]. The window report now
+   carries restore_dispatch_ms (releasing_worker -> restoring_main_model, from
+   journalled phase timestamps) and restore_ready_ms (dispatch -> verified ready),
+   wired at all three restore sites (normal, resource_limit, interrupted-finally)
+   via handoff._restore_timings; the timings ride into the cascade report as
+   casc["handoff_restore"] (ruke_ml/documents/ocr_cascade.py).
+2. ONE reload owner on restart. handoff.recover_at_startup(): no journal -> nothing;
+   LIVE lease -> YIELDS (loads nothing, journal left for its holder); stale/absent
+   lease + journal -> restores exactly the journal-recorded model (never loads a
+   model the journal says was not loaded) and clears the journal on verified
+   success. Wired in supervisor.main() as a daemon thread (a real load takes
+   minutes and must not block serving /job). Source-contract test asserts
+   supervisor.py is the ONLY server-side caller of journal recovery. ruke_ml.handoff
+   stays startup-light (urllib/ctypes only) - StartupContract green in the same run.
+3. FAILED reload keeps the evidence: reason "restore_failed", the persisted work
+   path named in the report BEFORE the reload attempt, the journal SURVIVES with
+   original.loaded recorded, the lease is released, and startup recovery RETRIES
+   from the journal (fail-once stub: first retry fails -> journal kept, calls
+   ["load"]; second succeeds -> journal cleared). A receipt is not the point -
+   the journal is what the owner acts on.
+4. NO UI poll drives the reload: tree scan of app/, components/, lib/ for
+   /load|reloadUrl|LLM_RELOAD_URL references, with exactly three allowed owners
+   (lib/server/settings.ts derivation, lib/server/extract/audio.ts and
+   lib/server/coordination/llm-lease.ts lease-holder paths). Zero offenders.
+
+Cycle history: Cycle A red ('restore_dispatch_ms' missing) -> green (105/105 with
+test_handoff_devices + test_ocr_resource_window). Cycle B red (no recover_at_startup;
+supervisor contract) -> green (100/100 with test_supervisor_workers). Cycle C: the
+journal-driven retry test needed a fail-once stub (StubMainModel.fail_first_load) -
+the first attempt succeeding was the stub's fault, not the code's. Full gate green.

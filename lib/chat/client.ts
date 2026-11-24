@@ -221,11 +221,56 @@ export function attachmentParts(att: Attachment): any[] {
   }
 
   switch (att.category) {
-    case "image":
-      return att.dataUrl
-        ? [{ type: "text", text: `${label} (image)` },
-           { type: "image_url", image_url: { url: att.dataUrl } }]
-        : [{ type: "text", text: `${label} — the image could not be read` }];
+    case "image": {
+      // F66/F67: the decoder hands over EVERY page of a multi-page TIFF and
+      // every frame of an animated GIF in `att.frames` (browser tall images
+      // ride as labelled detail strips) — the old shape dropped them silently,
+      // so the model only ever saw the first page and said so.
+      if (!att.dataUrl)
+        return [{ type: "text", text: `${label} — the image could not be read` }];
+      // F68: when the pipeline verified the file's pixel dimensions, state
+      // them — answering "what are the pixel dimensions?" from a vision
+      // estimate of the raster (1250×612 for a 1280×720 HEIC, fr-I4) is a
+      // fidelity defect, not a model failure. No verified size ⇒ no claim.
+      const dims = att.width && att.height ? ` — ${att.width} × ${att.height} pixels` : "";
+      const frames = att.frames ?? [];
+      if (!frames.length)
+        return [{ type: "text", text: `${label} (image${dims})` },
+                { type: "image_url", image_url: { url: att.dataUrl } }];
+      const parts: any[] = [];
+      if (att.pages && att.pages > 1) {
+        const shown = 1 + frames.length;
+        parts.push({
+          type: "text",
+          text:
+            `${label}${dims} — this file is ${att.pages} images in sequence (a multipage document ` +
+            `or an animation). ` +
+            (shown < att.pages
+              ? `Showing ${shown} of them IN ORDER, including the first and the LAST; the others are not shown — never answer from a position that is not shown. `
+              : `Every image is shown below IN ORDER, never just the first. `) +
+            `Answer from the position the question asks about — when it says page N or frame N, ` +
+            `that is Image N below.`,
+        });
+        parts.push({ type: "text", text: `Image 1 of ${att.pages}:` });
+        parts.push({ type: "image_url", image_url: { url: att.dataUrl } });
+        for (const f of frames) {
+          parts.push({ type: "text", text: `Image ${f.at} of ${att.pages}:` });
+          parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+        }
+      } else {
+        parts.push({ type: "text", text: `${label} (image${dims})` });
+        parts.push({ type: "image_url", image_url: { url: att.dataUrl } });
+        parts.push({
+          type: "text",
+          text: "Detail views of the same image, top to bottom (the whole image, in overlapping strips):",
+        });
+        for (const f of frames) {
+          parts.push({ type: "text", text: `Detail ${f.at} of ${frames.length}:` });
+          parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+        }
+      }
+      return parts;
+    }
 
     case "video": {
       const parts: any[] = [

@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Paperclip, X, StopCircle, SlidersHorizontal, Loader2, AlertCircle, Check, Blocks, ChevronDown, Plus, Mic, AudioWaveform, Sparkles, CornerDownLeft } from "lucide-react";
+import { Send, Paperclip, X, StopCircle, SlidersHorizontal, Loader2, AlertCircle, Check, Blocks, ChevronDown, Plus, Mic, AudioWaveform, Sparkles, CornerDownLeft, RotateCw } from "lucide-react";
 import type { Attachment } from "../lib/types";
 import type { EffortLevel } from "../lib/types";
 import type { SkillRecord } from "../lib/skills/types";
 import { meterText, meterTooltip, type TokenMeterSnapshot } from "../lib/chat/tokenMeter";
+import { canRemove, canRetry, canSend, chipPhase, composerPhase } from "../lib/chat/composerGate";
 import { fetchSkills } from "../lib/skills/client-cache";
 import { validateAttachment, processAttachment, ACCEPT_EXTENSIONS } from "../lib/files";
 import SkillsModal from "./SkillsModal";
@@ -76,6 +77,10 @@ export default function ChatInput({
   // I15c: in-flight read per attachment id (queued or running) so removing
   // the chip aborts the work instead of letting it finish for nothing.
   const attachAborts = useRef<Map<string, AbortController>>(new Map());
+  // B11: the picked File behind each attachment id — a failed read is
+  // RETRYABLE, and the browser gives no way back to the File once the
+  // picker closes, so the reference is retained here for the chip's Retry.
+  const attachFiles = useRef<Map<string, File>>(new Map());
 
   // Shared cross-component cache with in-flight dedup: the hero + bar
   // instances (and their remounts on view swaps) used to fire 2–4 identical
@@ -202,13 +207,40 @@ export default function ChatInput({
     // The read is bound to an AbortController: removing the chip (or a
     // future cancel affordance) stops the server-side extraction mid-grind.
     for (const { att, file } of accepted) {
+      attachFiles.current.set(att.id, file);
       const ctrl = new AbortController();
       attachAborts.current.set(att.id, ctrl);
-      void readLimit(() => processAttachment(file, att, ctrl.signal))
+      void readLimit(() => {
+        // F91 (2026-11-23): "Queued" is the readLimit queue; the moment a slot
+        // opens the read is LIVE, and the chipPhase law (composerGate) says the
+        // chip shows "Reading…" for that window. The F91 browser rows grade the
+        // handoff milestones queued -> processing -> ready, so the chip must
+        // carry the processing phase the whole time the server read runs —
+        // a chip stuck at "Queued" through a 36 s GPU handoff shows the user
+        // a queue state for work that is already on the slot.
+        updateAttachment(att.id, { ...att, status: "processing" });
+        return processAttachment(file, att, ctrl.signal);
+      })
         .then(next => updateAttachment(att.id, next))
         .finally(() => attachAborts.current.delete(att.id));
     }
   }, [onAttachmentsChange, updateAttachment]);
+
+  // B11 Retry: re-run the read of a failed attachment with its retained File.
+  // The chip moves back to "processing" — which closes the Send gate again,
+  // so a retry can never race a send over evidence that is mid-flight.
+  const retryAttachment = useCallback((id: string) => {
+    const file = attachFiles.current.get(id);
+    const target = attachments.find(a => a.id === id);
+    if (!file || !target || !canRetry(target)) return;
+    const base: Attachment = { ...target, status: "processing", error: undefined };
+    updateAttachment(id, base);
+    const ctrl = new AbortController();
+    attachAborts.current.set(id, ctrl);
+    void readLimit(() => processAttachment(file, base, ctrl.signal))
+      .then(next => updateAttachment(id, next))
+      .finally(() => attachAborts.current.delete(id));
+  }, [attachments, updateAttachment]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const imgs = Array.from(e.clipboardData.items)
@@ -217,13 +249,27 @@ export default function ChatInput({
     if (imgs.length) { e.preventDefault(); addFiles(imgs); }
   }, [addFiles]);
 
-  const stillReading = attachments.some(a => a.status === "pending" || a.status === "processing");
+  // B11: every send decision is the pure gate (lib/chat/composerGate) —
+  // Send disabled while a file is being read (on scanned PDFs/audio that
+  // window is the exclusive Strata handoff: unload, process, persist
+  // evidence, restore the model); Send enables when the extract response
+  // lands "ready" = evidence persisted AND restoration done (B10), never
+  // by polling. A closed gate leaves the draft UNTOUCHED: the textarea is
+  // never disabled and a swallowed Enter edits nothing.
+  const gate = { text: value, attachments, isLoading };
+  const phase = composerPhase(gate);
+  const anyFailed = attachments.some(a => a.status === "error");
+  const sendTitle = phase === "reading"
+    ? "Reading attached files…"
+    : anyFailed
+      ? "A file failed to read — Retry or Remove it"
+      : "Send";
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
-    // Attachments must finish being read first — sending early would ship a
-    // file the model never got to see.
-    if (!trimmed || isLoading || stillReading) return;
+    // The gate: content, no attachment mid-read, no turn generating, no
+    // failed chip in the tray. Closed = silent no-op, draft preserved.
+    if (!canSend({ text: value, attachments, isLoading })) return;
     // `/compact` is a local command, not a prompt for the model.
     if (/^\/compact\s*$/i.test(trimmed)) {
       onCompactCommand?.();
@@ -233,14 +279,12 @@ export default function ChatInput({
     }
     onSend(trimmed, attachments.filter(a => a.status === "ready"));
     setValue("");
-    // Failed attachments stay in the tray so the reason is still visible.
-    setAttachments(prev => {
-      const kept = prev.filter(a => a.status === "error");
-      onAttachmentsChange(kept);
-      return kept;
-    });
+    // The gate only opens with EVERY attachment ready, so the tray empties.
+    for (const a of attachments) attachFiles.current.delete(a.id);
+    setAttachments([]);
+    onAttachmentsChange([]);
     setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [value, isLoading, stillReading, attachments, onSend, onAttachmentsChange, onCompactCommand]);
+  }, [value, isLoading, attachments, onSend, onAttachmentsChange, onCompactCommand]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     const menuOpen = slashCandidates.length > 0 && !slashDismissed;
@@ -270,12 +314,13 @@ export default function ChatInput({
     // ffmpeg/whisper stop for a file nobody asked for anymore.
     attachAborts.current.get(id)?.abort();
     attachAborts.current.delete(id);
+    attachFiles.current.delete(id);
     setAttachments(prev => { const u = prev.filter(a => a.id !== id); onAttachmentsChange(u); return u; });
   }, [onAttachmentsChange]);
 
   const hasContent = value.trim().length > 0 || attachments.length > 0;
 
-  const canSend = hasContent && !stillReading && !isLoading;
+  const sendable = canSend(gate);
 
   // Shared "+" popover (hero and bar): files, skills, plugins (inert).
   const renderPlusMenu = () => (
@@ -324,7 +369,7 @@ export default function ChatInput({
       {attachments.length > 0 && (
         <div className="max-w-3xl mx-auto mb-2 px-4">
           <div className="flex flex-wrap gap-2">
-            {attachments.map(att => (
+            {attachments.map(att => { const chip = chipPhase(att); return (
               <div key={att.id} data-testid="attachment-chip" data-status={att.status}
                 title={att.error ?? att.name}
                 className={cn(
@@ -337,6 +382,13 @@ export default function ChatInput({
                 <span className={cn("max-w-40 truncate", att.status === "error" ? "text-white/70" : "text-white/60")}>
                   {att.name}
                 </span>
+                {/* B11 "phases shown": the visible read phase of this chip. */}
+                {chip.label && (
+                  <span data-testid="chip-phase"
+                    className="text-white/40 text-[10px] whitespace-nowrap">
+                    {chip.label}
+                  </span>
+                )}
                 <span className="text-white/25 text-[10px]">{(att.size / 1024).toFixed(0)}K</span>
                 {att.indexed && (
                   <span data-testid="indexed-badge"
@@ -344,13 +396,22 @@ export default function ChatInput({
                     indexed · {att.chunkCount ?? 0} chunks
                   </span>
                 )}
-                <button onClick={() => removeAttachment(att.id)}
-                  className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors duration-[120ms]"
-                  aria-label={`Remove ${att.name}`}>
-                  <X className="w-3 h-3" />
-                </button>
+                {canRetry(att) && (
+                  <button onClick={() => retryAttachment(att.id)}
+                    className="p-0.5 rounded hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors duration-[120ms]"
+                    aria-label={`Retry reading ${att.name}`} title={att.error ?? "Retry"}>
+                    <RotateCw className="w-3 h-3" />
+                  </button>
+                )}
+                {canRemove(att) && (
+                  <button onClick={() => removeAttachment(att.id)}
+                    className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors duration-[120ms]"
+                    aria-label={`Remove ${att.name}`}>
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </div>
-            ))}
+            ); })}
           </div>
         </div>
       )}
@@ -427,11 +488,11 @@ export default function ChatInput({
                 </button>
               ) : (
                 <button onClick={handleSend} data-testid="send-button"
-                  disabled={!canSend}
-                  title={stillReading ? "Reading attached files…" : "Send (Enter)"}
+                  disabled={!sendable}
+                  title={sendTitle === "Send" ? "Send (Enter)" : sendTitle}
                   className={cn(
                     "w-7 h-7 rounded-md transition-colors duration-[120ms] flex items-center justify-center",
-                    canSend
+                    sendable
                       ? "text-white/90 hover:text-white hover:bg-white/[0.06]"
                       : "text-white/55 cursor-default",
                   )}
@@ -472,11 +533,11 @@ export default function ChatInput({
                   </button>
                 ) : hasContent ? (
                   <button onClick={handleSend} data-testid="send-button"
-                    disabled={!canSend}
-                    title={stillReading ? "Reading attached files…" : "Send"}
+                    disabled={!sendable}
+                    title={sendTitle}
                     className={cn(
                       "w-8 h-8 rounded-lg transition-all duration-[120ms] flex items-center justify-center",
-                      canSend
+                      sendable
                         ? "bg-white text-black hover:bg-white/90"
                         : "bg-white/[0.07] text-white/25 cursor-default",
                     )}

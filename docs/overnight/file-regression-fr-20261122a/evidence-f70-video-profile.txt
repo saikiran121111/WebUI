@@ -1,0 +1,61 @@
+F70 — long-video readiness profile (fr-20261122c, 2026-11-22)
+Host: RTX 3060 12 GB, whisper-era revision 83bbce3. No live-model inference used;
+all numbers are this host's own walls from the fr2 live run + fixture probes.
+
+1) SOURCE OF WALLS
+   Supervisor/Next log .ai-coordination/dev-supervisor.out.log (the log behind the
+   cited "line 757 extract 200 in 6927ms" — verified line 757 = macro-1.docm 6927ms).
+   Full 56-request extract census taken from it. V-row outcomes from
+   .data/tmp/file-regression/fr-20261122b/fr2-submit.log.
+
+2) WHISPER RTF CALIBRATION (audio rows; extract wall = probe + full-audio decode + whisper)
+   au-1.mp3  532.3 s audio -> 166.1 s  (RTF 0.312)
+   au-2.mp3  751.9 s audio -> 209.1 s  (RTF 0.278)
+   au-3.mp3  550.2 s audio -> 170.7 s  (RTF 0.310)
+   => whisper RTF ~= 0.30, fixed overhead ~= 5 s, on this machine, CPU path.
+   Durations probed with ffmpeg-static on .data/tmp/file-regression/fr-20261122a/dl/live/.
+
+3) VIDEO ROWS AS MEASURED
+   vid-1.mp4 (1h58m56s): frames-complete extract route returned 200 in 333,903 ms
+     (att_33gj225b91, fr2 row 60 upload, 12:01:42 local). 150 keyframes staged
+     (.data/attach-index/att_33gj225b91/frames) => scene pass ~320 s dominates that run.
+     whisper-to-completion projection: 7136 s audio x 0.30 + 5 ~= 2,146 s
+     (concurrent with the scene pass) => full honest video extract ~= 2,200-2,300 s.
+   vid-2.mp4 (4h22m13s): 133 keyframes staged. whisper ~= 15,733 x 0.30 + 5 ~= 4,725 s
+     => full extract ~= 4,800-4,900 s.
+   fr2 cancellations EXPLAINED: fr-V2 ran 15.0 m (route wall 900,791 ms = client
+   extract budget 900,000 + abort -> "Transcription cancelled"); fr-V5/V7/V9 ran
+   20.1 m (wall 1,200,557 ms = budget 1,200,000). The budgets expired ~2.5x and ~4x
+   BEFORE the work can finish. Budget expiry, not a product hang. Row 60 (fr-V1/V3/V4)
+   had no marker: run killed mid-flight at 12:37 (known CS50-battery kill).
+
+4) DECODE-PASS CENSUS PER VIDEO UPLOAD (lib/server/extract/index.ts:896+, ffmpeg.ts,
+   attachindex/timeline.ts) — happy path, in order:
+   a. probeOnce: ONE ffprobe, shared.                                   ~0 s
+   b. buildTimeline/publishBaseline: video.scenes bounded to 12 instants
+      (12 single-frame seeks, max_anchors=12).                          bounded, cheap
+   c. videoFramesFromPath: 2 seeks (20%/70% of duration).              ~seconds
+   d. videoKeyframesFromPath: FULL scan of the video stream —
+      "-hwaccel auto -skip_frame nokey" (I-frames only) tried first, full
+      decode last resort; 150-frame cap with I17 thinning + seek top-up;
+      20-min bound. ~320 s (vid-1), ~700-900 s (vid-2 est).
+   e. python speech worker: FULL decode of the audio stream to PCM + whisper
+      segments <= 90 s. DOMINATES: 2,146 s / 4,725 s. CONCURRENT with (d).
+   f. TS fallback (decodeAudioPcmFile/transcribePcm*): retryable capability
+      failure ONLY — not exercised on the happy path.
+   => Exactly TWO heavy passes touch the media per upload (scene scan on the video
+      stream, audio decode on the audio stream), run CONCURRENTLY. No repeated full
+      decode on the happy path. The readiness cost is whisper RTF (0.30 CPU) on long
+      audio, not ffmpeg redundancy. Removal of whisper (B5/B6) is the lever; Parakeet
+      GPU RTF 0.02-0.05 projects vid-1 ~= 450-700 s, vid-2 ~= 1,100-1,600 s full.
+
+5) BUDGETS SET IN tests/fr-live-regression.spec.ts (whisper-era, measured + ~15% margin)
+   fr-V2          (vid-1, 1 turn):   extract  900 s -> 2,700 s; timeout 1,500 s -> 3,120 s
+   fr-V1/V3/V4    (vid-1, 3 turns):  extract  900 s -> 2,700 s; timeout 1,800 s -> 3,720 s
+   fr-V5/V7/V9    (vid-2, 5 turns):  extract 1200 s -> 5,400 s; timeout 2,400 s -> 6,900 s
+   Whisper-era V rows now cost ~3.5 h of the frozen run (52+62+115 m). C3 runs AFTER
+   B5/B6: re-validate these budgets from the B12 Parakeet measurements (projected
+   tightening: extract ~1,200 s vid-1, ~2,400 s vid-2) and record both numbers in the
+   final table. The V rows were never given a chance to pass under the old budgets —
+   the two fr2 ✘ are budget artifacts, consistent with the F72/F75 key-defect family
+   (harness, not product).

@@ -6,13 +6,16 @@ import {
   type FileCategory,
 } from "./extensions";
 import { decodeText } from "./encoding";
+import { annotateCsvRecords } from "./csv-records";
 
 /**
  * Client half of the attachment pipeline.
  *
  * Plain text and browser-decodable images are read right here in the browser;
  * everything else is posted to /api/files/extract, where the extraction
- * tooling bundled in node_modules (ffmpeg, whisper, 7za, pdf.js) does the work.
+ * tooling bundled in node_modules (ffmpeg, 7za, pdf.js) does the work; audio
+ * and video transcription runs through the app's ML backend (the pinned
+ * Parakeet speech job).
  */
 
 /** Shape returned by /api/files/extract (mirrors ExtractResult). */
@@ -25,6 +28,9 @@ interface ExtractResponse {
   transcript?: string;
   dataUrl?: string;
   frames?: { dataUrl: string; at: number }[];
+  /** F68: primary image's true pixel dimensions (source, not the delivery raster). */
+  width?: number;
+  height?: number;
   durationSec?: number;
   indexed?: boolean;
   chunkCount?: number;
@@ -77,7 +83,7 @@ export function validateAttachment(file: File): Attachment {
  * transcript, or sampled frames — whatever the model can be shown.
  *
  * I15c: `signal` lets the caller cancel the read when its chip is removed —
- * the server-side extraction (ffmpeg/whisper) aborts WITH the request,
+ * the server-side extraction (ffmpeg and the speech job) aborts WITH the request,
  * instead of grinding to completion for a file the user already dropped.
  */
 export async function processAttachment(
@@ -98,7 +104,9 @@ export async function processAttachment(
         // turned into NUL garbage / mojibake with no warning. Decode by
         // content (BOM / heuristics / best-guess fallback) and label guesses.
         const dec = decodeText(new Uint8Array(await file.arrayBuffer()));
-        const capped = cap(dec.text);
+        // F63: tabular files get the SAME row labels the server path applies,
+        // so "row 50, column b" reads the same on both halves of the pipeline.
+        const capped = cap(annotateCsvRecords(dec.text, file.name));
         const note = dec.lossy
           ? `[encoding: this file is not valid UTF-8 — decoded as ${dec.encoding}, so some characters may be wrong]\n\n`
           : "";
@@ -178,6 +186,8 @@ async function extractOnServer(
     transcript: data.transcript,
     dataUrl: data.dataUrl,
     frames: data.frames,
+    width: data.width,
+    height: data.height,
     durationSec: data.durationSec,
     // Knowledge-index markers: the full content lives on the server, and the
     // chat route retrieves passages per question from these.
@@ -248,7 +258,10 @@ async function encodeImage(
       }
       if (!frames.length) frames = undefined;
     }
-    return { ...overview, ...(frames ? { frames } : {}) };
+    // F68: report the SOURCE bitmap's pixel dimensions — the file's true
+    // size — never the downscaled overview raster (a 1080×19000 screenshot
+    // ships a 72×1280 overview but is not 72×1280).
+    return { dataUrl: overview.dataUrl, width: bitmap.width, height: bitmap.height, ...(frames ? { frames } : {}) };
   } finally {
     bitmap.close?.();
   }

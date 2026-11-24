@@ -59,7 +59,15 @@ pub fn assess_vectors(meta: &IndexMeta, chunks: &[IndexChunk]) -> VectorAssessme
     };
 
     let (mode, reason) = if with_vec == 0 {
-        (MODE_LEXICAL_ONLY, Some("no vectors stored".to_string()))
+        // F79: quote the build's own persisted reason when there is one — the
+        // real cause of the degradation, not a generic phrase (mirrors the TS
+        // `meta.embedNote || "no vectors stored"`).
+        let note = meta
+            .embed_note
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "no vectors stored".to_string());
+        (MODE_LEXICAL_ONLY, Some(note))
     } else if ragged {
         let mut keys: Vec<usize> = dims.iter().map(|(d, _)| *d).collect();
         keys.sort_unstable();
@@ -147,6 +155,22 @@ mod tests {
         assert_eq!(a.mode, MODE_LEXICAL_ONLY);
         assert_eq!(a.reason.as_deref(), Some("no vectors stored"));
         assert!(!comparable_with(&a, &[1.0, 0.0]));
+    }
+
+    #[test]
+    fn a_persisted_embed_failure_note_is_the_disclosed_reason() {
+        // F79 mirror: the builder's own cause rides in meta.json and must be
+        // quoted verbatim, so the Rust turn discloses exactly what TS does.
+        let meta = IndexMeta {
+            embed_note: Some("embeddings unavailable (model load failed)".to_string()),
+            ..Default::default()
+        };
+        let a = assess_vectors(&meta, &[chunk(0, vec![]), chunk(1, vec![])]);
+        assert_eq!(a.mode, MODE_LEXICAL_ONLY);
+        assert_eq!(
+            a.reason.as_deref(),
+            Some("embeddings unavailable (model load failed)")
+        );
     }
 
     #[test]

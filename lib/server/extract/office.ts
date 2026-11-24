@@ -285,12 +285,14 @@ function sheetStructure(xml: string, relsXml: string | undefined): string[] {
  * from a picture.
  */
 export function officeText(buf: Buffer, ext: string): string {
+  // Macro-enabled twins (F71) carry the same text parts as their plain format;
+  // the vbaProject.bin part is binary and never in any include filter.
   const limits: ZipLimits =
-    ext === "xlsx" || ext === "xlsm"
+    ext === "xlsx" || ext === "xlsm" || ext === "xltm" || ext === "xlam"
       ? { include: XLSX_INCLUDE }
-      : ext === "pptx"
+      : ext === "pptx" || ext === "pptm" || ext === "potm" || ext === "ppsm"
         ? { include: (n) => /^ppt\/(presentation\.xml|slides\/slide\d+\.xml)$/.test(n) || n === "ppt/_rels/presentation.xml.rels" }
-        : ext === "docx"
+        : ext === "docx" || ext === "docm" || ext === "dotm"
           ? { include: (n) => /^word\/((document|footnotes|endnotes)\.xml|(header|footer)\d*\.xml)$/.test(n) }
           : ext === "epub"
             ? { include: (n) => /\.(xhtml|html)$/.test(n) }
@@ -304,7 +306,9 @@ export function officeText(buf: Buffer, ext: string): string {
   const good = (e: ZipEntry) => !e.corrupt;
 
   switch (ext) {
-    case "docx": {
+    case "docx":
+    case "docm":
+    case "dotm": {
       const parts = [
         ...entries.filter((e) => /^word\/(document|footnotes|endnotes)\.xml$/.test(e.name) && good(e)),
         ...find(/^word\/(header|footer)\d*\.xml$/).filter(good),
@@ -314,7 +318,9 @@ export function officeText(buf: Buffer, ext: string): string {
       return [note, body].filter(Boolean).join("\n\n");
     }
     case "xlsx":
-    case "xlsm": {
+    case "xlsm":
+    case "xltm":
+    case "xlam": {
       const out: string[] = [];
       const sharedEntry = entries.find((e) => e.name === "xl/sharedStrings.xml" && good(e));
       const shared = sharedEntry ? sharedStrings(str(sharedEntry)) : [];
@@ -376,7 +382,10 @@ export function officeText(buf: Buffer, ext: string): string {
       if (note) out.unshift(note);
       return out.filter(Boolean).join("\n\n");
     }
-    case "pptx": {
+    case "pptx":
+    case "pptm":
+    case "potm":
+    case "ppsm": {
       const ordered = slideOrder(entries.filter(good), str);
       const slides = ordered ??
         find(/^ppt\/slides\/slide\d+\.xml$/).filter(good)

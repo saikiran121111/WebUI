@@ -1,0 +1,736 @@
+{
+  "ok": true,
+  "capability": "documents.ocr",
+  "phases": [
+    {
+      "phase": "unloading_main_model",
+      "at": 1795365589.565105,
+      "note": "neither device fits: free physical RAM is 1500 MiB, under the 7056 MiB this load needs (measured load peak 6800 MiB + 256 MiB margin); GPU: free VRAM is 1261 MiB, under the 9256 MiB this needs (6000 MiB estimate charged at 9000 MiB + 256 MiB margin); the main model is resident and would have to be released first"
+    },
+    {
+      "phase": "processing",
+      "at": 1795365592.2311199,
+      "note": "device=gpu est_peak_mib=6800"
+    },
+    {
+      "phase": "releasing_worker",
+      "at": 1795365601.9499319,
+      "note": "worker resources released by the adapter"
+    },
+    {
+      "phase": "restoring_main_model",
+      "at": 1795365601.9904509,
+      "note": "bringing the original model back"
+    },
+    {
+      "phase": "ready",
+      "at": 1795365624.0048492,
+      "note": "lease released"
+    }
+  ],
+  "original_main_model": {
+    "provider": "strata",
+    "endpoint": "http://127.0.0.1:8080",
+    "loaded": true,
+    "model": "swift-1.5-iq3_s",
+    "busy": null,
+    "queued": null,
+    "auto_load": null,
+    "detail": "ok",
+    "reachable": true,
+    "checked_at": 1795365589.5335085,
+    "lifecycle_supported": true,
+    "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+  },
+  "measure_before": {
+    "free_physical_mib": 1512,
+    "commit_available_mib": 15944,
+    "free_vram_mib": 1261,
+    "vram_available": true
+  },
+  "plan": {
+    "capability": "documents.ocr",
+    "device": "none",
+    "fits": false,
+    "needs_handoff": true,
+    "reason": "neither device fits: free physical RAM is 1500 MiB, under the 7056 MiB this load needs (measured load peak 6800 MiB + 256 MiB margin); GPU: free VRAM is 1261 MiB, under the 9256 MiB this needs (6000 MiB estimate charged at 9000 MiB + 256 MiB margin); the main model is resident and would have to be released first",
+    "evidence": {
+      "ram": {
+        "measured": true,
+        "fits": false,
+        "free_physical_mib": 1500,
+        "total_physical_mib": 65299,
+        "commit_available_mib": 15943,
+        "est_peak_mib": 6800,
+        "est_peak_mib_charged": 6800,
+        "estimate_basis": "measured",
+        "required_mib": 7056,
+        "reasons": [
+          "free physical RAM is 1500 MiB, under the 7056 MiB this load needs (measured load peak 6800 MiB + 256 MiB margin)"
+        ],
+        "estimate": "measured",
+        "floor_free_physical_mib": 1024,
+        "policy": "free-physical-plus-commit",
+        "sampled_at": 1795365589.565105
+      },
+      "vram": {
+        "available": true,
+        "free_mib": 1261,
+        "devices": [
+          {
+            "name": "NVIDIA GeForce RTX 3060",
+            "total_mib": 12288,
+            "used_mib": 11027,
+            "free_mib": 1261
+          }
+        ],
+        "detail": "1 of 1 GPU row(s) readable; most free: NVIDIA GeForce RTX 3060 1261 MiB of 12288 MiB",
+        "source": "nvidia-smi",
+        "sampled_at": 1795365589.5341773
+      },
+      "est_peak_mib": 6800,
+      "est_peak_basis": "measured floor, provisional ceiling: the CUDA-build worker hit the kernel commit ceiling at 7278 MiB during load on 2026-11-22 (the load did not complete, so the true peak is above that); 6800 MiB is the demand that keeps the 11444 MiB maximum ceiling viable at the 1.5x unmeasured charge; NOT yet a measured successful cold-load peak",
+      "est_peak_vram_mib": 6000,
+      "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+      "margin_mib": 256,
+      "charged": {
+        "ram_mib": 6800,
+        "vram_mib": 9000,
+        "rule": "declared estimate accepted as measured",
+        "required_ram_mib": 7056
+      },
+      "main_model": {
+        "provider": "strata",
+        "endpoint": "http://127.0.0.1:8080",
+        "loaded": true,
+        "model": "swift-1.5-iq3_s",
+        "busy": null,
+        "queued": null,
+        "auto_load": null,
+        "detail": "ok",
+        "reachable": true,
+        "checked_at": 1795365589.5335085,
+        "lifecycle_supported": true,
+        "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+      }
+    }
+  },
+  "unload": {
+    "ok": true,
+    "status": "unloaded",
+    "detail": "engine reported 'unloaded'",
+    "http_status": 200,
+    "retry_after_s": null
+  },
+  "measure_after_unload": {
+    "free_physical_mib": 55405,
+    "commit_available_mib": 82147,
+    "free_vram_mib": 12094,
+    "vram_available": true
+  },
+  "freed_physical_mib": 53893,
+  "freed_vram_mib": 10833,
+  "plan_after_unload": {
+    "capability": "documents.ocr",
+    "device": "gpu",
+    "fits": true,
+    "needs_handoff": false,
+    "reason": "GPU fits: free VRAM 12094 MiB covers the 6000 MiB estimate; measured RAM and commit headroom are sufficient",
+    "evidence": {
+      "ram": {
+        "measured": true,
+        "fits": true,
+        "free_physical_mib": 55405,
+        "total_physical_mib": 65299,
+        "commit_available_mib": 82145,
+        "est_peak_mib": 6800,
+        "est_peak_mib_charged": 6800,
+        "estimate_basis": "measured",
+        "required_mib": 7056,
+        "reasons": [],
+        "estimate": "measured",
+        "floor_free_physical_mib": 1024,
+        "policy": "free-physical-plus-commit",
+        "sampled_at": 1795365592.2046075
+      },
+      "vram": {
+        "available": true,
+        "free_mib": 12094,
+        "devices": [
+          {
+            "name": "NVIDIA GeForce RTX 3060",
+            "total_mib": 12288,
+            "used_mib": 194,
+            "free_mib": 12094
+          }
+        ],
+        "detail": "1 of 1 GPU row(s) readable; most free: NVIDIA GeForce RTX 3060 12094 MiB of 12288 MiB",
+        "source": "nvidia-smi",
+        "sampled_at": 1795365592.2046075
+      },
+      "est_peak_mib": 6800,
+      "est_peak_basis": "measured floor, provisional ceiling: the CUDA-build worker hit the kernel commit ceiling at 7278 MiB during load on 2026-11-22 (the load did not complete, so the true peak is above that); 6800 MiB is the demand that keeps the 11444 MiB maximum ceiling viable at the 1.5x unmeasured charge; NOT yet a measured successful cold-load peak",
+      "est_peak_vram_mib": 6000,
+      "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+      "margin_mib": 256,
+      "charged": {
+        "ram_mib": 6800,
+        "vram_mib": 9000,
+        "rule": "declared estimate accepted as measured",
+        "required_ram_mib": 7056
+      },
+      "main_model": {
+        "provider": "strata",
+        "endpoint": "http://127.0.0.1:8080",
+        "loaded": false,
+        "model": "swift-1.5-iq3_s",
+        "busy": null,
+        "queued": null,
+        "auto_load": null,
+        "detail": "ok",
+        "reachable": true,
+        "checked_at": 1795365592.2046075
+      }
+    }
+  },
+  "work": {
+    "peak": {
+      "working_set_mib": 2620,
+      "commit_mib": 10337,
+      "measured": true,
+      "components": {
+        "primary_worker_child": {
+          "working_set_mib": 2620,
+          "commit_mib": 10327,
+          "samples": 23,
+          "measured": true,
+          "definition": "resident = max sampled working set over the process tree; commit = max(sampled commit, job-object peak charge). They are different quantities and neither is a substitute for the other. A null means the quantity was never measured, not that it was zero.",
+          "device_used": "gpu:0"
+        },
+        "owned_tree": {
+          "working_set_mib": 2346,
+          "commit_mib": 10337,
+          "samples": 18,
+          "usable_samples": 18,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 16148,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6e69b220c17e6124f31855552766b9bfd33ee1eb8d3a62179b89bb2fad88067a.json",
+    "units_persisted": 1,
+    "device_used": "gpu:0",
+    "device_echo": {
+      "device": "gpu:0",
+      "cuda_compiled": true,
+      "paddle_version": "3.2.1",
+      "dtype_policy": {
+        "available": true,
+        "requested_precision": "fp32",
+        "requested_device": "gpu",
+        "precision_kwarg_scope": "paddleocr 3.6 maps 'precision' to pptrt_precision, the TensorRT subgraph engine precision; on a CPU inference engine it selects no weight dtype at all",
+        "device": "gpu:0",
+        "cuda_compiled": true,
+        "bfloat16_available_for_device": true,
+        "bfloat16_basis": "this device can select bfloat16; the dtype actually used still has to be read from the predictor's own configuration"
+      },
+      "event": "ready",
+      "stage": "load",
+      "seconds": 7.46,
+      "dropped_kwargs": [],
+      "memory_marker_source": "header",
+      "requested_device": "gpu"
+    },
+    "pages": 1,
+    "recognised": 1,
+    "unresolved": []
+  },
+  "measure_after_work": {
+    "free_physical_mib": 53333,
+    "commit_available_mib": 79995,
+    "free_vram_mib": 12094,
+    "vram_available": true
+  },
+  "work_peak": {
+    "working_set_mib": 2620,
+    "commit_mib": 10337,
+    "measured": true,
+    "components": {
+      "primary_worker_child": {
+        "working_set_mib": 2620,
+        "commit_mib": 10327,
+        "samples": 23,
+        "measured": true,
+        "definition": "resident = max sampled working set over the process tree; commit = max(sampled commit, job-object peak charge). They are different quantities and neither is a substitute for the other. A null means the quantity was never measured, not that it was zero.",
+        "device_used": "gpu:0"
+      },
+      "owned_tree": {
+        "working_set_mib": 2346,
+        "commit_mib": 10337,
+        "samples": 18,
+        "usable_samples": 18,
+        "measured": true,
+        "processes": 3,
+        "label": "documents.ocr",
+        "stage": "total",
+        "sampled_pids": 16148,
+        "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+      }
+    },
+    "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+  },
+  "restore": {
+    "ok": true,
+    "status": "loaded",
+    "detail": "engine answered ok",
+    "http_status": 0,
+    "retry_after_s": null
+  },
+  "restore_ready": {
+    "ok": true,
+    "status": "loaded",
+    "detail": "swift-1.5-iq3_s loaded and ready",
+    "http_status": 200,
+    "retry_after_s": null
+  },
+  "final_status": "ok",
+  "device_used": "gpu",
+  "lease_release": {
+    "released": true,
+    "detail": "own lease removed"
+  },
+  "work_detail": {
+    "pages": [
+      {
+        "page": 1,
+        "state": "recognised",
+        "text": "Section 4.2 Ground Water\nThe aquifer beneath the basin yields 1.4 million cubic metres per month\nDownstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to",
+        "detail": "",
+        "confidence": null,
+        "lines": [
+          {
+            "order": 0,
+            "label": "text",
+            "bbox": [
+              146,
+              61,
+              656,
+              326
+            ],
+            "text": "Section 4.2 Ground Water\nThe aquifer beneath the basin yields 1.4 million cubic metres per month\nDownstream salinity rose to 3.1 ppt at the Kandla gauge in March 2019, which the committee attributed to"
+          }
+        ],
+        "raster": {
+          "page": 1,
+          "dpi": 200,
+          "rotation": 0,
+          "width": 1700,
+          "height": 2200,
+          "channels": 3,
+          "rasterizer": "pypdfium2",
+          "raw_json_path": "",
+          "markdown_path": "",
+          "seconds": 1.86
+        },
+        "engine": "paddleocr-vl-1.6",
+        "language_code": "eng",
+        "provenance": "ocr"
+      }
+    ],
+    "cascade": {
+      "policy": {
+        "primary": "paddleocr-vl-1.6",
+        "ocr_selection": "paddle",
+        "selection_source": "unset: fixed default (settings.json has no ocr_engine (fixed default))",
+        "fixed_choices": [
+          "paddleocr-vl-1.6",
+          "tesseract"
+        ],
+        "fixed_primary_law": "the primary is FIXED to one of the two named release choices: the pinned PaddleOCR pipeline (recommended; a page Paddle cannot read falls back to Tesseract automatically) or Tesseract-only (the Paddle pipeline is never probed or loaded). Arbitrary engine/repository pins were removed with the model manager (final decision 2026-11-22).",
+        "allow_gpu": true,
+        "allow_gpu_default_reason": "GPU placement is PREFERRED by default (B5 final decision 2026-11-22: GPU preferred for Paddle; the pinned OCR runtime is the CUDA 12.6 build, and the preparation manifest records the paddle.device probe for the build actually installed). This gate only lets GPU be CONSIDERED: devices.device_plan places the job from MEASURED free VRAM and places it on CPU when the GPU cannot safely proceed, so GPU is never enabled by borrowing the main LLM's device. RUKE_OCR_ALLOW_GPU=0 closes the gate; on a CPU-fallback build the gate has nothing to open.",
+        "allow_unload": true,
+        "allow_unload_source": "env(RUKE_OCR_ALLOW_UNLOAD)",
+        "allow_unload_default_reason": "the coordinated handoff is the configured deployment policy, not an acceptance-script flag: it is automatic when the measured resources do not fit alongside the resident main model AND the provider answers a validated unload/load lifecycle. It is switched off with RUKE_LLM_AUTOMATIC_HANDOFF=0; the legacy per-run override RUKE_OCR_ALLOW_UNLOAD=1/0 still wins over the configured default. Unloading is never taken when the job already fits, never while a turn is running, and never against a provider whose lifecycle calls are unvalidated.",
+        "source": "primary/gpu: env(RUKE_OCR_PRIMARY/RUKE_OCR_ALLOW_GPU); handoff policy: ruke_ml.models.provider_config (settings.json > env > .env.local > default)",
+        "provider": {
+          "chat_url": "http://127.0.0.1:8080/v1/chat/completions",
+          "api_key_set": true,
+          "api_key": "<redacted>",
+          "control_origin": "http://127.0.0.1:8080",
+          "api_prefix": "/v1",
+          "unload_url": "http://127.0.0.1:8080/unload",
+          "load_url": "http://127.0.0.1:8080/load",
+          "lifecycle_explicit": true,
+          "lifecycle_base": null,
+          "provider_hint": null,
+          "model": null,
+          "automatic_handoff": true,
+          "config_source": {
+            "chat_url": "dotenv(LLM_API_URL)",
+            "api_key": "dotenv(LLM_API_KEY)",
+            "control_origin": "derived-from-chat-url(dotenv(LLM_API_URL))",
+            "lifecycle_base": "unset(append to the control origin, which preserves the root-mounted lifecycle endpoints this deployment serves)",
+            "unload_url": "dotenv(LLM_UNLOAD_URL)",
+            "load_url": "dotenv(LLM_RELOAD_URL)",
+            "automatic_handoff": "env(RUKE_OCR_ALLOW_UNLOAD)"
+          }
+        }
+      },
+      "units_requested": [
+        1
+      ],
+      "selection_note": "",
+      "primary": {
+        "engine": "paddleocr-vl-1.6",
+        "ready": true,
+        "blockers": [],
+        "runtime": {
+          "runtime": "paddle-ocr",
+          "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+          "found": true,
+          "inside_project": true,
+          "pinned": {
+            "paddlepaddle-gpu": "3.2.1",
+            "paddleocr": "3.6.0",
+            "paddlex": "3.6.1",
+            "opencv-contrib-python": "4.10.0.84",
+            "protobuf": "7.36.2"
+          },
+          "missing": [],
+          "mismatched": [],
+          "abi_issues": [],
+          "recorded_device": "gpu:0",
+          "placement_verified": true,
+          "detail": "interpreter resolved via project-local: python-backend/.venv-ocr/Scripts/python.exe"
+        },
+        "assets": [
+          {
+            "model_id": "PaddlePaddle/PaddleOCR-VL-1.6",
+            "present": true,
+            "detail": "snapshot 132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd found in the project cache root",
+            "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd"
+          },
+          {
+            "model_id": "PaddlePaddle/PP-DocLayoutV3",
+            "present": true,
+            "detail": "snapshot 241f8bdfc77a7c7bee915a5057aaee58c235a8d3 found in the project cache root",
+            "path": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PP-DocLayoutV3\\snapshots\\241f8bdfc77a7c7bee915a5057aaee58c235a8d3"
+          }
+        ],
+        "estimate": {
+          "est_peak_mib": 6800,
+          "est_peak_basis": "measured floor, provisional ceiling: the CUDA-build worker hit the kernel commit ceiling at 7278 MiB during load on 2026-11-22 (the load did not complete, so the true peak is above that); 6800 MiB is the demand that keeps the 11444 MiB maximum ceiling viable at the 1.5x unmeasured charge; NOT yet a measured successful cold-load peak",
+          "est_peak_vram_mib": 6000,
+          "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)"
+        },
+        "run": {
+          "engine": "paddleocr-vl-1.6",
+          "pid": 21120,
+          "requested_device": "gpu",
+          "dpi": 200,
+          "interpreter": "D:\\Projects\\WebUI\\WebUI\\python-backend\\.venv-ocr\\Scripts\\python.exe",
+          "recognition_dir": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PaddleOCR-VL-1.6\\snapshots\\132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd",
+          "layout_dir": "D:\\Projects\\WebUI\\WebUI\\.data\\ml-cache\\huggingface\\hub\\models--PaddlePaddle--PP-DocLayoutV3\\snapshots\\241f8bdfc77a7c7bee915a5057aaee58c235a8d3",
+          "limit": {
+            "enforced": true,
+            "mechanism": "windows-job-object",
+            "scope": "per-worker",
+            "limit_bytes": 12000000000,
+            "pid": 21120
+          },
+          "ceiling": {
+            "window": "exclusive",
+            "configured_limit_bytes": 12000000000,
+            "configured_note": "RUKE_EXCLUSIVE_LIMIT_BYTES=12000000000",
+            "bounded_config_limit_bytes": 12000000000,
+            "config_bounds_bytes": [
+              5000000000,
+              12000000000
+            ],
+            "system_reserve_bytes": 2147483648,
+            "reserve_note": "default 2147483648 B (no RUKE_SYSTEM_RESERVE_BYTES set)",
+            "normal_fallback_limit_bytes": 5000000000,
+            "normal_target_bytes": 4000000000,
+            "measured": true,
+            "commit_available_bytes": 86142615552,
+            "commit_available_mib": 82152,
+            "free_physical_mib": 55414,
+            "after_reserve_bytes": 83995131904,
+            "normal_measured_ceiling_bytes": 7000000000,
+            "effective_limit_bytes": 12000000000,
+            "effective_limit_mib": 11444,
+            "bound_by": "the configured exclusive maximum",
+            "widened_beyond_normal": true,
+            "reason": "effective exclusive ceiling 12000000000 B = min(configured 12000000000 B, free commit 86142615552 B - reserve 2147483648 B); the measured normal-window ceiling on this host is 7000000000 B, so the released physical RAM is what widened the window",
+            "declared_demand_bytes": 7130316800,
+            "demand_basis": "measured floor, provisional ceiling: the CUDA-build worker hit the kernel commit ceiling at 7278 MiB during load on 2026-11-22 (the load did not complete, so the true peak is above that); 6800 MiB is the demand that keeps the 11444 MiB maximum ceiling viable at the 1.5x unmeasured charge; NOT yet a measured successful cold-load peak",
+            "demand_is_measured": true,
+            "charged_demand_bytes": 7130316800,
+            "margin_bytes": 268435456,
+            "minimum_viable_ceiling_bytes": 7398752256,
+            "below_declared_demand": false,
+            "declared_demand_source": "registry ModelSpec for documents.ocr",
+            "attached": {
+              "enforced": true,
+              "mechanism": "windows-job-object",
+              "scope": "per-worker",
+              "limit_bytes": 12000000000,
+              "pid": 21120
+            },
+            "enforced_by_os": true
+          },
+          "stderr_log": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\tmp\\ocr-paddle-16148\\worker-1795365592.log",
+          "pages_attempted": 1,
+          "fault": "",
+          "fault_note": "",
+          "device_echo": {
+            "device": "gpu:0",
+            "cuda_compiled": true,
+            "paddle_version": "3.2.1",
+            "dtype_policy": {
+              "available": true,
+              "requested_precision": "fp32",
+              "requested_device": "gpu",
+              "precision_kwarg_scope": "paddleocr 3.6 maps 'precision' to pptrt_precision, the TensorRT subgraph engine precision; on a CPU inference engine it selects no weight dtype at all",
+              "device": "gpu:0",
+              "cuda_compiled": true,
+              "bfloat16_available_for_device": true,
+              "bfloat16_basis": "this device can select bfloat16; the dtype actually used still has to be read from the predictor's own configuration"
+            },
+            "event": "ready",
+            "stage": "load",
+            "seconds": 7.46,
+            "dropped_kwargs": [],
+            "memory_marker_source": "header",
+            "requested_device": "gpu"
+          },
+          "load_seconds": 7.46,
+          "dropped_kwargs": [],
+          "dtype_policy": {
+            "available": true,
+            "requested_precision": "fp32",
+            "requested_device": "gpu",
+            "precision_kwarg_scope": "paddleocr 3.6 maps 'precision' to pptrt_precision, the TensorRT subgraph engine precision; on a CPU inference engine it selects no weight dtype at all",
+            "device": "gpu:0",
+            "cuda_compiled": true,
+            "bfloat16_available_for_device": true,
+            "bfloat16_basis": "this device can select bfloat16; the dtype actually used still has to be read from the predictor's own configuration"
+          },
+          "device_used": "gpu:0",
+          "cuda_compiled": true,
+          "paddle_version": "3.2.1",
+          "exit": 1,
+          "peak_working_set_mib": 2620,
+          "peak_commit_mib": 10327,
+          "peak_job_object_commit_mib": 10327,
+          "peak_measured": true,
+          "peak_basis": "resident = max sampled working set over the process tree; commit = max(sampled commit, job-object peak charge). They are different quantities and neither is a substitute for the other. A null means the quantity was never measured, not that it was zero.",
+          "samples": 23,
+          "samples_available": 23,
+          "states": {
+            "1": "recognised"
+          }
+        }
+      },
+      "fallback": {
+        "attempted": [],
+        "note": "the primary engine read every requested unit"
+      },
+      "device_plan": {
+        "capability": "documents.ocr",
+        "device": "gpu",
+        "fits": true,
+        "needs_handoff": false,
+        "reason": "device 'gpu' was chosen by the lease holder; the plan recomputed inside the window says 'gpu'",
+        "evidence": {
+          "ram": {
+            "measured": true,
+            "fits": true,
+            "free_physical_mib": 55414,
+            "total_physical_mib": 65299,
+            "commit_available_mib": 82152,
+            "est_peak_mib": 6800,
+            "est_peak_mib_charged": 6800,
+            "estimate_basis": "measured",
+            "required_mib": 7056,
+            "reasons": [],
+            "estimate": "measured",
+            "floor_free_physical_mib": 1024,
+            "policy": "free-physical-plus-commit",
+            "sampled_at": 1795365592.397016
+          },
+          "vram": {
+            "available": true,
+            "free_mib": 12094,
+            "devices": [
+              {
+                "name": "NVIDIA GeForce RTX 3060",
+                "total_mib": 12288,
+                "used_mib": 194,
+                "free_mib": 12094
+              }
+            ],
+            "detail": "1 of 1 GPU row(s) readable; most free: NVIDIA GeForce RTX 3060 12094 MiB of 12288 MiB",
+            "source": "nvidia-smi",
+            "sampled_at": 1795365592.2046075
+          },
+          "est_peak_mib": 6800,
+          "est_peak_basis": "measured floor, provisional ceiling: the CUDA-build worker hit the kernel commit ceiling at 7278 MiB during load on 2026-11-22 (the load did not complete, so the true peak is above that); 6800 MiB is the demand that keeps the 11444 MiB maximum ceiling viable at the 1.5x unmeasured charge; NOT yet a measured successful cold-load peak",
+          "est_peak_vram_mib": 6000,
+          "est_vram_basis": "provisional: device-resident weights 1966 MiB + layout model + fp32 activations/page render buffers; NOT yet a measured GPU peak (no GPU run has been executed on this host yet)",
+          "margin_mib": 256,
+          "charged": {
+            "ram_mib": 6800,
+            "vram_mib": 9000,
+            "rule": "declared estimate accepted as measured",
+            "required_ram_mib": 7056
+          },
+          "main_model": {
+            "provider": "strata",
+            "endpoint": "http://127.0.0.1:8080",
+            "loaded": false,
+            "model": "swift-1.5-iq3_s",
+            "busy": null,
+            "queued": null,
+            "auto_load": null,
+            "detail": "ok",
+            "reachable": true,
+            "checked_at": 1795365592.397016,
+            "lifecycle_supported": true,
+            "lifecycle_detail": "Strata serves POST /unload and POST /load (verified in serve/server.py)"
+          }
+        }
+      },
+      "handoff": {},
+      "persisted": {
+        "ok": true,
+        "path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6e69b220c17e6124f31855552766b9bfd33ee1eb8d3a62179b89bb2fad88067a.json",
+        "units_persisted": 1,
+        "units_unresolved": [],
+        "reusable_when_resuming": 1,
+        "detail": "wrote 1 unit(s) to D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6e69b220c17e6124f31855552766b9bfd33ee1eb8d3a62179b89bb2fad88067a.json; 1 reusable by a resume; 0 still unresolved"
+      },
+      "peaks": {
+        "primary_worker_child": {
+          "working_set_mib": 2620,
+          "commit_mib": 10327,
+          "samples": 23,
+          "measured": true,
+          "definition": "resident = max sampled working set over the process tree; commit = max(sampled commit, job-object peak charge). They are different quantities and neither is a substitute for the other. A null means the quantity was never measured, not that it was zero.",
+          "device_used": "gpu:0"
+        },
+        "owned_tree": {
+          "working_set_mib": 2346,
+          "commit_mib": 10337,
+          "samples": 18,
+          "usable_samples": 18,
+          "measured": true,
+          "processes": 3,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 16148,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "inside_handoff": true,
+      "resource_window": {
+        "inside_window": true,
+        "basis": "this operation released the main model, so the separately configured exclusive ceiling applies"
+      },
+      "operation": {
+        "peak": {
+          "working_set_mib": 2620,
+          "commit_mib": 10337,
+          "measured": true,
+          "components": {
+            "primary_worker_child": {
+              "working_set_mib": 2620,
+              "commit_mib": 10327,
+              "samples": 23,
+              "measured": true,
+              "definition": "resident = max sampled working set over the process tree; commit = max(sampled commit, job-object peak charge). They are different quantities and neither is a substitute for the other. A null means the quantity was never measured, not that it was zero.",
+              "device_used": "gpu:0"
+            },
+            "owned_tree": {
+              "working_set_mib": 2346,
+              "commit_mib": 10337,
+              "samples": 18,
+              "usable_samples": 18,
+              "measured": true,
+              "processes": 3,
+              "label": "documents.ocr",
+              "stage": "total",
+              "sampled_pids": 16148,
+              "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+            }
+          },
+          "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+        },
+        "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6e69b220c17e6124f31855552766b9bfd33ee1eb8d3a62179b89bb2fad88067a.json",
+        "units_persisted": 1,
+        "device_used": "gpu:0",
+        "device_echo": {
+          "device": "gpu:0",
+          "cuda_compiled": true,
+          "paddle_version": "3.2.1",
+          "dtype_policy": {
+            "available": true,
+            "requested_precision": "fp32",
+            "requested_device": "gpu",
+            "precision_kwarg_scope": "paddleocr 3.6 maps 'precision' to pptrt_precision, the TensorRT subgraph engine precision; on a CPU inference engine it selects no weight dtype at all",
+            "device": "gpu:0",
+            "cuda_compiled": true,
+            "bfloat16_available_for_device": true,
+            "bfloat16_basis": "this device can select bfloat16; the dtype actually used still has to be read from the predictor's own configuration"
+          },
+          "event": "ready",
+          "stage": "load",
+          "seconds": 7.46,
+          "dropped_kwargs": [],
+          "memory_marker_source": "header",
+          "requested_device": "gpu"
+        },
+        "pages": 1,
+        "recognised": 1,
+        "unresolved": []
+      },
+      "engines_used": [
+        "paddleocr-vl-1.6"
+      ],
+      "units_read": 1,
+      "units_unresolved": [],
+      "units_not_read": []
+    }
+  },
+  "watchdog": {
+    "free_min": null,
+    "tripped": 0
+  },
+  "pages_requested": [
+    1
+  ],
+  "arguments": {
+    "pdf": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\fixtures\\d1\\pdfs\\d1_scanned.pdf",
+    "language": "eng",
+    "device": "gpu",
+    "allow_unload": true,
+    "allow_gpu": true,
+    "pages": "1",
+    "dpi": 200,
+    "load_timeout": 420.0,
+    "page_timeout": 240.0,
+    "unload_wait": 60.0,
+    "ready_timeout": 300.0,
+    "max_free_mib": 0,
+    "inject_primary_failure_page": 0,
+    "resume_results": false,
+    "recover": false,
+    "lease_owner": "f79-b9-gpu2"
+  }
+}

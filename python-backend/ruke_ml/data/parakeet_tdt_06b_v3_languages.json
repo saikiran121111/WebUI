@@ -1,0 +1,12 @@
+{
+  "captured": "2026-11-22",
+  "languages": [
+    "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it",
+    "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"
+  ],
+  "language_detection": true,
+  "note": "Published table of nvidia/parakeet-tdt-0.6b-v3: 25 European languages; the card says the model 'automatically detects the language of the audio'. Hindi is NOT published, so routing must never send Hindi here. Published coverage, NOT measured quality on this host. Card release date 2025-08-14; inputs 16 kHz mono wav/flac; word- and segment-level timestamps are a published feature.",
+  "packages": ["nemo_toolkit[asr] (NeMo), NeMo-Speech.cpp gguf runtime, transformers",
+                "license: CC-BY-4.0"],
+  "source": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3 (model card, captured 2026-11-22)"
+}

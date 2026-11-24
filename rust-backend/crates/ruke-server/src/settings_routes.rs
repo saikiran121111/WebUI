@@ -19,6 +19,22 @@
 //!   pair `{ auto: auto===1 ? 1 : 0, tokens: finite number ? max(0, round) : 0 }`
 //!   — JS `Math.round` is `floor(x + 0.5)`; a non-number/non-finite `tokens`
 //!   becomes 0; anything truthy-but-not-1 in `auto` becomes 0.
+//! - Engine keys: `speech_model` only when `typeof === "string"` — inserted
+//!   RAW; `ocr_engine` only the named engines `"paddle"` / `"tesseract"` /
+//!   `""` (the empty string is the PaddleOCR-default selection); junk is
+//!   dropped. The retired marketplace keys (`hf_token`, `model_mirror`) are
+//!   NOT writable: their writes are ignored (final-decision addendum
+//!   2026-11-22 — the Hugging Face token/mirror surface is removed).
+//! - Every GET/PUT first runs `migrate_engines`: a stored `hf_token`/
+//!   `model_mirror` is PURGED from the store, and a `speech_model` stored
+//!   with anything other than the fixed Parakeet id is rewritten to it
+//!   (visible migration of an obsolete ASR preference). On the ONE read that
+//!   rewrote it, the response also carries `speech_model_migrated: <old
+//!   value>` — present only on the migrating read. An explicit
+//!   Tesseract-only `ocr_engine` is preserved untouched. The response view
+//!   never carries the retired keys, in any spelling (`hf_token_set`
+//!   included). Parity: `migrateEngines`/`settingsResponse` in
+//!   app/api/settings/route.ts.
 //!
 //! RECORDED MICRO-DIVERGENCES:
 //! - A `null` body: TS evaluates `body.llm_api_url` on null → TypeError →
@@ -38,10 +54,69 @@ use ruke_skills::jsstr;
 use crate::AppState;
 
 pub async fn settings_get(State(state): State<AppState>) -> Response {
-    json_response(
-        StatusCode::OK,
-        json!({ "settings": state.settings.read_settings() }),
-    )
+    let (settings, migrated_from) = migrate_engines(&state.settings);
+    settings_response(settings, migrated_from)
+}
+
+/// The body both GET and PUT answer: the public settings view, plus
+/// `speech_model_migrated: <obsolete value>` on the ONE read that rewrote an
+/// obsolete ASR preference (the "migrate VISIBLY" law).
+fn settings_response(settings: Map<String, Value>, migrated_from: Option<String>) -> Response {
+    let mut body = Map::new();
+    body.insert("settings".into(), public_settings(settings));
+    if let Some(old) = migrated_from {
+        body.insert("speech_model_migrated".into(), Value::String(old));
+    }
+    json_response(StatusCode::OK, Value::Object(body))
+}
+
+/// The frozen English release names ONE ASR engine (final decision 2026-11-22):
+/// the registry's pinned Parakeet row. Parity with PARAKEET_ID in
+/// python-backend/ruke_ml/models/registry.py and FIXED_SPEECH_MODEL in
+/// lib/settings/client.ts.
+pub const FIXED_SPEECH_MODEL: &str = "nvidia/parakeet-tdt-0.6b-v3";
+
+/// FINAL DECISION addendum 2026-11-22: the Hugging Face token/mirror fields
+/// belonged to the removed model-manager surface, and Parakeet is the sole
+/// ASR engine. An existing install's retired settings are migrated ONCE,
+/// visibly: `hf_token`/`model_mirror` are purged from the store, and a
+/// `speech_model` stored with any other value is rewritten to the fixed
+/// Parakeet id. An explicit Tesseract-only `ocr_engine` is PRESERVED.
+/// Parity of `migrateEngines` in app/api/settings/route.ts. The second
+/// element is the OBSOLETE speech_model value when it was rewritten, so the
+/// response can name it (`speech_model_migrated`).
+fn migrate_engines(store: &ruke_core::settings::SettingsStore) -> (Map<String, Value>, Option<String>) {
+    let current = store.read_settings();
+    let purge: Vec<&str> = ["hf_token", "model_mirror"]
+        .into_iter()
+        .filter(|k| current.contains_key(*k))
+        .collect();
+    let migrated_from = current
+        .get("speech_model")
+        .filter(|v| *v != &json!(FIXED_SPEECH_MODEL))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    if purge.is_empty() && migrated_from.is_none() {
+        return (current, None);
+    }
+    let mut next = current;
+    for k in purge {
+        next.remove(k);
+    }
+    if migrated_from.is_some() {
+        next.insert("speech_model".into(), json!(FIXED_SPEECH_MODEL));
+    }
+    (store.replace_settings(&next), migrated_from)
+}
+
+/// The browser-visible view: never carries the retired marketplace keys in
+/// any spelling — not the values, not the old `hf_token_set` shadow.
+fn public_settings(settings: Map<String, Value>) -> Value {
+    let mut map = settings;
+    map.remove("hf_token");
+    map.remove("model_mirror");
+    map.remove("hf_token_set");
+    Value::Object(map)
 }
 
 pub async fn settings_put(State(state): State<AppState>, req: Request) -> Response {
@@ -88,9 +163,23 @@ pub async fn settings_put(State(state): State<AppState>, req: Request) -> Respon
             patch.insert("compact_thresholds".into(), Value::Object(ct_norm));
         }
     }
+    // Engine keys — parity with the TS arm: speech_model strings raw (the
+    // migration below normalizes any non-Parakeet value), ocr_engine is a
+    // NAMED engine (unset/"" = the PaddleOCR default). The retired hf_token
+    // and model_mirror writes are IGNORED: the surface that read them is
+    // removed, and ignoring is the only write that cannot resurrect it.
+    if let Some(Value::String(s)) = body.get("speech_model") {
+        patch.insert("speech_model".into(), Value::String(s.clone()));
+    }
+    if let Some(Value::String(s)) = body.get("ocr_engine") {
+        if s == "paddle" || s == "tesseract" || s.is_empty() {
+            patch.insert("ocr_engine".into(), Value::String(s.clone()));
+        }
+    }
 
-    let settings = state.settings.update_settings(&patch);
-    json_response(StatusCode::OK, json!({ "settings": settings }))
+    state.settings.update_settings(&patch);
+    let (settings, migrated_from) = migrate_engines(&state.settings);
+    settings_response(settings, migrated_from)
 }
 
 pub async fn settings_delete(State(state): State<AppState>) -> Response {
@@ -287,6 +376,112 @@ mod tests {
         let (status, body) = call(&s, "PUT", "/api/ruke/settings", Body::from("null")).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["settings"].is_object());
+    }
+
+    #[tokio::test]
+    async fn engine_keys_persist_and_retired_ones_migrate_visibly() {
+        let (s, _t) = state();
+
+        // FINAL DECISION addendum 2026-11-22, parity with
+        // app/api/settings/route.ts: a legacy install carrying the retired
+        // marketplace keys and an obsolete ASR choice migrates on the first
+        // read — the keys are purged from the STORE, the ASR preference is
+        // rewritten to the fixed Parakeet, and an explicit Tesseract-only
+        // selection survives untouched.
+        s.settings.update_settings(&serde_json::from_str::<Map<String, Value>>(
+            r#"{"speech_model":"Systran/faster-whisper-base","ocr_engine":"tesseract","model_mirror":"https://mirror.example","hf_token":"hf_serverSideSecret"}"#,
+        ).unwrap());
+        let (_status, body) = call(&s, "GET", "/api/ruke/settings", Body::empty()).await;
+        assert_eq!(
+            body["settings"]["speech_model"],
+            json!(FIXED_SPEECH_MODEL)
+        );
+        assert_eq!(body["settings"]["ocr_engine"], json!("tesseract"));
+        assert_eq!(body["settings"].get("hf_token"), None);
+        assert_eq!(body["settings"].get("model_mirror"), None);
+        assert_eq!(body["settings"].get("hf_token_set"), None);
+        assert!(!body.to_string().contains("hf_serverSideSecret"));
+        // The migration is VISIBLE: the response names the obsolete preference
+        // it rewrote (client shows it in the Engines tab).
+        assert_eq!(
+            body["speech_model_migrated"],
+            json!("Systran/faster-whisper-base")
+        );
+
+        // The migration PERSISTED: the store itself is purged, not just the view.
+        let stored = s.settings.read_settings();
+        assert_eq!(stored.get("hf_token"), None);
+        assert_eq!(stored.get("model_mirror"), None);
+        assert_eq!(stored.get("speech_model"), Some(&json!(FIXED_SPEECH_MODEL)));
+
+        // A retired-key WRITE is ignored: it cannot resurrect the surface.
+        let (_status, body) = call(
+            &s,
+            "PUT",
+            "/api/ruke/settings",
+            Body::from(r#"{"hf_token":"hf_new","model_mirror":"https://evil.example"}"#),
+        )
+        .await;
+        assert_eq!(body["settings"].get("hf_token"), None);
+        assert_eq!(body["settings"].get("model_mirror"), None);
+        assert!(!body.to_string().contains("hf_new"));
+        assert!(!body.to_string().contains("evil.example"));
+
+        // A legacy speech_model written through PUT comes back as Parakeet,
+        // visibly named by speech_model_migrated.
+        let (_status, body) = call(
+            &s,
+            "PUT",
+            "/api/ruke/settings",
+            Body::from(r#"{"speech_model":"OpenAI/whisper-large"}"#),
+        )
+        .await;
+        assert_eq!(
+            body["settings"]["speech_model"],
+            json!(FIXED_SPEECH_MODEL)
+        );
+        assert_eq!(body["speech_model_migrated"], json!("OpenAI/whisper-large"));
+
+        // A clean read after the migration says nothing: the notice appears
+        // only on the read that migrated.
+        let (_status, body) = call(&s, "GET", "/api/ruke/settings", Body::empty()).await;
+        assert_eq!(body.get("speech_model_migrated"), None);
+
+        // Named-engine gate stays: junk is not persisted; a non-string
+        // speech_model write is ignored by the arm.
+        let (_status, body) = call(
+            &s,
+            "PUT",
+            "/api/ruke/settings",
+            Body::from(r#"{"ocr_engine":"make-me-a-sandwich","speech_model":{"path":"C:/models"}}"#),
+        )
+        .await;
+        assert_eq!(body["settings"]["ocr_engine"], json!("tesseract"));
+        assert_eq!(
+            body["settings"]["speech_model"],
+            json!(FIXED_SPEECH_MODEL)
+        );
+
+        // An empty ocr_engine write is the "PaddleOCR default" selection.
+        let (_status, body) =
+            call(&s, "PUT", "/api/ruke/settings", Body::from(r#"{"ocr_engine":""}"#)).await;
+        assert_eq!(body["settings"]["ocr_engine"], json!(""));
+    }
+
+    #[tokio::test]
+    async fn a_clean_store_gets_no_migration_write() {
+        let (s, _t) = state();
+        call(
+            &s,
+            "PUT",
+            "/api/ruke/settings",
+            Body::from(r#"{"llm_api_key":"k","ocr_engine":"paddle"}"#),
+        )
+        .await;
+        let before = s.settings.read_settings();
+        let (_status, _body) = call(&s, "GET", "/api/ruke/settings", Body::empty()).await;
+        // Migration is idempotent and silent: nothing retired, nothing added.
+        assert_eq!(s.settings.read_settings(), before);
     }
 
     #[tokio::test]

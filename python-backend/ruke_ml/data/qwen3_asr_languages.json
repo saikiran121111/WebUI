@@ -1,0 +1,12 @@
+{
+  "captured": "2026-11-22",
+  "languages": [
+    "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th",
+    "vi", "ja", "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa",
+    "el", "hu", "mk", "ro"
+  ],
+  "language_detection": true,
+  "note": "Published table of the Qwen3-ASR family (1.7B and 0.6B publish the same table): 30 languages plus 22 Chinese dialects (Anhui, Dongbei, Fujian, ... Cantonese HK/GD, Wu, Minnan), and language identification is a published capability. This is the family the brief names for Hindi and English/Hindi switching; Hindi (hi) IS published. Published coverage, NOT measured quality on this host.",
+  "packages": ["qwen-asr (transformers backend or vLLM backend)", "license: Apache-2.0"],
+  "source": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B (model card, captured 2026-11-22)"
+}

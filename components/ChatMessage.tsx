@@ -255,7 +255,7 @@ export default memo(function ChatMessage({ message, onEdit, onSend }: ChatMessag
       {/* Main content — user-selectable so answers (including their [S#]
           source pills) can be copied/quoted in one motion. */}
       {content && (
-        <div className="msg-content select-text">
+        <div className="msg-content select-text" data-testid="answer-body">
           <MarkdownRenderer
             content={content}
             streaming={state === "streaming"}

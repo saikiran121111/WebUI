@@ -166,5 +166,76 @@ class AbiGate(unittest.TestCase):
         ocr_runtime.clear_cache()
 
 
+class GpuFirstRuntime(unittest.TestCase):
+    """B9 (2026-11-22): the release law is GPU-first for Paddle.
+
+    The isolated runtime's PINNED wheel is the CUDA 12.6 build
+    (`paddlepaddle-gpu==3.2.1`, cu126 index); the CPU wheel stays an ACCEPTED FALLBACK for a
+    host the preparer could not build for GPU, and the manifest then records that fact. What
+    the runtime must never do is CLAIM a placement it did not probe: the device the preparation
+    probe recorded is reported verbatim, and an unprobed environment is a reported gap.
+    Placement between the two is devices.device_plan's job at run time, from measured VRAM.
+    """
+
+    def _status(self, root: Path, *, pins: dict[str, str] | None = None,
+                manifest: dict | None = None) -> ocr_runtime.RuntimeStatus:
+        exe = _fake_env(root, protobuf=ocr_runtime.PINNED["protobuf"], gencode=(7, 36, 1),
+                        pins=pins)
+        ocr_runtime.clear_cache()
+        with mock.patch.dict(os.environ, {ocr_runtime.ENV_INTERPRETER: exe}, clear=False), \
+                mock.patch.object(ocr_runtime, "read_manifest",
+                                  return_value=manifest or {}):
+            return ocr_runtime.status()
+
+    def test_the_pinned_runtime_names_the_cuda_build(self):
+        self.assertEqual("3.2.1", ocr_runtime.PINNED.get("paddlepaddle-gpu"),
+                         "the pinned paddle wheel is the CUDA 12.6 GPU build (cu126 index)")
+        self.assertNotIn("paddlepaddle", ocr_runtime.PINNED,
+                         "the CPU wheel is not a co-equal pin; it is the recorded fallback "
+                         "path, handled in code, not a second pin the manifest must mirror")
+
+    def test_the_runtime_id_does_not_claim_a_device(self):
+        # Placement is a run-time plan from measured resources, so the runtime ID must not
+        # hardcode "cpu": that claim was true of the old CPU wheel and is a lie about this one.
+        self.assertNotIn("cpu", ocr_runtime.RUNTIME_ID.lower())
+
+    def test_a_gpu_build_venv_is_validated_and_its_probe_is_reported(self):
+        with tempfile.TemporaryDirectory() as td:
+            probe = {"device": "gpu:0", "compiled_with_cuda": True, "paddle": "3.2.1"}
+            status = self._status(Path(td), manifest={"device_probe": probe})
+            self.assertEqual([], status.missing)
+            self.assertTrue(status.found, status.detail)
+            self.assertEqual("gpu:0", status.recorded_device)
+            self.assertTrue(status.placement_verified)
+            self.assertEqual("gpu:0", status.as_dict()["recorded_device"])
+
+    def test_the_cpu_wheel_is_accepted_as_a_recorded_fallback(self):
+        cpu_pins = {("paddlepaddle" if k == "paddlepaddle-gpu" else k): v
+                    for k, v in ocr_runtime.PINNED.items()}
+        with tempfile.TemporaryDirectory() as td:
+            status = self._status(Path(td), pins=cpu_pins,
+                                  manifest={"device_probe": {"device": "cpu",
+                                                             "compiled_with_cuda": False}})
+            self.assertEqual([], status.missing,
+                             "a host that fell back to the CPU wheel is a validated runtime, "
+                             "not a broken one: GPU is preferred, CPU proceeds when it must")
+            self.assertTrue(status.found, status.detail)
+            self.assertIn("fallback", status.detail.lower())
+            self.assertEqual("cpu", status.recorded_device)
+            # The paddle slot must resolve through the fallback wheel, not stay an empty string.
+            self.assertEqual("3.2.1", status.pinned["paddlepaddle-gpu"])
+
+    def test_an_environment_that_recorded_no_probe_is_a_gap_not_a_claim(self):
+        with tempfile.TemporaryDirectory() as td:
+            status = self._status(Path(td), manifest={})
+            self.assertTrue(status.found)
+            self.assertEqual("", status.recorded_device)
+            self.assertFalse(status.placement_verified)
+            self.assertIn("device probe", status.detail.lower())
+
+    def tearDown(self) -> None:
+        ocr_runtime.clear_cache()
+
+
 if __name__ == "__main__":
     unittest.main()

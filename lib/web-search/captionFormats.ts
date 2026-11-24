@@ -18,8 +18,9 @@
  * of): YouTube json3, WebVTT (.vtt — Dailymotion/Twitch/HTML5 native),
  * srv3 XML, TTML/DFXP. Pure functions — unit-tested without a browser.
  *
- * NOT Whisper: Whisper (lib/server/extract/audio.ts) only handles
- * uploaded audio/video attachments, never streamed media URLs.
+ * NOT the speech engine: transcription (lib/server/extract, the pinned
+ * Python speech job) only handles uploaded audio/video attachments, never
+ * streamed media URLs — captions here come off the player's own tracks.
  */
 
 export interface CaptionSegment {

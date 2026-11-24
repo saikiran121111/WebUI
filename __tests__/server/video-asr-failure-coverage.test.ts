@@ -6,6 +6,14 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 
+// F123 (2026-11-23): the pinned Python Parakeet job is the SOLE speech engine,
+// and the endpoint is not part of unit scope — the operator switch is ABSOLUTE
+// (it gates before any job is sent), so this file is fully hermetic: the video
+// path takes the honest BLOCKED-speech outcome. The measured-silence branch
+// ("no speech was detected in its audio track, … decoded and measured") is a
+// RESULT of a REAL pinned-backend run and its content row lives in the
+// exclusive live acceptance batch, never as a unit-scope inference.
+
 /**
  * I16: when a video's speech could not be read, extractFileFromPath used to
  * discard the keyframes it had already sampled and return an error — the
@@ -32,6 +40,7 @@ async function ffmpeg(bin: string, args: string[]): Promise<void> {
 }
 
 const ATT = "att_silentcov1";
+process.env.RUKE_SPEECH_CAPABILITY = "off"; // no ML endpoint in unit scope; the switch gates before any job
 
 describe("video with unreadable speech keeps its visual evidence (I16)", () => {
   it("silent audio track → coverage note + indexed keyframes + frames dir kept", async () => {
@@ -40,8 +49,10 @@ describe("video with unreadable speech keeps its visual evidence (I16)", () => {
     fs.mkdirSync(dir, { recursive: true });
     const bin = await ffmpegPath();
     try {
-      // 16 s of scene cuts + an 84 s static tail, WITH a truly silent audio
-      // track (anullsrc) so the ASR path runs, decodes, and finds nothing.
+      // 16 s of scene cuts + an 84 s static tail, WITH an audio track
+      // (anullsrc). F123: the pinned backend is out of unit scope, so the
+      // speech row is BLOCKED — the I16 law is that the visual evidence
+      // survives it with an honest note.
       const inputs: string[] = [];
       for (let i = 0; i < 8; i++) {
         inputs.push("-f", "lavfi", "-i", `color=c=${i % 2 ? "blue" : "red"}:s=32x32:d=2:r=5`);
@@ -69,7 +80,11 @@ describe("video with unreadable speech keeps its visual evidence (I16)", () => {
       expect(res.indexed).toBeTruthy();
 
       const note = res.coverageNote ?? "";
-      expect(note).toContain("no speech was detected in its audio track");
+      // F123 blocked-speech wording: the note NAMES the blocker and the
+      // pinned engine, states the visuals were read, and lists the questions
+      // the blocker closes — never a silent pass, never a invented verdict.
+      expect(note).toContain("its spoken content could not be read");
+      expect(note).toContain("pinned speech backend is not available");
       expect(note).toContain("Its visual content WAS read");
       expect(note).toContain("(100s)");
       // The note doubles as the visible text for this outcome.

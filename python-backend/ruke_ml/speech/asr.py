@@ -11,8 +11,9 @@ from typing import Any, Iterable
 
 from .. import processes
 from ..contracts import StructuredError
+from ..language_tables import candidate_language_tags, candidate_languages
 from ..models.registry import (AVAILABLE, EVALUATION_REQUIRED, LICENSE_REQUIRED,
-                               NOT_INSTALLED, catalog)
+                               NOT_INSTALLED, PARAKEET_ID, catalog)
 from .languages import (UNKNOWN_TAGS, is_known_language, language_is_supported,
                         normalize_language)
 
@@ -288,7 +289,8 @@ def language_route(language: str) -> dict[str, Any]:
                     "metadata_problems": metadata_problems,
                     "note": "no installed model credibly covers this language",
                     "human_step": "install and evaluate a candidate that lists "
-                                  + lang + " (for example a multilingual Whisper checkpoint), then re-run the quality gate"}
+                                  + lang + " (multilingual scope is deferred by the 2026-11-22 "
+                                  "release decision), then re-run the quality gate"}
         return {"language": lang, "decision": st, "model": None, "quality_mode": "none",
                 "candidates": candidates, "note": "coverage exists but access is not configured",
                 "metadata_problems": metadata_problems,
@@ -335,13 +337,17 @@ def _route_detection(lang: str, candidates: list[dict[str, Any]],
 def speech_status() -> dict[str, Any]:
     """Capability report without loading or downloading anything."""
     st = catalog().status_for("speech.asr")
-    from . import whisper_ct2
+    # B6 (final decision 2026-11-22): the report answers from the SOLE engine's captured
+    # published table, not Whisper's. The retired engine's table stays as provenance DATA
+    # for the aligner row; quoting it as the ASR capability's language provenance made the
+    # product's own status surface recommend an engine the release never runs.
+    published = candidate_language_tags(PARAKEET_ID)
     return {"capability": "speech.asr", "status": st["status"], "models": st["models"],
             "pcm_contract": {"rate_hz": PCM_RATE_HZ, "channels": PCM_CHANNELS, "width_bytes": PCM_WIDTH_BYTES},
-            "language_table": {"source": "pinned backend capture",
-                               "count": len(whisper_ct2.published_languages()),
-                               "provenance": whisper_ct2.language_table_provenance()},
-            "known_language_tags": sorted(t for t in whisper_ct2.published_languages()
+            "language_table": {"source": "published table captured from the engine's model card",
+                               "count": len(candidate_languages(PARAKEET_ID)),
+                               "provenance": published},
+            "known_language_tags": sorted(t for t in candidate_languages(PARAKEET_ID)
                                           if is_known_language(t)),
             "metadata_problems": st.get("metadata_problems", []),
             "detail": ("no ASR weights are loaded at startup; transcription runs in an owned worker"

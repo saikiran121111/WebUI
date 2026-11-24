@@ -259,6 +259,15 @@ def run_ocr_stage(ctx: JobContext, doc: Any, target: Any, assessment: Any) -> di
         return report
     casc = cascade_report["cascade"]
     report["cascade"] = casc
+    if casc.get("waiting"):
+        # F122: the exclusive window was busy. The pages stay in the OCR-pending set
+        # (nothing is recognised, nothing is substituted), and the report says the job is
+        # waiting/retryable rather than presenting a fallback answer as an outcome.
+        report["waiting"] = True
+        report["retryable"] = True
+        report["reason"] = ("resource_busy: the exclusive window is held by another owner; "
+                            "the OCR pages stay pending and the job is retryable — no "
+                            "engine was substituted")
     report["engines"] = casc.get("engines_used", [])
     report["primary_ready"] = bool((casc.get("primary") or {}).get("ready"))
     report["ran"] = True
@@ -351,6 +360,18 @@ def ocr_job(ctx: JobContext) -> Any:
         return ctx.failed(err.reason, err.message, retryable=err.retryable, human_step=err.human_step)
     if ctx.cancel.is_set():
         return ctx.cancelled()
+    waiting = cascade_report["cascade"].get("waiting")
+    if waiting:
+        # F122 (user brief 2026-11-23): a busy exclusive lease leaves the job WAITING and
+        # RETRYABLE — the same wire mapping the ASR dispatcher uses. No engine was
+        # substituted, so the caller keeps the request, not a Tesseract answer.
+        return ctx.failed(
+            "resource_busy",
+            f"the exclusive window is held by another owner: {waiting.get('detail', '')}",
+            retryable=True,
+            human_step="the OCR run starts once the endpoint is idle; active inference is "
+                       "never interrupted, and the selected OCR engine is never silently "
+                       "replaced — send the upload again when the window is free")
     recognised = [r for r in results if r.state == "recognised"]
     blocks = [{"page": r.page, "text": r.text, "confidence": r.confidence,
                "engine": r.engine, "language_code": r.language_code} for r in recognised]

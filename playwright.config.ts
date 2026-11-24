@@ -11,7 +11,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: "list",
+  // F75(e): a killed run with the list reporter leaves NO per-failure evidence.
+  // json writes the full structured report (test-results/playwright-report.json);
+  // the spec's own appendFileSync milestones are the kill-safe rows.
+  reporter: [["list"], ["json", { outputFile: "test-results/playwright-report.json" }]],
   use: {
     baseURL: "http://localhost:3000",
     trace: "on-first-retry",

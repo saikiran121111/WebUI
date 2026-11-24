@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { extractFile } from "../lib/server/extract";
+import { extractFile, extractFileFromPath } from "../lib/server/extract";
 import { audioPcm } from "../lib/server/extract/ffmpeg";
 import { attachmentParts } from "../lib/chat/client";
 import type { Attachment } from "../lib/types";
+
+// F123 (2026-11-23): the pinned Python Parakeet job is the SOLE speech engine.
+// "off" keeps this hermetic file off the ML endpoint (the operator switch gates
+// before ANY job is sent - a pinned law). The one seam row below CLEARS the
+// switch for its own scope: an injected runJob REPLACES the transport, so that
+// row has no endpoint in scope either.
+process.env.RUKE_SPEECH_CAPABILITY = "off";
 
 const execFileP = promisify(execFile);
 
@@ -16,25 +24,6 @@ const SPOKEN_WAV = path.join(process.cwd(), "tests", "fixtures", "fixture-audio.
 async function ffmpegPath(): Promise<string> {
   const mod: any = await import("ffmpeg-static");
   return typeof mod === "string" ? mod : mod?.default;
-}
-
-/** Burn-in-free clip with the spoken wav muxed in as its audio track. */
-async function narratedVideoMp4(): Promise<Buffer> {
-  const ff = await ffmpegPath();
-  const out = path.join(process.cwd(), ".data", "tmp", "narration_repro.mp4");
-  fs.mkdirSync(path.dirname(out), { recursive: true });
-  try {
-    await execFileP(ff, [
-      "-hide_banner", "-loglevel", "error", "-y",
-      "-f", "lavfi", "-i", "testsrc=size=320x240:duration=6:rate=10",
-      "-i", SPOKEN_WAV, "-shortest",
-      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
-      "-c:a", "aac", out,
-    ]);
-    return fs.readFileSync(out);
-  } finally {
-    fs.rmSync(out, { force: true });
-  }
 }
 
 /** Same clip with the audio stream dropped (-an). */
@@ -56,14 +45,65 @@ async function silentVideoMp4(): Promise<Buffer> {
 
 describe("video extraction keeps the audio track", () => {
   it(
-    "narrated video yields frames AND a whisper transcript of the speech",
+    "F123: a narrated video's audio track is routed to the pinned speech job, and the delivered transcript carries segment times + engine provenance",
     async () => {
-      const buf = await narratedVideoMp4();
-      const res = await extractFile("narrated-video.mp4", buf);
+      // F123 moved transcription from the removed TypeScript whisper path to the
+      // pinned Python Parakeet job. The real-inference content row (the spoken
+      // "zephyr" word decoded from this clip) runs in the exclusive LIVE batch;
+      // what vitest proves deterministically is the ROUTING + DELIVERY law: the
+      // video path hands its clip to the speech.asr job, and a ready run comes
+      // back as a timed transcript attributed to the engine the run reported.
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruke-narr-"));
+      const clip = path.join(dir, "narrated-video.mp4");
+      delete process.env.RUKE_SPEECH_CAPABILITY; // seam row: the runJob REPLACES the transport
+      try {
+        const ff = await ffmpegPath();
+        await execFileP(ff, [
+          "-hide_banner", "-loglevel", "error", "-y",
+          "-f", "lavfi", "-i", "testsrc=size=320x240:duration=6:rate=10",
+          "-i", SPOKEN_WAV, "-shortest",
+          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast",
+          "-c:a", "aac", clip,
+        ]);
+        const seen: { capability: string; payload: Record<string, unknown> }[] = [];
+        const runJob = async (capability: string, payload: Record<string, unknown>) => {
+          seen.push({ capability, payload });
+          return {
+            state: "ready",
+            capability: "speech.asr",
+            job_id: "job-narr", run_id: "run-narr", request_id: "req-narr",
+            deadline_s: 240, source: "test-seam",
+            result: {
+              state: "transcribed",
+              text: "the codeword is zephyr",
+              segments: [{ text: "the codeword is zephyr", start: 1.2, end: 3.4 }],
+              segment_count: 1,
+              language: "en", language_source: "explicit",
+              model: "nvidia/parakeet-tdt-0.6b-v3",
+              device: "cuda", compute_type: "auto",
+              duration: 6, complete: true, asr_ran: true, note: "",
+              examined: [[0, 6]], coverage: { skipped: [] },
+              audio_level: {}, probe: {}, routing: {},
+              vad_filter: false, vad_state: "unsupported_by_backend",
+              superseded_fragments: 0, superseded: [],
+            },
+          };
+        };
+        const res = await extractFileFromPath("narrated-video.mp4", clip, undefined, "video/mp4", undefined, { runJob } as any);
 
-      expect(res.frames?.length, "video produced no frames").toBeGreaterThan(0);
-      expect(res.transcript, "video produced no transcript").toBeTruthy();
-      expect(String(res.transcript).toLowerCase()).toContain("zephyr");
+        expect(seen.length, "the video path never reached the speech.asr job").toBe(1);
+        expect(seen[0].capability).toBe("speech.asr");
+        expect(String(seen[0].payload.path)).toBe(clip);
+
+        expect(res.frames?.length, "video produced no frames").toBeGreaterThan(0);
+        const t = String(res.transcript ?? "");
+        expect(t, "video produced no transcript").toBeTruthy();
+        expect(t.toLowerCase()).toContain("zephyr");
+        expect(t).toMatch(/\[\d\d:\d\d:\d\d - \d\d:\d\d:\d\d\]/); // segment times ride the delivery
+        expect(t).toContain("nvidia/parakeet-tdt-0.6b-v3"); // the RUN's reported engine, not a label
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     },
     300_000,
   );

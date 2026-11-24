@@ -1,29 +1,38 @@
 /**
- * F78 Family G media-delivery regression (2026-11-22).
+ * F78 Family G media-delivery regression (2026-11-22), retargeted for F123
+ * (2026-11-23) when the TypeScript whisper substitution was removed.
  *
- * Four defects were reproduced at the real production boundary by probe
- * .data/tmp/g98.test.ts (baseline recorded in
- * docs/overnight/F78-FILE-READING-RELEASE.md):
- *   (1) short audio/video transcripts dropped every segment TIME
- *       ("Monday" at ~3 s arrived as an unplaced sentence);
- *   (2) stereo overlap.wav was force-merged to mono, so two speakers on
- *       separate channels became one word salad with no channel attribution;
- *   (3) an exact-time question over a frames-only video index delivered
- *       ZERO evidence (turn.ts skipped the empty-evidence block before the
- *       frames were consulted — the model received nothing for
- *       "What is on screen at 01:31:00?");
- *   (4) the short video path DELETED its eagerly extracted keyframes
- *       (mixed-av.mp4: 25 s and 87.5 s previews, 61 s COBALT VALVE unseen).
+ * What stays REAL here (the F78 law stands where it needs no speech engine):
+ *   (1) short transcripts keep every segment TIME in [HH:MM:SS - HH:MM:SS]
+ *       form — both the pure formatter and the delivered transcript;
+ *   (3) an exact-time question over a frames-only video index serves the
+ *       nearest saved moments with the distance named;
+ *   (4) the video path keeps its eagerly extracted keyframes: on a frames-only
+ *       index they ride in the published index (with their files), on the
+ *       small-transcript path a time-spread ships inline before the scratch
+ *       dir is released.
  *
- * These tests run the real production path: real ffmpeg decode, real local
- * whisper inference on the recorded f78 fixtures, the real router +
- * retrieve + buildAttachmentTurn. No mocked responses: the release law says
- * a mock response alone cannot pass a content assertion.
+ * What moved (F123): the speech engine is now the pinned Python Parakeet job
+ * alone. Real-inference CONTENT rows (the Monday / 47 kg / Toronto facts on
+ * sound.wav, and stereo overlap.wav per-channel attribution — that channel
+ * split was part of the removed TypeScript pipeline) run in the exclusive
+ * LIVE acceptance batch against the real backend, never as vitest inferences.
+ * What vitest CAN prove deterministically is the ROUTER law: every blocked
+ * speech state (no endpoint / admission refused / structural / cancelled)
+ * surfaces as an actionable typed outcome naming the SAME pinned engine, and
+ * NO whisper module remains reachable anywhere in the extract tree.
  *
  * Pins (set before any production import): RUKE_LLM_AUTOMATIC_HANDOFF=0
  * RUKE_OCR_ALLOW_UNLOAD=0 — a test process never hands off to, probes,
- * unloads or restarts the shared :8080 model. The live-provider guard
- * (vitest setupFiles) fails the run if anything tries to reach it.
+ * unloads or restarts the shared :8080 model. RUKE_SPEECH_CAPABILITY=off —
+ * the Python endpoint is not part of unit scope, and the operator switch is
+ * a pinned law (it gates BEFORE any job is sent, seam included — pinned in
+ * extract-speech-capability.test.ts), so the seam rows below CLEAR the switch
+ * per test instead: an injected runJob REPLACES the transport, so those rows
+ * have no endpoint in scope either (fully hermetic). Paths without an
+ * injected seam take the honest "no backend" admission state. The
+ * live-provider guard (vitest setupFiles) fails the run if anything tries to
+ * reach :8080.
  */
 import { test, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
@@ -31,27 +40,25 @@ import path from "node:path";
 
 process.env.RUKE_LLM_AUTOMATIC_HANDOFF = "0";
 process.env.RUKE_OCR_ALLOW_UNLOAD = "0";
-process.env.WHISPER_CPU_IDLE_MS = "0"; // release the checkpoint between clips
+process.env.RUKE_SPEECH_CAPABILITY = "off"; // no Python endpoint in unit scope
 
 const FIX = path.join(process.cwd(), "docs/overnight/fixtures/f78/review-complex-1121");
 const ATT = {
   vid: "att_f78gvid",
-  snd: "att_f78gsnd",
-  ovl: "att_f78govl",
   av: "att_f78gav",
+  asr: "att_f78gasr",
 } as const;
 
 let extractFileFromPath: typeof import("@/lib/server/extract").extractFileFromPath;
 let store: typeof import("@/lib/server/attachindex/store");
 let buildAttachmentTurn: typeof import("@/lib/server/attachindex/turn").buildAttachmentTurn;
 let timedTranscriptText: typeof import("@/lib/server/extract").timedTranscriptText;
-let composeChannelTranscript: typeof import("@/lib/server/extract").composeChannelTranscript;
 
 beforeAll(async () => {
   ({ extractFileFromPath } = await import("@/lib/server/extract"));
   store = await import("@/lib/server/attachindex/store");
   ({ buildAttachmentTurn } = await import("@/lib/server/attachindex/turn"));
-  ({ timedTranscriptText, composeChannelTranscript } = await import("@/lib/server/extract"));
+  ({ timedTranscriptText } = await import("@/lib/server/extract"));
   for (const att of Object.values(ATT)) store.removeIndex(att);
 });
 
@@ -83,6 +90,24 @@ function systemText(messages: any[]): string {
     .join("\n\n");
 }
 
+/** A wire envelope in exactly the shape ml-job.ts normalizes. */
+function envelope(state: string, extra: Record<string, unknown> = {}): any {
+  return {
+    state,
+    capability: "speech.asr",
+    job_id: "job-f123",
+    run_id: "run-f123",
+    request_id: "req-f123",
+    deadline_s: 240,
+    source: "test-seam",
+    ...extra,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * The formatter law (F78 defect 1) — engine-independent.
+ * ------------------------------------------------------------------ */
+
 test("timedTranscriptText puts every segment in [HH:MM:SS - HH:MM:SS] form", () => {
   const out = timedTranscriptText([
     { text: "  The harbor opens on Monday. ", start: 3, end: 6 },
@@ -92,28 +117,138 @@ test("timedTranscriptText puts every segment in [HH:MM:SS - HH:MM:SS] form", () 
   expect(out).toBe("[00:00:03 - 00:00:06] The harbor opens on Monday.\n[00:01:01 - 00:01:01] no end segment");
 });
 
-test("composeChannelTranscript labels channels and states overlapping speech", () => {
-  const { body, segments } = composeChannelTranscript([
-    { ch: 1, segments: [{ text: "opens Monday", start: 0, end: 5 }] },
-    { ch: 2, segments: [{ text: "weighs 47 kg", start: 2, end: 7 }, { text: "Toronto", start: 12, end: 15 }] },
-  ] as any[]);
-  expect(body).toContain("[channel 1] [00:00:00 - 00:00:05] opens Monday");
-  expect(body).toContain("[channel 2] [00:00:02 - 00:00:07] weighs 47 kg");
-  expect(body).toContain("carries 2 separate audio channels");
-  expect(body).toContain("channel 1 and channel 2 carry speech simultaneously between 00:00:02 and 00:00:05");
-  // Indexed-path segments carry the channel prefix so the label survives the
-  // retrieval chunking too.
-  expect(segments.some(s => s.text.startsWith("[channel 2] ") && s.start === 12)).toBe(true);
-  // A single-channel recording must NOT claim overlaps.
-  const solo = composeChannelTranscript([{ ch: 1, segments: [{ text: "a", start: 0, end: 5 }] }] as any[]);
-  expect(solo.body).toContain("No time range carries speech on more than one channel at once.");
+/* ------------------------------------------------------------------ *
+ * F123 router law: the pinned speech job is the SOLE engine, and every
+ * blocked state is actionable with the SAME engine promised — proven
+ * through the real production router with the job seam injected.
+ * ------------------------------------------------------------------ */
+
+test("F123: no whisper module remains anywhere in the extract tree", () => {
+  const extractDir = path.join(process.cwd(), "lib/server/extract");
+  expect(fs.existsSync(path.join(extractDir, "audio.ts"))).toBe(false);
+  for (const f of ["index.ts", "speech-capability.ts", "ffmpeg.ts"]) {
+    const src = fs.readFileSync(path.join(extractDir, f), "utf8");
+    expect(src, `${f} imports the deleted audio module`).not.toMatch(/from ["']\.\/audio["']/);
+    expect(src, `${f} pulls the whisper ONNX runtime`).not.toMatch(/@huggingface\/transformers/);
+    expect(src, `${f} references the whisper checkpoint env`).not.toMatch(/WHISPER_MODEL/);
+  }
+  // The positive law is stated where the routing happens.
+  const idx = fs.readFileSync(path.join(extractDir, "index.ts"), "utf8");
+  expect(idx).toContain("Parakeet");
 });
+
+test("F123: audio with no reachable pinned backend throws an actionable retryable state", async () => {
+  // RUKE_SPEECH_CAPABILITY is off, so the router takes the honest "none"
+  // path: it must NAME the pinned engine and the retry, never substitute.
+  await expect(
+    extractFileFromPath("sound.wav", path.join(FIX, "sound.wav"), ATT.asr),
+  ).rejects.toThrow(/Parakeet[\s\S]*retryable admission state/);
+});
+
+test("F123: an admission refusal surfaces the worker's own reason and human step", async () => {
+  delete process.env.RUKE_SPEECH_CAPABILITY; // the seam REPLACES the transport: no endpoint in scope
+  const runJob = async () =>
+    envelope("unavailable", {
+      error: {
+        reason: "asset_missing",
+        message: "the pinned snapshot of nvidia/parakeet-tdt-0.6b-v3 is not prepared locally",
+        retryable: true,
+        capability: "speech.asr",
+        human_step: "the first upload prepares it automatically (progress is shown in the composer)",
+      },
+    });
+  await expect(
+    extractFileFromPath("sound.wav", path.join(FIX, "sound.wav"), ATT.asr, undefined, undefined, { runJob } as any),
+  ).rejects.toThrow(/snapshot of nvidia\/parakeet[\s\S]*composer[\s\S]*retryable admission state/);
+});
+
+test("F123: a structural refusal is final for the file and promises no re-run", async () => {
+  delete process.env.RUKE_SPEECH_CAPABILITY; // seam row: no endpoint in scope
+  const runJob = async () =>
+    envelope("unavailable", {
+      error: {
+        reason: "corrupt_input",
+        message: "ffprobe found no decodable audio stream in this container",
+        retryable: false,
+        capability: "speech.asr",
+        human_step: "",
+      },
+    });
+  const err = await extractFileFromPath("broken.wav", path.join(FIX, "sound.wav"), ATT.asr, undefined, undefined, { runJob } as any)
+    .then(() => null, (e: unknown) => e as Error);
+  expect(err).not.toBeNull();
+  expect(err!.message).toContain("ffprobe found no decodable audio stream");
+  // A structural verdict is a fact about THIS file: the router must not
+  // promise a same-engine retry for something no engine can change.
+  expect(err!.message).not.toMatch(/retryable admission state/);
+});
+
+test("F123: caller cancellation propagates as cancellation, not as a media defect", async () => {
+  delete process.env.RUKE_SPEECH_CAPABILITY; // seam row: no endpoint in scope
+  const runJob = async () => envelope("cancelled");
+  await expect(
+    extractFileFromPath("sound.wav", path.join(FIX, "sound.wav"), ATT.asr, undefined, undefined, { runJob } as any),
+  ).rejects.toThrow(/aborted/);
+});
+
+test("F123: a ready run delivers timed segments with the pinned engine's provenance", async () => {
+  delete process.env.RUKE_SPEECH_CAPABILITY; // seam row: no endpoint in scope
+  const runJob = async () =>
+    envelope("ready", {
+      result: {
+        state: "transcribed",
+        text: "the cargo weighs 47 kg",
+        segments: [{ text: "the cargo weighs 47 kg", start: 60.4, end: 64.2 }],
+        segment_count: 1,
+        language: "en",
+        language_source: "explicit",
+        model: "nvidia/parakeet-tdt-0.6b-v3",
+        device: "cuda",
+        compute_type: "auto",
+        duration: 66,
+        complete: true,
+        asr_ran: true,
+        note: "",
+        examined: [[0, 66]],
+        coverage: { skipped: [] },
+        audio_level: {},
+        probe: {},
+        routing: {},
+        vad_filter: false,
+        vad_state: "unsupported_by_backend",
+        superseded_fragments: 0,
+        superseded: [],
+      },
+    });
+  const r = await extractFileFromPath("sound.wav", path.join(FIX, "sound.wav"), ATT.asr, undefined, undefined, { runJob } as any);
+  const t = String((r as any).transcript ?? "");
+  // F78 defect (1) law, now on the Python job's segments: times ride the
+  // inline transcript, and the run's REPORTED provenance (model + device)
+  // rides the note — never a label the caller invented.
+  const kg = timedLine(t, "47 kg");
+  expect(kg, `no timed line for 47 kg in: ${t}`).not.toBeNull();
+  expect(kg![0]).toBe(60);
+  expect(t).toContain('nvidia/parakeet-tdt-0.6b-v3');
+  expect(t).toContain("cuda");
+});
+
+/* ------------------------------------------------------------------ *
+ * Real ffmpeg rows (no speech engine needed).
+ * ------------------------------------------------------------------ */
 
 test(
   "exact-time questions over a frames-only video index serve the nearest saved moments",
   async () => {
+    process.env.RUKE_SPEECH_CAPABILITY = "off"; // restored after the seam rows: no endpoint in scope
     const r = await extractFileFromPath("three-hours.mp4", path.join(FIX, "three-hours.mp4"), ATT.vid);
     expect(r.indexed).toBe(true);
+    // F123: the video's speech row is the pinned job; with the endpoint out of
+    // unit scope the frames survive and the coverage note SAYS the spoken
+    // content is blocked and retryable — the frames are never silently sold
+    // as full evidence.
+    const note = String((r as any).coverageNote ?? (r as any).text ?? "");
+    expect(note).toContain("pinned speech backend is not available");
+    expect(note).toContain("visual content WAS read");
     const idx = store.readIndex(ATT.vid);
     const ats = (idx?.meta.frames ?? []).map(f => f.at).sort((a, b) => a - b);
     expect(ats.length).toBeGreaterThanOrEqual(60);
@@ -168,70 +303,47 @@ test(
 );
 
 test(
-  "short audio transcript keeps segment times at the spoken moments",
+  "F123: a blocked video transcription keeps its keyframes and states the blocker (61 s alignment control)",
   async () => {
-    const r = await extractFileFromPath("sound.wav", path.join(FIX, "sound.wav"), ATT.snd);
-    const t = String((r as any).transcript ?? (r as any).text ?? "");
-    // Facts (baseline recovered them WITHOUT times).
-    expect(t).toContain("Monday");
-    expect(t).toContain("47");
-    expect(t).toContain("Toronto");
-    // Defect (1): every fact must ride a timestamped line near its spoken
-    // moment (fixture spec: speech at ~3, ~61, ~119 s; generous ASR window).
-    const mon = timedLine(t, "Monday");
-    expect(mon, `no timed line for Monday in: ${t}`).not.toBeNull();
-    expect(mon![0]).toBeGreaterThanOrEqual(0);
-    expect(mon![0]).toBeLessThanOrEqual(20);
-    const kg = timedLine(t, "47");
-    expect(kg, `no timed line for 47 in: ${t}`).not.toBeNull();
-    expect(kg![0]).toBeGreaterThanOrEqual(45);
-    expect(kg![0]).toBeLessThanOrEqual(80);
-    const tor = timedLine(t, "Toronto");
-    expect(tor, `no timed line for Toronto in: ${t}`).not.toBeNull();
-    expect(tor![0]).toBeGreaterThanOrEqual(100);
-    expect(tor![0]).toBeLessThanOrEqual(125);
-  },
-  600_000,
-);
-
-test(
-  "stereo overlap.wav is transcribed per channel with explicit overlap attribution",
-  async () => {
-    const r = await extractFileFromPath("overlap.wav", path.join(FIX, "overlap.wav"), ATT.ovl);
-    const t = String((r as any).transcript ?? (r as any).text ?? "");
-    // Defect (2): baseline merged to mono and labeled nothing.
-    expect(t).toContain("[channel 1]");
-    expect(t).toContain("[channel 2]");
-    expect(t).toContain("separate audio channels");
-    // Fixture: the opening-day and cargo-weight statements OVERLAP on
-    // separate channels — the overlap must be stated explicitly.
-    expect(t).toContain("simultaneously between");
-    expect(t).toContain("Monday");
-    expect(t).toContain("47");
-    expect(t).toContain("Toronto");
-  },
-  600_000,
-);
-
-test(
-  "short video keeps timed speech AND its spread-out keyframes (61 s alignment control)",
-  async () => {
+    // F78 defect (4) law, F123 speech law: with the pinned backend out of
+    // unit scope the video keeps its saved keyframes in the published index,
+    // and the coverage note reports the speech blocker — never a silent pass.
+    process.env.RUKE_SPEECH_CAPABILITY = "off"; // restored after the seam rows: no endpoint in scope
     const r = await extractFileFromPath("mixed-av.mp4", path.join(FIX, "mixed-av.mp4"), ATT.av);
-    const t = String((r as any).transcript ?? (r as any).text ?? "");
-    expect(r.durationSec).toBeCloseTo(125, 0);
-    // Spoken weight at ~61 s with times attached (defect 1, video path).
-    expect(t).toContain("47");
-    expect(/\[\d\d:\d\d:\d\d - \d\d:\d\d:\d\d\]/.test(t)).toBe(true);
-    // Defect (4): baseline delivered 2 previews (25, 87.5 s) and DELETED the
-    // eagerly extracted keyframes. Now the saved keyframes ride inline,
-    // spread (>=15 s apart) up to the inline cap, and the scratch dir is
-    // still cleaned up.
+    expect(r.indexed).toBe(true);
+    const note = String((r as any).coverageNote ?? (r as any).text ?? "");
+    expect(note).toContain("its spoken content could not be read");
+    expect(note).toContain("visual content WAS read");
+    expect(note).toContain("Questions about what is SPOKEN cannot.");
+    // The returned record carries the sampled 20%/70% previews, spread.
     const ats = ((r as any).frames ?? []).map((f: any) => f.at).sort((a: number, b: number) => a - b);
-    expect(ats.length).toBeGreaterThanOrEqual(3);
+    expect(ats.length).toBeGreaterThanOrEqual(2);
     for (let i = 1; i < ats.length; i++) expect(ats[i] - ats[i - 1]).toBeGreaterThanOrEqual(14);
     expect(ats).toContain(25);
     expect(ats).toContain(87.5);
-    expect(fs.existsSync(store.framesDir(ATT.av))).toBe(false); // cleanup preserved
+    // F78 defect (4) law on the BLOCKED path: the eagerly extracted keyframes
+    // (incl. the 61 s alignment control) are KEPT — they ride in the frames-only
+    // index — and the scratch dir is cleaned up. The original 3+-inline-frames
+    // shape belongs to the READY path (working speech engine) and is proven in
+    // the exclusive live acceptance batch, not laundered here.
+    const idx = store.readIndex(ATT.av);
+    const saved = (idx?.meta.frames ?? []).map(f => f.at).sort((a, b) => a - b);
+    // This 125 s fixture has ONE scene change (~61 s): the keyframe pass finds
+    // exactly that moment, and the blocked path must KEEP it in the index
+    // (the original ≥3 inline shape = these 2 previews + this 1 keyframe).
+    expect(saved.length).toBeGreaterThanOrEqual(1);
+    expect(saved).toContain(60); // the alignment control: the moment showing the 61 s COBALT VALVE screen survives the blocked speech run
+    // The blocked path KEEPS the keyframes as durable index evidence: the frames
+    // dir is the index's frame home, so it must survive (deleting it would
+    // destroy the published evidence the exact-time rows cite — the three-hours
+    // row above serves its images from exactly there). The "scratch dir cleaned
+    // up" law belongs to the paths that DROP the frames (frames-inline, :922).
+    expect(fs.existsSync(store.framesDir(ATT.av))).toBe(true);
+    const firstFrame = (idx?.meta.frames ?? [])[0];
+    expect(firstFrame, "the index must reference its frame files").toBeTruthy();
+    expect(
+      fs.existsSync(path.join(store.framesDir(ATT.av), path.basename(firstFrame.file))),
+    ).toBe(true);
   },
   600_000,
 );

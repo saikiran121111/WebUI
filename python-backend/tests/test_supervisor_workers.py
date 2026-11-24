@@ -24,6 +24,7 @@ from ruke_ml.config import LIMITS
 from ruke_ml.contracts import JobRequest
 from ruke_ml.health import Health
 from ruke_ml.models.lifecycle import WorkerPool
+from ruke_ml.models.registry import catalog
 
 SECRET = "test-per-run-secret"
 
@@ -276,7 +277,12 @@ class OwnedWorkers(unittest.TestCase):
         self._limits = (LIMITS.worker_deadline_s, LIMITS.worker_ready_timeout_s,
                         LIMITS.idle_ttl_s, LIMITS.terminate_grace_s)
         LIMITS.worker_deadline_s = 30.0
-        LIMITS.worker_ready_timeout_s = 10.0
+        # B6: the speech.asr prelude builds the SOLE engine's native graph (numpy, torch,
+        # transformers) single-threaded at the handshake, so the ASR worker's ready line
+        # legitimately arrives later than the retired whisper-CT2 graph's. 30 s keeps the
+        # fail-fast bound far below the production 45 s while covering the measured
+        # torch+transformers import.
+        LIMITS.worker_ready_timeout_s = 30.0
         LIMITS.idle_ttl_s = 120.0
         LIMITS.terminate_grace_s = 2.0
         self.pool = WorkerPool()
@@ -404,20 +410,47 @@ class OwnedWorkers(unittest.TestCase):
         # worker is never spawned - which makes this assertion depend on how much RAM other
         # processes happen to be holding rather than on the worker. The gate's own contract
         # is asserted in tests.test_memory_policy; here it is stubbed to "fits" so the
-        # handshake is checked on every host, and the stub is the narrowest possible one:
-        # the refusal hook only, not the sampler, the ceiling or the unload rules.
-        with mock.patch.object(self.pool, "_admission_refusal", return_value=None):
+        # handshake is checked on every host.
+        # B8 (final decision 2026-11-22) widened the narrowest-stub set to include the
+        # ceiling: on the loaded production host (the main model's resident working set is
+        # tens of GiB) the honest production answer for a concurrent ASR worker is the typed
+        # refusal, and the graph loads in the exclusive handoff window, where the window
+        # ceiling is the config bound (7 GB), not the physical clamp. Stubbing the refusal
+        # hook alone would spawn the worker under the clamped 256 MiB job object and torch's
+        # CUDA mapping would die with WinError 1455 - the exact ceiling-below-measured-demand
+        # death B8 exists to refuse. So this test stubs the ceiling to the value the
+        # exclusive window really provides: the measured commit demand plus headroom.
+        demand_mib = max((int(getattr(s, "est_peak_commit_mib", 0) or 0)
+                          for s in catalog().for_capability("speech.asr") if s.adapter), default=0)
+        stub_ceiling = max(demand_mib + 512, 6144) << 20
+        # B9 (2026-11-23): same law, same host-dependence. The handshake budget is
+        # min(LIMITS.worker_ready_timeout_s, the job deadline), and the ASR prelude's
+        # cost is host-load-dependent: numpy+torch+transformers imports measured 13.7 s
+        # warm, and a cold import under the full 705-test discovery's page-cache and
+        # AV pressure overran the 45 s production bound (the flake that widened this
+        # seam). The 45 s bound's own contract - alive-but-silent detected at spawn,
+        # not after the job deadline - is asserted in tests.test_worker_protocol, which
+        # owns that timeout; here the assertion is the prelude EVIDENCE, so the bound is
+        # stubbed wide and the job deadline carries the real ceiling.
+        with mock.patch.object(self.pool, "_admission_refusal", return_value=None), \
+             mock.patch.object(self.pool, "_ceiling_bytes",
+                               return_value=(stub_ceiling, {"test_stub": "the handshake test owns the handshake, not the B8 window clamp"})), \
+             mock.patch.object(LIMITS, "worker_ready_timeout_s", 180.0):
             res = self.pool.run(JobRequest(request_id="r", run_id="run", job_id="prelude",
                                            capability="speech.asr",
                                            payload={"path": "missing.wav", "root": "."}),
-                                deadline_s=60)
+                                deadline_s=180)
         self.assertIn(res.state, ("ready", "failed"), res.to_dict())
         rep = self.pool.report().get("speech.asr")
         self.assertIsNotNone(rep, "the helper is owned and must report its startup")
         prelude = rep.get("prelude") or {}
-        for name in ("numpy", "faster_whisper"):
+        # B6 (final decision 2026-11-22): the ASR worker's graph is the SOLE engine's
+        # (numpy, torch, transformers) - faster_whisper is out of the production ASR path.
+        for name in ("numpy", "torch", "transformers"):
             self.assertIn(name, prelude.get("imports", []),
                           f"{name} must be imported during the startup prelude, got {prelude!r}")
+        self.assertNotIn("faster_whisper", prelude.get("imports", []),
+                         "the ASR worker must not preload the retired Whisper runtime")
         self.assertEqual(prelude.get("import_failures"), [], "an installed backend must not report a failure")
         self.assertGreaterEqual(prelude.get("prelude_ms", -1), 0)
 

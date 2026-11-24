@@ -1,0 +1,9 @@
+{
+  "captured": "2026-11-22",
+  "languages": ["en", "fr", "de", "es", "pt", "it", "ja"],
+  "language_detection": false,
+  "note": "Published table of ibm-granite/granite-speech-5.0-470m-turboctc: 7 languages as of the 2026-10-21 multilingual update; the ORIGINAL 2026-08-25 release was English-only (card names revision 947f59a for that state). The card publishes no automatic language identification, so 'auto' must never route here. Published coverage, NOT measured quality on this host.",
+  "packages": ["transformers>=5.16.0 (GraniteSpeech5ForCTC, AutoModelForCTC)",
+                "license: Apache-2.0"],
+  "source": "https://huggingface.co/ibm-granite/granite-speech-5.0-470m-turboctc + https://huggingface.co/blog/ibm-granite/granite-speech-5 (captured 2026-11-22)"
+}

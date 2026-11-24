@@ -1,0 +1,72 @@
+[22:04:56] unloading_main_model: neither device fits: free physical RAM is 4023 MiB, under the 5974 MiB this load needs (provisional load peak 3300 MiB charged at 4950 MiB because it has never been measured on this host + 1024 MiB margin); GPU: free VRAM is 2909 MiB, under the 9256 MiB this needs (6000 MiB estimate charged at 9000 MiB + 256 MiB margin); the main model is resident and would have to be released first
+[22:05:02] processing: device=gpu est_peak_mib=3300
+[22:05:17] ocr: primary engine failed as a whole run: resource_limit
+[22:05:17] ocr: Tesseract recovery for 1 unit(s): resource_limit: the worker died during the load (code 3221225477) kernel job peak commit 7278 MiB against a 6675 MiB ceiling - the ceiling was reached; attached commit ceiling 6675 MiB; measured by the kernel, not sampled; worker log tail: ds: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+[32muse GQA - num_heads: 16- num_key_value_heads: 2[0m
+D:\Projects\WebUI\WebUI\python-backend\.venv-ocr\Lib\site-packages\paddle\utils\decorator_utils.py:420: Warning: 
+Non compatible API. Please refer to https://www.paddlepaddle.org.cn/documentation/docs/en/develop/guides/model_convert/convert_from_pytorch/api_difference/torch/torch.split.html first.
+  warnings.warn( | next step: the demand declared for this pipeline does not fit the resource window it ran in: open the coordinated exclusive window (drain inference, release the main model, re-check admission) or run the recovery engine; report this as a resource limit rather than an engine fault, and do NOT raise the hard maximum, drop a page, or re-prepare assets that are already valid
+[22:05:17] ocr: page 1 at 200 dpi
+[22:05:18] releasing_worker: worker resources released by the adapter
+[22:05:18] restoring_main_model: bringing the original model back
+[22:05:41] ready: lease released
+{
+  "ok": true,
+  "reason": "",
+  "final_status": "ok",
+  "device": "gpu",
+  "freed_physical_mib": 51348,
+  "work": {
+    "peak": {
+      "working_set_mib": 989,
+      "commit_mib": 1488,
+      "measured": true,
+      "components": {
+        "primary_worker_child": {
+          "working_set_mib": null,
+          "commit_mib": null,
+          "samples": 0,
+          "measured": false,
+          "definition": "",
+          "device_used": "",
+          "note": "the adapter recorded no usable memory sample, so this engine's peak is UNKNOWN and is reported as unknown rather than as zero"
+        },
+        "owned_tree": {
+          "working_set_mib": 989,
+          "commit_mib": 1488,
+          "samples": 30,
+          "usable_samples": 30,
+          "measured": true,
+          "processes": 1,
+          "label": "documents.ocr",
+          "stage": "total",
+          "sampled_pids": 2536,
+          "definition": "maximum over sampled process_tree_memory() snapshots of the owned tree (this process plus its engine children); working_set_mib = resident RAM, commit_mib = pagefile charge"
+        }
+      },
+      "definition": "maximum of the primary adapter's child-tree peak and this process's owned-tree peak; both engines and the rasterizer sit inside the owned tree"
+    },
+    "persisted_path": "D:\\Projects\\WebUI\\WebUI\\.data\\python\\ocr-results\\6e69b220c17e6124f31855552766b9bfd33ee1eb8d3a62179b89bb2fad88067a.json",
+    "units_persisted": 1,
+    "device_used": "gpu",
+    "device_echo": {},
+    "pages": 1,
+    "recognised": 1,
+    "unresolved": []
+  },
+  "out": "D:\\Projects\\WebUI\\WebUI\\docs\\overnight\\logs\\f79-b9-gpu-p1.json"
+}

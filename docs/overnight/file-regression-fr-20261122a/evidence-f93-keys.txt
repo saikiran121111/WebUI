@@ -1,0 +1,58 @@
+F93 (2026-11-23) — key derivation for the three new CS50 video rows
+(fr-V10 seam timestamp, fr-V11 unexamined-interval disclosure,
+fr-V12 grounded summary). Keys are model-free per the F89 rule: derived
+from the staged bytes / pinned-engine evidence runs BEFORE replay, never
+from a Ruke answer.
+
+1. PRODUCTION ASR CHUNK LAW (defines "chunk boundary")
+   The video/audio transcript owner at HEAD is the TypeScript path
+   lib/server/extract/audio.ts: MODEL_ID = Xenova/whisper-base.en (audio.ts:35),
+   ASR_CHUNK_OPTS = { chunk_length_s: 30, stride_length_s: 5 } (audio.ts:346),
+   30 s windows with an RMS silence flag (audio.ts:260-263), master-timeline
+   shift (audio.ts:275) with a per-chunk-reset guard (audio.ts:286-287) and
+   overlap-seam dedup (audio.ts:309-310). The store record for the C3 vid-1
+   upload (.data/e2e-store/c_hxb85twnsmws9uzbl.json) carries the whisper
+   header, confirming this path owns the live delivery. Production chunk
+   seams therefore fall at 30 s multiples. (The Python Parakeet path
+   transformers_asr.py uses MAX_FULL_ATTENTION_S=1440 windows; no caller
+   passes window_s: speech-capability.ts:363 is the only window_s writer and
+   grep shows no production caller sets windowSec.)
+
+2. fr-V10 SEAM KEY — pinned Parakeet word timestamps across the 300.0 s seam
+   Procedure identical to evidence-f89-key-verification.txt (ffmpeg-static
+   wav cut + nvidia/parakeet-tdt-0.6b-v3, allow_download=False, cuda,
+   word_timestamps=True). Clip 290-320 s of vid-1; full word list saved at
+   .data/tmp/f93/f93-seam-words.txt (clips 140-170, 290-320, 410-440 run).
+   The phrase "let alone computer science and programming" spans
+   299.20-301.04 s ABSOLUTE ("comp" 299.92-300.08 straddles the seam;
+   "ence" ends 300.40; "programming" ends 301.04). Acceptance window
+   [294, 306] s (4:54-5:06): absorbs engine divergence (F89 measured ~0.3 s)
+   and segment-start timestamps, and a chunk-local reset (~0:15-0:21) fails.
+   Anchor word "computer science" must appear in the answer (a bare valid
+   timestamp without the phrase does not pass).
+
+3. fr-V11 UNEXAMINED-INTERVAL KEY — frame sparsity from the live record
+   The same C3 store record carries frames at at=1427.13 s and at=4994.96 s
+   ONLY (2 frames for a 7135.66 s video). The Python plan law
+   (workers/video_jobs.py _requested_times, video/scenes.py budget-bounded
+   anchors) labels sampling "a bounded head/middle/tail plan ... a plan is
+   not coverage". 5400 s (1:30:00) is far from both recorded frames and from
+   head/mid/tail anchors (mid ~3568, tail >6900). The probe is tie color —
+   visual-only: the audio transcript cannot answer it, so a non-disclosing
+   answer is fabrication. Scorer: isRefusal (tests/helpers/refusal.ts) plus a
+   visual-absence regex (no frame/capture, not captured/sampled, unable to
+   see, ...). Negative control for the positive side: fr-V3/fr-V8 answer with
+   captured evidence, so the scorer's refusal side is scoped, not free.
+
+4. fr-V12 GROUNDED-SUMMARY KEYS — two independently verified facts
+   Fact A: "computer science, and CS50 in particular, was very much this
+   class to beware" at 115.08-116.52 s (v1-95-155-transcript.json, F89).
+   Fact B: "let alone computer science and programming" at 299.20-301.04 s
+   (item 2 above). The summary row requires a reported mm:ss inside
+   [105, 126] for A and inside [290, 312] for B (windows widened to absorb
+   transcript segment-start timestamps: the store transcript shows
+   [00:01:51-00:01:57] for A). A timestamp that is merely PRESENT elsewhere
+   does not ground the fact; both facts must carry near-true times.
+
+vid-1 staged identity: manifest-pinned (F85 preflight), duration 7135.658667 s
+( probe_media with the repo ffprobe).

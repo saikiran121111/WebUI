@@ -23,6 +23,11 @@ settings.json.tmp
 .decision-engine/bin/
 .decision-engine/models/
 
+# Engine lifecycle: engine/manifest.json IS tracked (bootstrap+version metadata,
+# B5 final decision 2026-11-22); the declared OPTIONAL upstream source-checkout
+# slots under engine/vendor/ are not - nothing downloads there automatically.
+engine/vendor/
+
 # playwright-cli transient page snapshots (regenerated every session)
 .playwright-cli/page-*.yml
 

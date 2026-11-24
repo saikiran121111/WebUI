@@ -1,5 +1,6 @@
-import { chunkSegments, chunkText } from "./chunk";
-import { EMBED_MODEL_ID, EMBED_NORMALIZED, EMBED_POOLING, embedFingerprint, embedRevision, embedTexts } from "./embed";
+import { chunkRecords, chunkSegments, chunkText } from "./chunk";
+import { isTabularName } from "../../files/csv-records";
+import { EMBED_MODEL_ID, EMBED_NORMALIZED, EMBED_POOLING, embedDisabled, embedFingerprint, embedRevision, embedTexts } from "./embed";
 import { buildSpine } from "./spine";
 import { writeIndex } from "./store";
 import type { FileCategory } from "../../files/extensions";
@@ -12,7 +13,7 @@ export interface BuildInput {
   category: FileCategory;
   /** Complete text — stored verbatim in full.txt, never truncated. */
   fullText: string;
-  /** Whisper segments when the source is audio/video (enables timestamps). */
+  /** Speech-job segments when the source is audio/video (enables timestamps). */
   segments?: TranscriptSegment[];
   durationSec?: number;
   /** Keyframes already written into <index>/frames by the extract branch. */
@@ -61,7 +62,9 @@ export async function buildAttachmentIndex(input: BuildInput): Promise<BuildResu
   throwIfAborted(input.signal);
   const chunks = input.segments?.length
     ? chunkSegments(input.segments)
-    : chunkText(input.fullText);
+    : isTabularName(input.name) // F63: row-labelled records stay whole
+      ? chunkRecords(input.fullText)
+      : chunkText(input.fullText);
   if (!chunks.length) throw new Error("Nothing to index — the content is empty.");
 
   throwIfAborted(input.signal);
@@ -92,11 +95,15 @@ export async function buildAttachmentIndex(input: BuildInput): Promise<BuildResu
     }
   } catch (err: unknown) {
     if ((err as Error)?.name === "AbortError") throw err;
-    // Embedding unavailable (offline / download blocked / model load failed):
-    // the index still gets published, but as a LEXICAL index, honestly stamped
-    // as such in the returned coverage rather than pretending to be hybrid.
+    // Embedding unavailable (offline / download blocked / model load failed /
+    // operator switch): the index still gets published, but as a LEXICAL index,
+    // honestly stamped as such in the returned coverage rather than pretending
+    // to be hybrid. F79: the operator-switch message is self-explanatory, so it
+    // is kept verbatim instead of double-wrapped.
     chunks.forEach(c => { c.vec = []; });
-    embedNote = `embeddings unavailable (${(err as Error)?.message ?? String(err)})`;
+    embedNote = embedDisabled()
+      ? (err as Error)?.message
+      : `embeddings unavailable (${(err as Error)?.message ?? String(err)})`;
   }
 
   // F10: abort lands before the commit. Nothing partial is ever published; the
@@ -117,6 +124,7 @@ export async function buildAttachmentIndex(input: BuildInput): Promise<BuildResu
     ...(input.observations && input.observations.length ? { observations: input.observations } : {}),
     ...(input.timeline ? { timeline: input.timeline } : {}),
     ...(embed ? { embed } : {}),
+    ...(embedNote ? { embedNote } : {}),
   };
   writeIndex(input.attId, meta, chunks, input.fullText, input.signal);
   return { chunkCount: chunks.length, spine, embed, embedNote };

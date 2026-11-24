@@ -1,7 +1,11 @@
 """Language routing, timebase laws, word-time honesty and anonymous speakers.
 
 These are the F13/section-8 speech laws: English-only models never carry another
-language, a segment span is never read as word timing, and no audio track is not silence.
+language, a segment span is never read as word timing, and no audio track is not
+silence. Reworked 2026-11-22 for the frozen English release: the registry carries
+ONE ASR row (Parakeet through Transformers), so the routing law is now "the fixed
+English default is named only for English/auto, and every non-English request is
+REFUSED with a human step" - no Whisper candidate exists to route to.
 """
 from __future__ import annotations
 
@@ -10,7 +14,7 @@ import unittest
 from ruke_ml.speech import alignment, asr, diarization
 from ruke_ml.models.registry import catalog
 
-ENGLISH_ONLY = "Xenova/whisper-base.en"
+PARAKEET = "nvidia/parakeet-tdt-0.6b-v3"
 
 
 def _spec_claims(model_id: str) -> str:
@@ -20,13 +24,15 @@ def _spec_claims(model_id: str) -> str:
 
 
 class Routing(unittest.TestCase):
-    def test_english_only_model_never_carries_another_language(self):
-        for lang in ("te", "hi", "unknown", "zh", "vi"):
+    def test_non_english_never_routes_the_english_default(self):
+        # The English freeze (final decision 2026-11-22): with ONE row, a non-English
+        # request must be REFUSED, never routed through the English default. (The
+        # integration refuses a second time at load; routing must not name it either.)
+        for lang in ("te", "hi", "zh", "vi"):
             r = asr.language_route(lang)
-            acceptable = {c["id"] for c in r["candidates"] if c["acceptable"]}
-            self.assertNotIn(ENGLISH_ONLY, acceptable,
-                             "%s was routed through an English-only model" % lang)
-            self.assertNotEqual(r.get("model"), ENGLISH_ONLY, lang)
+            self.assertNotEqual(r.get("model"), PARAKEET,
+                                "%s was routed through the English-only default" % lang)
+            self.assertNotIn(r["decision"], ("route", "route_with_warning"), lang)
 
     def test_routing_decision_never_selects_an_unlisted_language(self):
         for lang in ("te", "hi", "en"):
@@ -39,24 +45,21 @@ class Routing(unittest.TestCase):
                 self.assertIsNone(r["model"], "a non-routing decision must not name a model")
                 self.assertTrue(r.get("human_step"), "an unroutable language needs an exact human step")
 
-    def test_telugu_is_reported_as_unverified_not_silently_supported(self):
+    def test_telugu_is_refused_not_silently_supported(self):
         r = asr.language_route("te")
         self.assertEqual(r["language"], "te")
         self.assertNotIn(r["quality_mode"], (None, ""))
-        if r["decision"] == "route":
-            self.assertEqual(r["quality_mode"], "measured_on_this_host",
-                             "routing without measurement must be labelled published_claim_only")
-        for c in r["candidates"]:
-            if c["id"] == "openai/whisper-large-v3" and c["acceptable"]:
-                self.assertFalse(c["verified_for_language"],
-                                 "published registry support is not measured quality")
+        self.assertNotEqual(r.get("model"), PARAKEET,
+                            "the English release must not claim Telugu support")
+        self.assertTrue(r.get("human_step"), "the refusal tells the user what to do")
 
     def test_status_reports_pcm_contract_without_loading(self):
         st = asr.speech_status()
         self.assertEqual(st["capability"], "speech.asr")
         self.assertEqual(st["pcm_contract"], {"rate_hz": 16000, "channels": 1, "width_bytes": 2})
         ids = [m["id"] for m in st["models"]]
-        self.assertIn(ENGLISH_ONLY, ids)
+        self.assertEqual(ids, [PARAKEET],
+                         "the frozen registry carries exactly the one English ASR row")
         self.assertTrue(st["human_step"] or st["status"] == "available")
 
 

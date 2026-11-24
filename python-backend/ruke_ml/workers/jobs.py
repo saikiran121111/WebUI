@@ -70,6 +70,15 @@ KIND_TO_REASON: dict[str, tuple[str, bool, str]] = {
     "corrupt_input": ("corrupt_input", False, "the file could not be parsed; re-export it from the source application"),
     "unsupported_language": ("unsupported_input", False, "install the language data/model for this language, or ask in a supported language"),
     "dependency_missing": ("not_configured", False, "install the pinned dependency from python-backend/pyproject.toml"),
+    # The PUBLISHED device is absent (e.g. a CUDA-first ASR row on a CUDA-less host).
+    # Distinct from dependency_missing: the package imports fine; the hardware/runtime
+    # the model card names is what is not there, and the fix is the CUDA build of the
+    # pinned runtime or selecting a model whose published runtime fits this host.
+    # Silent CPU fallback is NOT the fix - the published quality numbers then do not
+    # describe the run (B5 device law).
+    "device_unavailable": ("not_configured", False,
+                           "install the CUDA build of the pinned runtime, or select a model "
+                           "whose published runtime fits this host in Settings→Models"),
     "asset_missing": ("model_unavailable", False, "prepare the pinned asset explicitly: python -m ruke_ml.models.prepare --model <id>"),
     "load_failed": ("model_unavailable", True, "retry; if it repeats, re-prepare the asset"),
     # An allocation refusal is a RESOURCE condition, never an asset condition. The two human

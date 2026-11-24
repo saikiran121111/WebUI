@@ -98,6 +98,11 @@ def audit_zip_members(zf, ratio_limit: float | None = None) -> None:
         safe_member_name(i.filename)
 
 
+# The ONLY destinations exempt from the worker egress blackhole (see
+# egress_blocked_for_workers): loopback literals, matching is_loopback below.
+LOOPBACK_NO_PROXY = ("127.0.0.0/8", "127.0.0.1", "localhost", "::1")
+
+
 def is_loopback(host: str) -> bool:
     h = host.strip().lower()
     if h in ("localhost", "127.0.0.1", "::1"):
@@ -113,10 +118,19 @@ def token_ok(presented: str | None, expected: str) -> bool:
 
 
 def egress_blocked_for_workers(env: dict[str, str]) -> dict[str, str]:
-    """Parse/render workers get no network path and no macro/external-link follow."""
+    """Parse/render workers get no network path and no macro/external-link follow.
+
+    F91 (2026-11-23): the block is a blackhole PROXY, so `no_proxy` is part of the law,
+    not an escape hatch. Blackholing loopback too made the placement gate's main-model
+    probe connection-refused (WinError 10061 on /health, /api/tags AND /props), which the
+    planner recorded as "the main model is not loaded, so there is nothing to reclaim" -
+    the GPU handoff window died in every OCR/ASR admission (accept-4: F91.1, fr-U1,
+    fr-F123). The exempt set is loopback ONLY: the machine's own model server and control
+    endpoint. Any non-loopback destination still routes to the dead sink.
+    """
     env = dict(env)
     env["http_proxy"] = env["https_proxy"] = env["HTTP_PROXY"] = env["HTTPS_PROXY"] = "http://127.0.0.1:9"
-    env["no_proxy"] = ""
+    env["no_proxy"] = env["NO_PROXY"] = ",".join(LOOPBACK_NO_PROXY)
     env["RUKE_EGRESS"] = "blocked"
     env["TRANSFORMERS_OFFLINE"] = "1"
     env["HF_HUB_OFFLINE"] = "1"

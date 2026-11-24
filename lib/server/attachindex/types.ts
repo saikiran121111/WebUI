@@ -1,6 +1,6 @@
 import type { FileCategory } from "../../files/extensions";
 
-/** One Whisper segment with its position in the recording. */
+/** One ASR segment (from the pinned speech job) with its position in the recording. */
 export interface TranscriptSegment {
   text: string;
   start: number;
@@ -82,6 +82,13 @@ export interface IndexMeta {
   timeline?: TimelineSummary;
   /** Embedding provenance; absent for indexes written before the stamp existed. */
   embed?: EmbedStamp;
+  /**
+   * F79: why a published lexical index carries no hybrid stamp — the embed
+   * pass's own words, persisted so later turns disclose the REAL cause
+   * (e.g. "embeddings unavailable (...)") instead of a generic phrase.
+   * Absent = the index is embedded, predates the note, or the cause is unknown.
+   */
+  embedNote?: string;
 }
 
 /** One container stream as the probe actually reported it (never a guess). */

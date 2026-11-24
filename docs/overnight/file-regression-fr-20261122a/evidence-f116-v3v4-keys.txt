@@ -1,0 +1,61 @@
+F116 (2026-11-23) — fr-V3 / fr-V4 KEY PREMISES FALSIFIED AT THE FIXTURE LAYER;
+KEYS RETARGETED WITH EVIDENCE (fr-V1 key VERIFIED, NOT changed).
+Model-free throughout: staged bytes + pinned Parakeet + the product
+whisper-base.en engine with production knobs (lib/server/extract/audio.ts:
+MODEL_ID, chunk 30 s / stride 5 s, project-local .data/models cache). Zero
+Ruke involvement. Clips/frames cut from the manifest-pinned staged file
+.data/tmp/file-regression/fr-20261122a/dl/live/vid-1.mp4 (7135.66 s) with
+node_modules/ffmpeg-static. Scripts: .data/tmp/f80c5keys/.
+
+S-V4 (fr-V4 "near the two-hour mark a slide shows a misspelled 'heirarchy'
+next to a self-control theme", keyed heirarchy + "will power") — FALSE.
+- Frames extracted from staged bytes: v1-6910.jpg = Scratch IDE running
+  Harvard's Hardest Game (MIT/Yale/Princeton sprites); v1-7060.jpg = RMOTR
+  end card; v1-7120.jpg = black. No hierarchy/self-control slide anywhere.
+- Parakeet 6860-7020 (v1-6860-7020-transcript.json): sprite-chase lecture
+  ("the MIT sprite goes to a random position ... points toward the Harvard
+  logo"), "adjourn for cake in the transept, which is a CS50 tradition",
+  maze finale, crowd banter. ZERO hits for hierarch*/willpower/"will power"/
+  self-control. Parakeet 7020-7135 (tail): game banter; no keyed words.
+- Product whisper 6860-7020 (v1-6860-7020-whisper.txt): same content.
+- Corroboration: the c4 fr-V4 answer quoted the real closing content
+  ("transcept") — the scorer keyed on heirarchy/will power, which the
+  staged fixture does not contain near the two-hour mark.
+- Disposition: SUPERSEDE (same family as S-V1/S-P5/S-X4). Retargeted to the
+  fact both engines transcribe identically: "will adjourn for cake in the
+  transept" (whisper 6941.8 s; Parakeet agree). Acceptance: normalize(said)
+  contains adjourn AND cake AND transept — verbatim-phrase strength kept.
+  Spelling pinned by the transcript (a mangled quote fails, like fr-V1).
+
+S-V3 (fr-V3 "a slide poses a question about searching for a phone number",
+keyed howdoyousearchforaphonenumber) — PREMISE MISDESCRIBED, KEY UNSUPPORTED.
+- Frame v1-3055.jpg: slide reads "What is an algorithm? / Step-by-step
+  instructions for solving a problem". No phone-number question on screen.
+- Spoken: ZERO "search ... phone number" in Parakeet 2990-3150 (the phone
+  book demo narrates FINDING John Harvard in the phone book, not the keyed
+  question). Product whisper 2990-3150 (v1-2990-3150-whisper.txt) agrees.
+- Verified fact, slide-printed AND spoken by both engines:
+  whisper 3006.4-3009.6 "we might use an algorithm step-by-step instructions
+  for finding John Harvard"; Parakeet 2990-3150 "an algorithm, step-by-step
+  instructions for finding John Harvard".
+- Disposition: retargeted to quote the slide's definition; key
+  normalize(said) contains "stepbystepinstructions" (verbatim, hyphen-
+  insensitive via normalize()). Row keeps its between-frames character: the
+  production frame plan covers ONLY 1427.13/4994.96 s, so the answer must
+  come from the ASR-stored evidence at ~3000 s.
+
+fr-V1 (key classtobeware) — VERIFIED 2026-11-23 (evidence-f89-key-
+verification.txt, pinned Parakeet 115.08-116.52 s). The c4 answer
+"this class to be where" is a MODEL fidelity failure; key frozen.
+
+fr-V11 law tension: RESOLVED as designed — V11 intentionally probes an
+unexamined interval (5400 s tie color; frames only at 1427.13/4994.96) and
+scores the honest refusal. V3/V4 no longer demand ungroundable facts, so
+the V3-as-positive-control premise in the V11 scorer comment is now against
+rows whose facts ARE carried by stored ASR evidence at their intervals.
+
+Artifacts: .data/tmp/f80c5keys/{v1-2990-3150,v1-6860-7020,v1-7020-7135}-
+transcript.json (Parakeet, word timestamps), -whisper.txt (product engine),
+v1-{3055,6910,7060,7120}.jpg (frames), f80c5-asr-key.py,
+f80c5-whisper-prod.mjs. Spec change: tests/fr-live-regression.spec.ts
+fr-V3/fr-V4 with inline F116 comments.

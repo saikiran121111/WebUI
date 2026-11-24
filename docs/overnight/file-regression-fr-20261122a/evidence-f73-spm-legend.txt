@@ -1,0 +1,22 @@
+F73 model-free probe 2026-11-22 (pdfjs text layer, no cap) — doc-a.pdf = IPCC AR6 WGI SPM
+(fixture .data/tmp/file-regression/fr-20261122a/dl/live/doc-a.pdf)
+
+Key P1 (ANSWER-KEY.md): "In the SPM figure on p.16, what range does the colour-scale legend for
+temperature change cover?" -> `0 to 7 °C`, source claim "p16, Figure 4.2 legend", EXACT.
+Live answer (fr-P1 05:54:18Z): product says p16 carries Figure SPM.5 and "Figure 4.2" is only a
+cross-reference; no range given.
+
+Probe facts (text layer = what the product delivers):
+- Every page census: "Figure 4.2" occurs on NO page of the file. Regex 0-to-7: NO page.
+- Physical p16 = TEXT page (B.2.4 extreme-precipitation "about 7% for each 1°C", B.2.5), cross-ref
+  list ends "{…} (Figure SPM.5, Figure SPM.6)". The "7" the key confabulated is the B.2.4 RATE
+  (7 % per °C), not a legend range.
+- Physical p17 = Figure SPM.5 "Changes in annual mean surface temperature, precipitation, and soil
+  moisture". Legend tick labels (short text items): –1.5 –1.0 –0.5 0.5 1.0 1.5 (map a, °C per °C)
+  and –40 –30 –20 –10 0 10 20 30 40 with Wetter/Drier labels (precipitation/soil-moisture %, per °C).
+  NO 0–7 scale anywhere.
+
+Verdict: KEY defect (F73 suspected a numbering mismatch — confirmed). The product was faithful.
+Fix: key P1 marked SUPERSEDED; fr-P1 harness question retargeted to the re-derived Figure SPM.5
+precipitation legend (physical p17): range –40 % to 40 % per °C of global warming, EXACT = the two
+end ticks + %. Spec fingerprint change, sha at C3 freeze. No product change.

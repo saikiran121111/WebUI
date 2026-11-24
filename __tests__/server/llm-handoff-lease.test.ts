@@ -1,16 +1,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /**
  * 2026-11-17 resource-aware handoff amendment, sections 3-5.
  *
- * The main model is parked by ONE client at a time. Rust, Node and Python are
- * three separate processes, so the shared lease FILE is the authority, and the
- * Node stage-2 unload path must consult it exactly the way ruke-core's
- * admission gate does. These tests are hermetic: every lease lives in a throwa
- * way temp dir, never the real project root.
+ * The main model is parked by ONE client at a time. The Rust server, the
+ * Python ML backend (and, until F123 retired it, the Node ASR stage) are
+ * separate processes, so the shared lease FILE is the authority; ruke-core's
+ * admission gate and ruke_ml/handoff.py consult it exactly the way the
+ * record format pinned here describes. These tests are hermetic: every lease
+ * lives in a throwaway temp dir, never the real project root.
  */
 
 import {
@@ -208,149 +209,14 @@ describe("the shared lease record itself", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * The Node ASR stage-2 path: it may park the model ONLY when it can
- * take the lease, and it must release the lease BEFORE the restore
- * warm-up (that warm-up is itself a generation request).
+ * F123 (2026-11-23): the Node ASR stage-2 coordination tests that lived
+ * here are retired with lib/server/extract/audio.ts (the TypeScript
+ * whisper substitution). The law they pinned did not die: the unload
+ * discipline (foreign live lease -> refuse the unload; own lease ->
+ * release BEFORE the restore warm-up; handoff policy off -> never claim
+ * the lease; test processes never POST /unload at the live provider)
+ * is now enforced and tested on the Python side, where the placement
+ * decision actually happens: ruke_ml/handoff.py + the F91 placement
+ * tests in tests/test_asr_dispatch.py and tests/test_handoff_devices.py,
+ * against the SAME lease record this file pins the format of.
  * ------------------------------------------------------------------ */
-
-const hcalls = vi.hoisted(() => ({ pipeline: [] as any[] }));
-
-vi.mock("@huggingface/transformers", () => ({
-  pipeline: async (_task: string, _model: string, opts: any) => {
-    hcalls.pipeline.push(opts);
-    if (opts?.device === "cuda") throw new Error("CUDAExecutionProvider is not available in this ONNX build");
-    const asr: any = async () => ({
-      text: "quarter results beat guidance",
-      chunks: [{ text: "quarter results", timestamp: [0, 1.2] }],
-    });
-    asr.dispose = async () => {};
-    return asr;
-  },
-  env: {},
-}));
-
-const SR = 16000;
-
-describe("the Node ASR unload path is coordinated", () => {
-  beforeEach(() => {
-    hcalls.pipeline.length = 0;
-    vi.resetModules();
-  });
-
-  it("refuses to unload the model while another client owns the window, and never takes the lock", async () => {
-    const audio = await import("../../lib/server/extract/audio");
-    const other = acquireLease("ruke-python", "processing", lease);
-    const stages: string[] = [];
-    let unloads = 0;
-    let reloads = 0;
-    const r = await audio.transcribePcmSegments(new Float32Array(10 * SR), {
-      probe: async () => 300, // far below the VRAM floor, so stage 2 would normally fire
-      unload: async () => {
-        unloads += 1;
-        return true;
-      },
-      reload: async () => {
-        reloads += 1;
-      },
-      leaseAt: lease,
-      onStage: note => stages.push(note),
-    });
-    expect(r.text).toContain("quarter results");
-    expect(unloads, "a foreign live lease must stop the unload before it is attempted").toBe(0);
-    expect(reloads, "nothing was parked, so nothing may be 'restored'").toBe(0);
-    expect(leaseState(lease).holder?.token).toBe(other.token);
-    expect(stages.join("\n")).toMatch(/not unloading the LLM/);
-    expect(stages.join("\n")).toMatch(/ruke-python/);
-    expect(hcalls.pipeline.some(o => o?.device === "cpu")).toBe(true);
-  });
-
-  it("parks the model under its OWN lease and releases it before the restore warm-up", async () => {
-    const audio = await import("../../lib/server/extract/audio");
-    const order: string[] = [];
-    const r = await audio.transcribePcmSegments(new Float32Array(10 * SR), {
-      probe: async () => 300,
-      unload: async () => {
-        order.push(`unload:${leaseState(lease).held ? "lease-held" : "no-lease"}`);
-        return true;
-      },
-      reload: async () => {
-        order.push(`reload:${leaseState(lease).held ? "STILL-HELD" : "lease-released"}`);
-      },
-      leaseAt: lease,
-    });
-    expect(r.text).toContain("quarter results");
-    expect(order).toEqual(["unload:lease-held", "reload:lease-released"]);
-    expect(leaseState(lease).held).toBe(false);
-  });
-
-  it("a throwing unload hook is NOT reported as an unload, and the lease still goes", async () => {
-    const audio = await import("../../lib/server/extract/audio");
-    const order: string[] = [];
-    let reloads = 0;
-    const r = await audio.transcribePcmSegments(new Float32Array(10 * SR), {
-      probe: async () => 300,
-      unload: async () => {
-        throw new Error("unload endpoint exploded");
-      },
-      reload: async () => {
-        reloads += 1;
-        order.push(`reload:${leaseState(lease).held ? "STILL-HELD" : "lease-released"}`);
-      },
-      leaseAt: lease,
-    });
-    expect(r.text).toContain("quarter results");
-    expect(reloads, "an attempted unload still has to be restored").toBe(1);
-    expect(order).toEqual(["reload:lease-released"]);
-    expect(leaseState(lease).held).toBe(false);
-  });
-
-  it("with the handoff policy switched off it never claims the lease, so the chat path is not starved", async () => {
-    const previous = process.env.RUKE_LLM_AUTOMATIC_HANDOFF;
-    process.env.RUKE_LLM_AUTOMATIC_HANDOFF = "0";
-    try {
-      const audio = await import("../../lib/server/extract/audio");
-      const stages: string[] = [];
-      await audio.transcribePcmSegments(new Float32Array(10 * SR), {
-        probe: async () => 300,
-        leaseAt: lease,
-        onStage: note => stages.push(note),
-      });
-      expect(leaseState(lease).held).toBe(false);
-      expect(stages.join("\n")).toMatch(/the provider handoff policy is switched off/);
-    } finally {
-      if (previous === undefined) delete process.env.RUKE_LLM_AUTOMATIC_HANDOFF;
-      else process.env.RUKE_LLM_AUTOMATIC_HANDOFF = previous;
-    }
-  });
-
-  it("the default policy in a TEST process must not POST /unload at the live model server", async () => {
-    // F45 regression: the lifecycle URLs are derived from the chat endpoint, so
-    // an unseamed ASR stage used to send a real POST /unload to the user's
-    // running main model. The refusal must come from policy, and no request
-    // may leave the process at all.
-    const audio = await import("../../lib/server/extract/audio");
-    const perm = audio.llmParkPermission();
-    expect(perm.allowed, perm.reason).toBe(false);
-    expect(perm.reason).toMatch(/test process may not call the live provider lifecycle endpoint/);
-
-    const seen: string[] = [];
-    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
-      seen.push(String(input));
-      throw new Error("a unit test must not reach the live provider");
-    });
-    try {
-      const stages: string[] = [];
-      const r = await audio.transcribePcmSegments(new Float32Array(10 * SR), {
-        probe: async () => 300,
-        leaseAt: lease,
-        onStage: note => stages.push(note),
-      });
-      expect(r.text).toContain("quarter results"); // still answers from the CPU path
-      expect(seen.filter(u => /\/(unload|load)$/.test(u))).toEqual([]);
-      expect(leaseState(lease).held).toBe(false);
-      expect(stages.join("\n")).toMatch(/test process may not call the live provider lifecycle endpoint/);
-    } finally {
-      spy.mockRestore();
-    }
-  });
-});
