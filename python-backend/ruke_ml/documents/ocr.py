@@ -2,7 +2,7 @@
 'is the extracted string non-empty', and not by a provider confidence number alone."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .structures import Document
 
@@ -17,12 +17,27 @@ class Assessment:
     route: str
     reasons: list[str]
     units: list[int]
+    # Regions for the office/image path: the embedded rasters the region inspection
+    # judges one by one. (PDF escalation uses `units`; the two routes are disjoint.)
+    regions: list[dict] = field(default_factory=list)
 
 
 def assess(doc: Document, min_chars_per_unit: int = 80) -> Assessment:
     """Decide the cheapest route that can plausibly answer, then escalate when it cannot."""
     reasons: list[str] = []
     if doc.kind != "pdf":
+        # Native/ooxml readers keep the structure of everything SELECTABLE. What they
+        # cannot read is the CONTENT of a raster inside the package (a PPTX legend, a
+        # DOCX screenshot, an XLSX chart image) or a standalone image. The route says
+        # "inspect these regions"; the inspection (documents/region_ocr.py) - not the
+        # image count, a character threshold, a name or a topic - decides per region
+        # whether an engine runs at all.
+        regions = (getattr(doc, "meta", {}) or {}).get("embedded_images") or []
+        if regions:
+            return Assessment(LIGHT_OCR, [
+                f"{len(regions)} raster region(s) carry pixels the structured reader "
+                "cannot read; each region is inspected (label / blank / photo) before "
+                "any engine runs"], [], list(regions))
         # native/ooxml readers already keep structure; OCR would only lose it
         return Assessment(TEXT_LAYER_OK, ["structured reader already produced blocks"], [])
     cov = doc.coverage

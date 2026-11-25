@@ -244,6 +244,45 @@ describe("readDocumentViaCapability - typed envelope handling", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }, 60_000);
 
+  it("the OCR recognition clock parses off the worker payload; a predating record stays blank", async () => {
+    // Item 5 (user brief 2026-11-24): "record selected engine, actual backend/device,
+    // recognition start/finish, fallback reason". The python cascade stamps the wall clock
+    // each recognition pass ran on (casc.recognition -> report -> payload.ocr.recognition);
+    // the adapter surface must carry it. The verbatim f05 payload predates the clock, so
+    // the absence must stay blank - an invented time would be a fabricated provenance.
+    const dir = fs.mkdtempSync(path.join(process.cwd(), ".data", "tmp", "f05cap_"));
+    const src = write(dir, "hole.pdf", makePdf(["MARGIN-REPORT", null, "LATE-EVIDENCE"]));
+    const payload = (REAL_READY_ENVELOPE.result as unknown as { payload: Record<string, unknown> }).payload;
+    const clocked = {
+      ...REAL_READY_ENVELOPE,
+      result: {
+        ...(REAL_READY_ENVELOPE.result as object),
+        payload: {
+          ...payload,
+          ocr: {
+            ...(payload.ocr as object),
+            recognition: {
+              started_utc: "2026-11-25T04:12:03Z", finished_utc: "2026-11-25T04:12:41Z", wall_s: 38.2,
+            },
+          },
+        },
+      },
+    } as unknown as MlJobEnvelope;
+    const out = await readDocumentViaCapability(src, { runJob: runJobReturning(clocked) });
+    expect(out.state).toBe("ready");
+    if (out.state === "ready") {
+      expect(out.doc.ocr.recognition).toEqual({
+        startedAt: "2026-11-25T04:12:03Z", finishedAt: "2026-11-25T04:12:41Z", wallS: 38.2,
+      });
+    }
+    const plain = await readDocumentViaCapability(src, { runJob: runJobReturning(REAL_READY_ENVELOPE) });
+    expect(plain.state).toBe("ready");
+    if (plain.state === "ready") {
+      expect(plain.doc.ocr.recognition).toEqual({ startedAt: "", finishedAt: "", wallS: null });
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }, 60_000);
+
   it("a ready envelope with no usable document is a contract fault, never a successful empty read", async () => {
     const dir = fs.mkdtempSync(path.join(process.cwd(), ".data", "tmp", "f05cap_"));
     const src = write(dir, "clean.pdf", makePdf(["ONE-PAGE-TEXT"]));
@@ -311,6 +350,7 @@ const doc = (over: Partial<CapabilityDoc>): CapabilityDoc => ({
     ran: false, attempted: 0, recognized: 0, language: "", summary: "",
     reason: "engine not executable here", needsLanguage: false,
     pages: [], engines: [], enginesRecognised: {}, primaryReady: false, languageSource: "",
+    recognition: { startedAt: "", finishedAt: "", wallS: null },
   },
   meta: { page_numbering: "1-based" },
   ...over,
@@ -373,6 +413,7 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
           pages: [{ unit: 1, state: "recognised", engine: "tesseract-5.5.3.20260724", detail: "", confidence: 0.9, languageCode: "eng", rotation: null }],
           engines: ["tesseract-5.5.3.20260724"], enginesRecognised: { "tesseract-5.5.3.20260724": 1 },
           primaryReady: false,
+          recognition: { startedAt: "", finishedAt: "", wallS: null },
         },
       }),
     );
@@ -401,7 +442,7 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
           pages: [{ unit: 2, state: "recognised", engine: "tesseract-5.5.0", detail: "", confidence: 0.91,
                      languageCode: "deu", rotation: null }],
           engines: ["tesseract-5.5.0"], enginesRecognised: { "tesseract-5.5.0": 1 },
-          primaryReady: false },
+          primaryReady: false, recognition: { startedAt: "", finishedAt: "", wallS: null } },
       }),
     );
     expect(merged.readBy[2]).toBe("capability-ocr");
@@ -428,7 +469,7 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
               languageCode: "eng", rotation: null },
           ],
           engines: ["tesseract-5.5.3"], enginesRecognised: { "tesseract-5.5.3": 2 },
-          primaryReady: false },
+          primaryReady: false, recognition: { startedAt: "", finishedAt: "", wallS: null } },
       }),
     );
     expect(merged.coverageNote).toContain("raster rotation applied: page 2 90°");
@@ -446,7 +487,7 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
           pages: [{ unit: 1, state: "recognised", engine: "tesseract-5.5.0", detail: "", confidence: 0.7,
                      languageCode: "eng", rotation: null }],
           engines: ["tesseract-5.5.0"], enginesRecognised: { "tesseract-5.5.0": 1 },
-          primaryReady: false },
+          primaryReady: false, recognition: { startedAt: "", finishedAt: "", wallS: null } },
       }),
     );
     expect(merged.readBy[1]).toBe("ts-text-layer");
@@ -474,7 +515,7 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
           ],
           engines: ["paddleocr-vl-1.6", "tesseract-5.5.3.20260724"],
           enginesRecognised: { "paddleocr-vl-1.6": 1, "tesseract-5.5.3.20260724": 1 },
-          primaryReady: true },
+          primaryReady: true, recognition: { startedAt: "", finishedAt: "", wallS: null } },
       }),
     );
     // Per-unit provenance carries the REAL engine, so page 2 can never be attributed to the primary.
@@ -497,7 +538,7 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
           summary: "1/1 page(s) recognised (eng)", reason: "", needsLanguage: false,
           pages: [{ unit: 1, state: "recognised", engine: "tesseract-5.5.3.20260724", detail: "primary assets absent", confidence: 0.55, languageCode: "eng", rotation: null }],
           engines: ["tesseract-5.5.3.20260724"], enginesRecognised: { "tesseract-5.5.3.20260724": 1 },
-          primaryReady: false },
+          primaryReady: false, recognition: { startedAt: "", finishedAt: "", wallS: null } },
       }),
     );
     expect(merged.coverageNote).toContain("the primary OCR engine was NOT ready");
@@ -546,7 +587,8 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
         unitsTotal: 2, unitsEmpty: [2], unitsNeedingOcr: [2], ocrUnits: [2], unitsSucceeded: [1],
         ocr: { ran: false, attempted: 0, recognized: 0, language: "", summary: "",
           reason: "no document language was given or declared", needsLanguage: true,
-          pages: [], engines: [], enginesRecognised: {}, primaryReady: false, languageSource: "" },
+          pages: [], engines: [], enginesRecognised: {}, primaryReady: false, languageSource: "",
+          recognition: { startedAt: "", finishedAt: "", wallS: null } },
       }),
     );
     expect(merged.unreadUnits).toEqual([2]);
@@ -566,7 +608,8 @@ describe("mergePdfUnits - per-page evidence, never a count", () => {
         meta: { page_numbering: "1-based", pages: 2, pages_with_images: { "1": 1, "2": 1 } },
         ocr: { ran: false, attempted: 0, recognized: 0, language: "", summary: "",
           reason: "no document language was given or declared", needsLanguage: true,
-          pages: [], engines: [], enginesRecognised: {}, primaryReady: false, languageSource: "" },
+          pages: [], engines: [], enginesRecognised: {}, primaryReady: false, languageSource: "",
+          recognition: { startedAt: "", finishedAt: "", wallS: null } },
       }),
     );
     expect(merged.refusal).toMatch(/needs an explicit language/);

@@ -55,6 +55,32 @@ export function canSend(state: ComposerState): boolean {
   return state.attachments.every(a => a.status === "ready");
 }
 
+/**
+ * F153 (2026-11-24): the SEND-ACCEPTANCE law, shared by every send OWNER.
+ * canSend gates the COMPOSER; acceptance is what the owner that starts the
+ * turn (hooks/useChat.send) enforces: a turn exists when there is text OR
+ * ready evidence — a ready file with no typed text is a complete request
+ * ("read this"). The two must AGREE: the 2026-11-24 audit found the gate
+ * opening for attachment-only sends while send() silently returned, the tray
+ * already emptied by ChatInput — the ready file vanished and nothing was
+ * asked. A pending/processing/failed attachment is NOT evidence: acceptance
+ * counts ready only, exactly the set ChatInput forwards.
+ */
+export function acceptsTurn(state: { text: string; attachments: readonly Attachment[] }): boolean {
+  return state.text.trim().length > 0 || state.attachments.some(a => a.status === "ready");
+}
+
+/**
+ * F153 (2026-11-24): the EDIT-ACCEPTANCE law. An edit REWRITES a user turn's
+ * text, so an empty (whitespace-only) edit is not an edit: hooks/useChat.edit
+ * validates with this BEFORE touching history — previously an empty edit
+ * truncated both histories and the resend was refused, destroying the
+ * conversation with nothing sent in its place.
+ */
+export function acceptsEdit(newContent: string): boolean {
+  return newContent.trim().length > 0;
+}
+
 /** The Enter law: Enter's action is exactly canSend — never a queue. */
 export function enterSends(state: ComposerState): boolean {
   return canSend(state);

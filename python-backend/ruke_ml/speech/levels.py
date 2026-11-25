@@ -108,6 +108,7 @@ def parse_level_log(text: str, *, noise_floor_db: float = NOISE_FLOOR_DBFS) -> d
 
 
 def measure_level(path: str, *, ffmpeg: str = "", duration_s: float = 0.0,
+                  start_s: float = 0.0,
                   timeout_s: float = LEVEL_TIMEOUT_S,
                   noise_floor_db: float = NOISE_FLOOR_DBFS) -> AudioLevel:
     """Measure how much audible audio a track actually carries. Never infers content type.
@@ -116,10 +117,17 @@ def measure_level(path: str, *, ffmpeg: str = "", duration_s: float = 0.0,
     classifier that has not been evaluated on this host would be an unverified claim.
     What this can prove is the binary "there was nothing loud enough to transcribe",
     which is the case ASR most often fabricates an answer for.
+
+    F152: with start_s the pass decodes ONLY that span (accurate seek + -t, the pcm
+    source-offset law), so an interval inspection measures the level of the audio it
+    will inspect - a silent 30 s span inside a loud 3 h track gets its measured verdict,
+    not the whole-file average. The filter timeline starts at the seek, so reported
+    silence intervals are shifted back by start_s: they come out at SOURCE time.
     """
     from ..models import binaries
     exe = ffmpeg or binaries.path_for("ffmpeg") or "ffmpeg"
-    cmd = level_command(str(path), noise_floor_db=noise_floor_db)
+    cmd = level_command(str(path), noise_floor_db=noise_floor_db, start_s=start_s,
+                        duration_s=(duration_s if start_s > 0 else None))
     cmd[0] = exe
     try:
         done = processes.run_captured(cmd, timeout=timeout_s)
@@ -147,12 +155,21 @@ def measure_level(path: str, *, ffmpeg: str = "", duration_s: float = 0.0,
                           error="the loudness pass produced no level measurement",
                           human_step="re-probe the media; the selected track may be undecodable",
                           engine=exe, noise_floor_db=noise_floor_db)
+    if start_s:
+        # The filter clock started at the seek: shift every reported interval back to
+        # SOURCE time (the pcm_windows offset law), so a caller comparing these spans
+        # against transcript segments compares the same clock.
+        got["silence_intervals"] = [(round(a + start_s, 3), round(b + start_s, 3))
+                                    for a, b in got["silence_intervals"]]
     silent = sum(b - a for a, b in got["silence_intervals"])
     ratio = round(min(1.0, max(0.0, silent / duration_s)), 4) if duration_s > 0 else None
     state = "silence" if got["max_volume_db"] <= noise_floor_db else "audible"
     note = (f"max {got['max_volume_db']:.1f} dBFS, mean {got['mean_volume_db']:.1f} dBFS, "
             f"{silent:.1f}s at or below {noise_floor_db:.0f} dBFS")
-    if duration_s > 0:
+    if start_s > 0 and duration_s > 0:
+        note += (f" measured over span {start_s:.1f}-{start_s + duration_s:.1f}s only "
+                 f"(the pass decoded {duration_s:.1f}s, not the whole track)")
+    elif duration_s > 0:
         note += f" over a reported {duration_s:.1f}s"
     return AudioLevel(True, True, mean_volume_db=got["mean_volume_db"],
                       max_volume_db=got["max_volume_db"],

@@ -150,6 +150,17 @@ def load_document(path: str | Path, max_entries: int = 4096) -> Document:
                   for i, t in enumerate(text.splitlines()) if t.strip()]
         return Document(source_id, source_hash, "text", blocks,
                         DocCoverage(len(blocks), len(blocks), method="native-text"))
+    if suffix in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp",
+                  ".emf", ".wmf", ".svg"):
+        # A standalone raster: the pixels ARE the content - no text layer is manufactured.
+        # The same region inspection an embedded image gets decides honestly (documents/
+        # region_ocr.py): a text-bearing label goes to the engine, a photo or blank render
+        # keeps its pixels and pays zero engine calls.
+        return Document(source_id, source_hash, "image", [],
+                        DocCoverage(1, 0, units_empty=[1], method="raster",
+                                    note="standalone raster: no native text layer; the region "
+                                         "inspection of the pixels decides whether an engine runs"),
+                        meta={"embedded_images": [{"unit": 1, "part": source_id, "ext": suffix}]})
     return Document(source_id, source_hash, "unsupported", [],
                     DocCoverage(0, 0, method="none", note="no parser for this format; not silently flattened"))
 
@@ -319,6 +330,7 @@ def _xlsx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
                                                 if len(empty_refs[label]) < empty_counts[label] else {})}
                                      for label in empty_refs},
                      "sheet_failures": sheet_failures,
+                     "embedded_images": _xlsx_image_inventory(zf, sheets),
                      "unit_numbering": "1-based sheet index"})
 
 
@@ -484,6 +496,7 @@ def _docx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
                     {"unit_numbering": "1-based block/paragraph index; tables are numbered "
                                        "by body order",
                      "tables": table_no,
+                     "embedded_images": _docx_image_inventory(zf),
                      "revision_paragraphs": deleted,
                      "side_parts": sorted({str(loc.get("part")) for _t, _l, loc in side}),
                      "not_extracted": ["nested tables", "vertically merged cells",
@@ -599,6 +612,112 @@ def _chart_lines(chart_name: str, root) -> list[str]:
     return lines
 
 
+
+
+def _docx_image_inventory(zf: zipfile.ZipFile) -> list[dict]:
+    """Rasters anchored in the document body: {unit, part, ext}.
+
+    unit is the 1-based body paragraph ELEMENT ordinal (empty paragraphs counted), so an
+    image in a text-free paragraph still has a provable anchor. The OCR decision needs
+    the image's existence and position; its bytes stay in the package.
+    """
+    rel_part = "word/_rels/document.xml.rels"
+    rid2target: dict[str, str] = {}
+    if rel_part in zf.namelist():
+        try:
+            for r in ET.fromstring(zf.read(rel_part)):
+                t = str(r.get("Target") or "")
+                if t and not t.startswith("http"):
+                    rid2target[str(r.get("Id"))] = "word/" + t.lstrip("/") \
+                        if not t.startswith("/") else t.lstrip("/")
+        except ET.ParseError:
+            pass
+    if "word/document.xml" not in zf.namelist() or not rid2target:
+        return []
+    try:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    except ET.ParseError:
+        return []
+    body = root.find(f"{_W_NS}body")
+    out: list[dict] = []
+    if body is None:
+        return out
+    para = 0
+    for el in body.iter(f"{_W_NS}p"):
+        para += 1
+        for blip in el.iter(f"{_A_NS}blip"):
+            rid = blip.get(f"{_PKG_R_NS}embed")
+            part = rid2target.get(rid or "")
+            if part:
+                out.append({"unit": para, "part": part,
+                            "ext": part.rsplit(".", 1)[-1].lower()})
+    return out
+
+
+def _xlsx_image_inventory(zf: zipfile.ZipFile, sheets: list[tuple]) -> list[dict]:
+    """Rasters anchored on each sheet: {unit, part, ext, anchor}."""
+    import posixpath
+    out: list[dict] = []
+    for si, (_name, target) in enumerate(sheets, start=1):
+        rel_part = f"xl/worksheets/_rels/{target.rsplit('/', 1)[-1]}.rels"
+        if rel_part not in zf.namelist():
+            continue
+        try:
+            rels = ET.fromstring(zf.read(rel_part))
+        except ET.ParseError:
+            continue
+        for r in rels:
+            if not str(r.get("Type") or "").endswith("/drawing"):
+                continue
+            dtarget = str(r.get("Target") or "")
+            dpart = dtarget.lstrip("/") if dtarget.startswith("/") \
+                else posixpath.normpath(posixpath.join("xl/worksheets", dtarget))
+            drel_part = f"xl/drawings/_rels/{dpart.rsplit('/', 1)[-1]}.rels"
+            if dpart not in zf.namelist() or drel_part not in zf.namelist():
+                continue
+            # Two-pass anchors are the cell the picture sits ON; without a from-cell the
+            # region is still locatable to the sheet itself.
+            anchors: dict[str, str] = {}
+            try:
+                droot = ET.fromstring(zf.read(dpart))
+                _X = "{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}"
+                for anchor in droot.iter(f"{_X}twoCellAnchor"):
+                    frm = anchor.find(f"{_X}from")
+                    cell = ""
+                    if frm is not None:
+                        col = frm.find(f"{_X}col")
+                        row = frm.find(f"{_X}row")
+                        if col is not None and row is not None:
+                            ci = int(col.text or 0)
+                            cell = f"{_col_letter(ci + 1)}{int(row.text or 0) + 1}"
+                    for rid in anchor.iter(f"{{http://schemas.openxmlformats.org/drawingml/2006/main}}blip"):
+                        anchors[rid.get(f"{_PKG_R_NS}embed") or ""] = cell
+            except (ET.ParseError, ValueError):
+                pass
+            try:
+                drels = ET.fromstring(zf.read(drel_part))
+            except ET.ParseError:
+                continue
+            for r in drels:
+                t = str(r.get("Target") or "")
+                if not t or t.startswith("http"):
+                    continue
+                part = t.lstrip("/") if t.startswith("/") \
+                    else posixpath.normpath(posixpath.join("xl/drawings", t))
+                out.append({"unit": si, "part": part,
+                            "ext": part.rsplit(".", 1)[-1].lower(),
+                            "anchor": anchors.get(str(r.get("Id")), "")})
+    return out
+
+
+def _col_letter(idx: int) -> str:
+    s = ""
+    while idx > 0:
+        idx, rem = divmod(idx - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
 def _pptx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
     names = [n for n in zf.namelist()
              if n.startswith("ppt/slides/slide") and n.endswith(".xml") and "/_rels/" not in n]
@@ -608,6 +727,7 @@ def _pptx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
     blocks: list[Block] = []
     failed: list[int] = []
     charts_seen: list[str] = []
+    images_seen: list[dict] = []
     for i, n in enumerate(names, start=1):
         try:
             root = ET.fromstring(zf.read(n))
@@ -619,6 +739,23 @@ def _pptx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
             if text.strip():
                 blocks.append(Block(text.strip(), "paragraph", source_id, source_hash, {"slide": i}))
         targets = _slide_targets(zf, n)
+        # Every raster the slide carries (a type-keyed rels map collapses multiple
+        # images to one): the region inventory the OCR decision inspects.
+        import posixpath
+        srel = f"ppt/slides/_rels/{n.rsplit('/', 1)[-1]}.rels"
+        if srel in zf.namelist():
+            try:
+                for r in ET.fromstring(zf.read(srel)):
+                    if str(r.get("Type") or "").endswith("/image"):
+                        t = str(r.get("Target") or "")
+                        if not t or t.startswith("http"):
+                            continue
+                        part = t.lstrip("/") if t.startswith("/") \
+                            else posixpath.normpath(posixpath.join("ppt/slides", t))
+                        images_seen.append({"unit": i, "part": part,
+                                            "ext": part.rsplit(".", 1)[-1].lower()})
+            except ET.ParseError:
+                pass
         note_file = targets.get("notesSlide")
         if note_file is None:
             # Generators that omit the slide rels (minimal packages) keep the
@@ -671,6 +808,7 @@ def _pptx(zf: zipfile.ZipFile, source_id: str, source_hash: str) -> Document:
                      "slides": len(names),
                      "note_parts": sorted(notes),
                      "charts": sorted(set(charts_seen)),
+                     "embedded_images": images_seen,
                      "not_extracted": ["SmartArt", "animations", "slide master text",
                                        "hyperlink relationship targets",
                                        "chart styling and axis scaling (cached values only)"]})

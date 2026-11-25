@@ -400,7 +400,12 @@ def _ppt_document(data: bytes, source_id: str, source_hash: str) -> Document:
     return Document(source_id, source_hash, "ppt", blocks, cov,
                     {"unit_numbering": "1-based slide ordinal (container order; document-story "
                                         "order with first-occurrence dedup)",
-                     "slides": total})
+                     "slides": total,
+                     # F152: legacy binary pictures (PPT Picture atoms / escher blips)
+                     # have no reader here — RECORDING that is the law, so the read's
+                     # coverage states what the slide text does not carry.
+                     "not_extracted": ["embedded pictures and OLE objects", "chart data",
+                                       "slide formatting"]})
 
 
 # ---------------------------------------------------------------- Excel 97-2003 (.xls)
@@ -620,7 +625,7 @@ def _xls_document(data: bytes, source_id: str, source_hash: str) -> Document:
     cov.units_succeeded = list(range(1, sheets_total + 1))
     meta = {"sheets": sheet_names, "unit_numbering": "1-based BOUNDSHEET order",
             "not_extracted": ["formula expressions (cached results only)", "number formats",
-                              "styles", "charts", "pivot caches"]}
+                              "styles", "charts", "embedded pictures", "pivot caches"]}
     if truncated:
         meta["cells_truncated"] = f"cell blocks capped at {MAX_XLS_CELLS}"
     return Document(source_id, source_hash, "xls", blocks, cov, meta)

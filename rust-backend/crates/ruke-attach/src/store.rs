@@ -167,6 +167,407 @@ pub fn read_index(root: &Path, att_id: &str) -> Option<Arc<LoadedIndex>> {
     Some(loaded)
 }
 
+/* --------------------------------------------------------------------------
+ * F152 targeted-reread writes — `applyRegionReread` / `uploadPath` in
+ * `lib/server/attachindex/store.ts`.
+ *
+ * This is the ONE sanctioned writer of meta.json/chunks.jsonl on the Rust
+ * side: it edits the parsed JSON VALUES (never the typed structs — a struct
+ * round-trip would drop TS-only fields like `embed`/`embed_note`), touches
+ * ONLY the re-inspected region, and keeps the shown ledger untouched. Pixels
+ * are written before meta.json so meta never names a missing file; the LRU
+ * entry is dropped so the next read sees the refresh.
+ *
+ * DOCUMENTED DEVIATION: TS serializes under a per-attId promise lock
+ * (`withIndexWriteLock`); the Rust server serializes reread writes under ONE
+ * global mutex. Rereads are rare explicit user requests, so global
+ * serialization costs nothing measurable and removes the per-id map
+ * lifecycle; two rereads of the SAME attachment are ordered identically.
+ * ------------------------------------------------------------------------ */
+
+/// `RegionRereadUpdate` — one region's fresh inspection, ready to persist.
+#[derive(Debug, Clone)]
+pub struct RegionRereadUpdate {
+    /// Index-dir-relative frame file whose pixels are refreshed.
+    pub file: String,
+    /// The region's NEW rendered pixels — ONLY this region's bytes change.
+    pub bytes: Vec<u8>,
+    /// The region state the fresh inspection reported.
+    pub state: String,
+    /// Recovered text to persist as a unit-header passage (`None` = none).
+    pub text: Option<String>,
+    /// Embedding for the persisted passage; empty = embed unavailable, text
+    /// not persisted (the passage serves this turn only).
+    pub vec: Vec<f64>,
+}
+
+fn reread_gate() -> &'static Mutex<()> {
+    static G: OnceLock<Mutex<()>> = OnceLock::new();
+    G.get_or_init(|| Mutex::new(()))
+}
+
+/// `applyRegionReread`: refreshes exactly the re-inspected regions. Every
+/// IO failure degrades silently like the TS try/catch (an unwritable frame
+/// keeps its old pixels and state; a missing meta.json is a no-op).
+pub fn apply_region_reread(root: &Path, att_id: &str, updates: &[RegionRereadUpdate]) {
+    if updates.is_empty() {
+        return;
+    }
+    let _g = reread_gate().lock();
+    let Ok(dir) = index_dir_checked(root, att_id) else {
+        return;
+    };
+    let meta_path = dir.join("meta.json");
+    let Ok(meta_text) = std::fs::read_to_string(&meta_path) else {
+        return; // ⇔ `if (!fs.existsSync(metaPath)) return;`
+    };
+    let Ok(mut meta) = serde_json::from_str::<Value>(&meta_text) else {
+        return;
+    };
+    let chunk_path = dir.join("chunks.jsonl");
+    let mut lines: Vec<String> = std::fs::read_to_string(&chunk_path)
+        .unwrap_or_default()
+        .split('\n')
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.to_string())
+        .collect();
+    let mut next_i: i64 = 0;
+    for l in &lines {
+        if let Ok(v) = serde_json::from_str::<Value>(l) {
+            // An unparseable line is left verbatim; ids only grow past it
+            // (TS JSON.parse throws → skipped; here the Value parse fails).
+            if let Some(n) = v.get("i").and_then(|x| x.as_i64()) {
+                if n + 1 > next_i {
+                    next_i = n + 1;
+                }
+            }
+        }
+    }
+    for u in updates {
+        if std::fs::write(dir.join(&u.file), &u.bytes).is_err() {
+            continue; // unwritable pixels: this region keeps its old frame
+        }
+        if let Some(frames) = meta.get_mut("frames").and_then(|f| f.as_array_mut()) {
+            if let Some(fe) = frames
+                .iter_mut()
+                .find(|f| f.get("file").and_then(|x| x.as_str()) == Some(u.file.as_str()))
+            {
+                fe["state"] = json!(u.state);
+            }
+        }
+        if let Some(text) = &u.text {
+            if !u.vec.is_empty() {
+                lines.push(
+                    json!({"i": next_i, "startSec": Value::Null, "endSec": Value::Null,
+                           "text": text, "vec": u.vec})
+                    .to_string(),
+                );
+                next_i += 1;
+            }
+        }
+    }
+    let joined = if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    };
+    if atomic_write(&chunk_path, &joined).is_err() {
+        return;
+    }
+    if atomic_write(&meta_path, &meta.to_string()).is_err() {
+        return;
+    }
+    cache().lock().retain(|(d, _)| *d != dir); // ⇔ cacheDelete(attId)
+}
+
+/* --------------------------------------------------------------------------
+ * F153 item 3 — `appendTimedChunks` in `lib/server/attachindex/store.ts`:
+ * the durable half of a bounded fresh audio decode. Surgical like the
+ * reread writer (meta.json + chunks.jsonl edited as VALUES — a struct
+ * round-trip would drop TS-only fields): the timed passage is appended as a
+ * searchable chunk, the decoded window merges into meta.speech.examined,
+ * unexamined is recomputed, `complete` flips only when no gap of the
+ * timeline remains, and chunkCount follows. The shown ledger stays intact;
+ * ids only grow past the existing ones. Same serialized-write discipline
+ * as `apply_region_reread` (the documented global-mutex deviation from
+ * TS's per-attId promise lock); chunks are written before meta.json.
+ * ------------------------------------------------------------------------ */
+
+/// `TimedChunkUpdate` — one timed passage persisted by a fresh decode.
+#[derive(Debug, Clone)]
+pub struct TimedChunkUpdate {
+    pub text: String,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    /// Embedding for the passage; empty = embed unavailable, lexical-only
+    /// chunk (the text stays searchable).
+    pub vec: Vec<f64>,
+}
+
+/// `mergeSpans`: merge overlapping/adjacent spans into a sorted disjoint
+/// list (0.001 tolerance — the same law TS `mergeSpans` applies).
+fn merge_spans(spans: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    let mut sorted: Vec<[f64; 2]> = spans
+        .iter()
+        .filter(|s| s[0].is_finite() && s[1].is_finite() && s[1] > s[0])
+        .copied()
+        .collect();
+    sorted.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out: Vec<[f64; 2]> = Vec::new();
+    for s in sorted {
+        match out.last_mut() {
+            Some(last) if s[0] <= last[1] + 0.001 => last[1] = last[1].max(s[1]),
+            _ => out.push(s),
+        }
+    }
+    out
+}
+
+/// `appendTimedChunks(attId, updates, examinedSpans)`: persists EXACTLY
+/// the fresh decode's work so the span is never decoded twice and an
+/// ordinary follow-up reuses it through retrieval. Every IO failure degrades
+/// silently like the TS try/catch (missing meta.json is a no-op).
+pub fn append_timed_chunks(
+    root: &Path,
+    att_id: &str,
+    updates: &[TimedChunkUpdate],
+    examined_spans: &[[f64; 2]],
+) {
+    if updates.is_empty() && examined_spans.is_empty() {
+        return; // ⇔ `if (!updates.length && !examinedSpans.length) return;`
+    }
+    let _g = reread_gate().lock();
+    let Ok(dir) = index_dir_checked(root, att_id) else {
+        return;
+    };
+    let meta_path = dir.join("meta.json");
+    let Ok(meta_text) = std::fs::read_to_string(&meta_path) else {
+        return; // ⇔ `if (!fs.existsSync(metaPath)) return;`
+    };
+    let Ok(mut meta) = serde_json::from_str::<Value>(&meta_text) else {
+        return;
+    };
+    let chunk_path = dir.join("chunks.jsonl");
+    let mut lines: Vec<String> = std::fs::read_to_string(&chunk_path)
+        .unwrap_or_default()
+        .split('\n')
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.to_string())
+        .collect();
+    let mut next_i: i64 = 0;
+    for l in &lines {
+        if let Ok(v) = serde_json::from_str::<Value>(l) {
+            // An unparseable line is left verbatim; ids only grow past it.
+            if let Some(n) = v.get("i").and_then(|x| x.as_i64()) {
+                if n + 1 > next_i {
+                    next_i = n + 1;
+                }
+            }
+        }
+    }
+    for u in updates {
+        if u.text.trim().is_empty() {
+            continue;
+        }
+        lines.push(
+            json!({
+                "i": next_i,
+                "startSec": u.start_sec,
+                "endSec": u.end_sec,
+                "text": u.text,
+                "vec": u.vec,
+            })
+            .to_string(),
+        );
+        next_i += 1;
+    }
+    if !examined_spans.is_empty() {
+        // dur: the coverage's own duration first (it describes that timeline),
+        // then the meta duration — ⇔ TS `meta.speech?.durationSec ?? meta.durationSec ?? 0`.
+        let existing = meta.get("speech").cloned().unwrap_or(Value::Null);
+        let dur = existing
+            .get("durationSec")
+            .and_then(Value::as_f64)
+            .or_else(|| meta.get("durationSec").and_then(Value::as_f64))
+            .unwrap_or(0.0);
+        let mut all: Vec<[f64; 2]> = existing
+            .get("examined")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|s| {
+                        let pair = s.as_array()?;
+                        if pair.len() != 2 {
+                            return None;
+                        }
+                        Some([pair[0].as_f64()?, pair[1].as_f64()?])
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        all.extend_from_slice(examined_spans);
+        let examined = merge_spans(&all);
+        let mut unexamined: Vec<[f64; 2]> = Vec::new();
+        if dur > 0.0 {
+            let mut cursor = 0.0;
+            for &[lo, hi] in &examined {
+                if lo - cursor > 0.001 {
+                    unexamined.push([cursor, lo]);
+                }
+                cursor = cursor.max(hi);
+            }
+            if dur - cursor > 0.001 {
+                unexamined.push([cursor, dur]);
+            }
+        }
+        meta["speech"] = json!({
+            "durationSec": dur,
+            "examined": examined,
+            "unexamined": unexamined,
+            "complete": dur > 0.0 && unexamined.is_empty(),
+        });
+    }
+    meta["chunkCount"] = json!(lines.len() as i64);
+    let joined = if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    };
+    if atomic_write(&chunk_path, &joined).is_err() {
+        return;
+    }
+    if atomic_write(&meta_path, &meta.to_string()).is_err() {
+        return;
+    }
+    cache().lock().retain(|(d, _)| *d != dir); // ⇔ cacheDelete(attId)
+}
+
+/* --------------------------------------------------------------------------
+ * F153 item 4 — `appendFrames` in `lib/server/attachindex/store.ts`: the
+ * durable half of a chat-time visual seek. A follow-up about a moment no
+ * saved keyframe covers decoded the ORIGINAL for that instant; this persists
+ * the picture as a saved frame, so the next follow-up finds it through the
+ * ordinary nearest-frames law and never pays ffmpeg for the same instant
+ * twice. Seek frames use the "s_" prefix — it can never collide with a
+ * build's "f_%05d.jpg" names — and the ".png" extension is what the
+ * mime-by-extension serving law reads. Surgical under the same serialized
+ * write discipline as `append_timed_chunks` (the documented global-mutex
+ * deviation from TS's per-attId promise lock); meta.json is edited as
+ * VALUES, pixels are written temp-then-rename INSIDE the frames dir so a
+ * reader mid-turn can never observe a half-written picture, and an instant
+ * already saved (within 0.5 s, video axis, no label) is never duplicated.
+ * DOCUMENTED DEVIATION: TS propagates IO/JSON throws to the caller's
+ * try/catch; Rust returns Err for the same cases — the frame-seek caller
+ * names the failure in the evidence block exactly where TS's catch does.
+ * ------------------------------------------------------------------------ */
+
+/// `SeekedFrameUpdate` — one picture a chat-time visual seek decoded from
+/// the ORIGINAL recording, ready to persist as a saved frame.
+#[derive(Debug, Clone)]
+pub struct SeekedFrameUpdate {
+    /// The media time the decoded picture shows (the worker's own time_s).
+    pub at: f64,
+    /// The encoded picture bytes (PNG from the seek decoder).
+    pub bytes: Vec<u8>,
+    /// The worker's state for this instant: "recognised" | "pixels" |
+    /// "duplicate" | "empty".
+    pub state: String,
+}
+
+/// `appendFrames(attId, frames)`: persists the decoded pictures and returns
+/// how many became saved frames. A missing meta.json is a silent 0 (⇔ TS
+/// `existsSync`); every other IO/JSON failure returns Err, ⇔ the throw TS
+/// propagates to its caller.
+pub fn append_frames(root: &Path, att_id: &str, frames: &[SeekedFrameUpdate]) -> Result<usize, String> {
+    if frames.is_empty() {
+        return Ok(0); // ⇔ `if (!frames.length) return 0;`
+    }
+    let _g = reread_gate().lock();
+    let dir = index_dir_checked(root, att_id)?;
+    let meta_path = dir.join("meta.json");
+    if !meta_path.exists() {
+        return Ok(0); // ⇔ `if (!fs.existsSync(metaPath)) return 0;`
+    }
+    let meta_text = std::fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+    let mut meta: Value = serde_json::from_str(&meta_text).map_err(|e| e.to_string())?;
+    let fdir = dir.join("frames");
+    std::fs::create_dir_all(&fdir).map_err(|e| e.to_string())?;
+    let mut entries: Vec<Value> = meta
+        .get("frames")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    // ⇔ /^s_(\d+)\.png$/ over the entry basenames: the serial only grows
+    // past the seek frames already on record.
+    let mut next: i64 = 0;
+    for f in &entries {
+        let Some(name) = f.get("file").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(tail) = Path::new(name).file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix("s_")) else {
+            continue;
+        };
+        let Some(digits) = tail.strip_suffix(".png") else {
+            continue;
+        };
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        if let Ok(n) = digits.parse::<i64>() {
+            if n + 1 > next {
+                next = n + 1;
+            }
+        }
+    }
+    let mut written = 0usize;
+    for fr in frames {
+        if !fr.at.is_finite() || fr.at < 0.0 || fr.bytes.is_empty() {
+            continue;
+        }
+        let dup = entries.iter().any(|f| {
+            // ⇔ `entries.some(f => !f.label && Math.abs(f.at - fr.at) < 0.5)`
+            f.get("label").and_then(Value::as_str).is_none()
+                && f.get("at")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|a| (a - fr.at).abs() < 0.5)
+        });
+        if dup {
+            continue;
+        }
+        let file = format!("frames/s_{next:05}.png");
+        next += 1;
+        // Temp-then-rename inside the frames dir (the publish law, per file).
+        let tmp = fdir.join(format!(".tmp_{}", &file["frames/".len()..]));
+        std::fs::write(&tmp, &fr.bytes).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, dir.join(&file)).map_err(|e| e.to_string())?;
+        entries.push(json!({"at": fr.at, "file": file, "state": fr.state}));
+        written += 1;
+    }
+    if written == 0 {
+        return Ok(0);
+    }
+    meta["frames"] = Value::Array(entries);
+    atomic_write(&meta_path, &meta.to_string()).map_err(|e| e.to_string())?;
+    cache().lock().retain(|(d, _)| *d != dir); // ⇔ cacheDelete(attId)
+    Ok(written)
+}
+
+/// `uploadPath`: the durable upload's path, if one exists. TS keys the
+/// uploads root off `process.cwd()`; Rust threads the project root.
+pub fn upload_path(root: &Path, att_id: &str) -> Option<PathBuf> {
+    if !valid_att_id(att_id) {
+        return None;
+    }
+    let rd = std::fs::read_dir(root.join(".data").join("uploads")).ok()?;
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name == att_id || name.starts_with(&format!("{att_id}.")) {
+            return Some(e.path());
+        }
+    }
+    None
+}
+
 /// `readNotes`: never throws (a bad id reads `None`). See module docs for
 /// the `Some("")` nuance and the typed-`notes` deviation on hand-corrupted
 /// files (TS would surface the raw non-string value; Rust reads `None`).

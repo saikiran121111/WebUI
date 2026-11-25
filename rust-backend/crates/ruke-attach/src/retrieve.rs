@@ -84,6 +84,12 @@ pub struct Evidence {
     pub text: String,
     pub chunk_idxs: Vec<i64>,
     pub frame_ats: Vec<f64>,
+    /// F152: unit ordinals the winning passages STATE in their own text
+    /// (`[page 12 | …]`, `### page 12`, `### slide 3`). The pairing key for
+    /// labelled document frames, whose `at` is a page/slide ordinal, not
+    /// seconds — a frame is served only for a passage that names its unit,
+    /// so a chart's picture never rides with an unrelated page's text.
+    pub page_cues: Vec<f64>,
     pub truncated: bool,
     /// I20: how many ranked candidates this turn's budget (or the demote
     /// list) left unserved. The turn layer turns that number into an
@@ -215,11 +221,20 @@ fn cmp_diff(d: f64) -> Ordering {
 /// instead of the same top hits. They are only used when nothing else was
 /// picked at all — an honest repeat beats an empty answer. Every unserved
 /// candidate is counted in `dropped` for the turn's honest marker.
+///
+/// F153: `lexical_bm` is the query's BM25 array from the hybrid branch
+/// (an empty slice on structural routes ⇔ the TS `lexical` map undefined).
+/// A demoted chunk is protected ONLY on a strict lexical edge — its BM25
+/// beats EVERY fresh candidate's. Equal standing keeps rotating (the I20
+/// pins); a follow-up asking the exact words of an already-shown chunk —
+/// the tail fact of a capped transcript, BM25 > 0 against fresh passages
+/// scoring 0 — is never concealed.
 fn pack(
     index: &LoadedIndex,
     priority: &OrderMap,
     budget: f64,
     demote: &[i64],
+    lexical_bm: &[f64],
     vector_mode: &str,
     vector_reason: Option<String>,
 ) -> Evidence {
@@ -238,7 +253,29 @@ fn pack(
     let demote_set: Option<std::collections::HashSet<i64>> = if demote.is_empty() {
         None
     } else {
-        Some(demote.iter().copied().collect())
+        let base: std::collections::HashSet<i64> = demote.iter().copied().collect();
+        // ⇔ TS `lexical?.get(i) ?? 0`: an id outside the array (a stale shown
+        // id) scores 0, never NaN. The gate `lexical && lexical.size` ⇔ any
+        // positive BM25 entry exists.
+        let bm_of = |i: i64| -> f64 {
+            let v = num_at(lexical_bm, i);
+            if v.is_finite() {
+                v
+            } else {
+                0.0
+            }
+        };
+        if !lexical_bm.iter().any(|v| *v > 0.0) {
+            Some(base)
+        } else {
+            let mut fresh_max = 0.0f64;
+            for (i, _) in &ordered {
+                if !base.contains(i) {
+                    fresh_max = fresh_max.max(bm_of(*i));
+                }
+            }
+            Some(base.into_iter().filter(|i| bm_of(*i) <= fresh_max).collect())
+        }
     };
     let (fresh, held): (Vec<(i64, f64)>, Vec<(i64, f64)>) = match &demote_set {
         None => (ordered.clone(), Vec::new()),
@@ -308,15 +345,64 @@ fn pack(
         .iter()
         .filter_map(|&i| chunks[i as usize].start_sec)
         .collect();
+    // F152: unit ordinals stated inside the winning passages themselves — the
+    // pairing key for labelled document frames (page axis, never seconds).
+    let page_cues = page_cues_of(
+        &picked
+            .iter()
+            .map(|&i| chunks[i as usize].text.as_str())
+            .collect::<Vec<_>>(),
+    );
     Evidence {
         text,
         chunk_idxs: picked,
         frame_ats,
+        page_cues,
         truncated,
         dropped,
         vector_mode: vector_mode.to_string(),
         vector_reason,
     }
+}
+
+/// F152: unit ordinals written inside passage text — ⇔ the `pageCues` scan
+/// in lib/server/attachindex/retrieve.ts, regex
+/// `/(?:\[page |### page |### slide )(\d+)/g` applied to each picked chunk's
+/// RAW text in picked order: left-to-right, non-overlapping matches, first
+/// occurrence of each ordinal wins (`Number.isFinite` filters a digit run
+/// too large for f64, exactly like JS). Pure Rust — ruke-attach carries no
+/// regex dependency; the prefixes and digits are ASCII, so byte scanning
+/// cannot split a character.
+pub(crate) fn page_cues_of(texts: &[&str]) -> Vec<f64> {
+    const PREFIXES: [&str; 3] = ["[page ", "### page ", "### slide "];
+    let mut out: Vec<f64> = Vec::new();
+    for text in texts {
+        let b = text.as_bytes();
+        let mut i = 0usize;
+        while i < b.len() {
+            let plen = match PREFIXES.iter().find(|p| b[i..].starts_with(p.as_bytes())) {
+                Some(p) => p.len(),
+                None => {
+                    i += 1;
+                    continue;
+                }
+            };
+            let mut j = i + plen;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j == i + plen {
+                i += 1; // prefix with no digits: no match, move on
+                continue;
+            }
+            let v: f64 = text[i + plen..j].parse().unwrap_or(f64::INFINITY);
+            if v.is_finite() && !out.contains(&v) {
+                out.push(v);
+            }
+            i = j; // non-overlapping: resume after the digit run
+        }
+    }
+    out
 }
 
 pub fn retrieve_evidence(
@@ -350,6 +436,7 @@ pub fn retrieve_evidence(
                 &p,
                 budget,
                 &opts.demote,
+                &[],
                 &assess.mode,
                 assess.reason.clone(),
             );
@@ -378,6 +465,7 @@ pub fn retrieve_evidence(
             &p,
             budget,
             &opts.demote,
+            &[],
             &assess.mode,
             assess.reason.clone(),
         );
@@ -401,6 +489,7 @@ pub fn retrieve_evidence(
                 &p,
                 budget,
                 &opts.demote,
+                &[],
                 &assess.mode,
                 assess.reason.clone(),
             );
@@ -466,7 +555,19 @@ pub fn retrieve_evidence(
     };
     let fused = rrf_fuse(&lists);
     let mut seeds = fused.entries();
-    seeds.sort_by(|a, b| cmp_diff(b.1 - a.1));
+    // F153: a perfect RRF tie must not be decided by channel insertion order
+    // (⇔ TS `b[1]-a[1] || bm[b[0]]-bm[a[0]] || cos[b[0]]-cos[a[0]]`). In a
+    // homogeneous filler sea the cosine channel's top slot is luck: a chunk
+    // carrying NONE of the query's words (bm 0) tied with the ONE chunk
+    // containing the question's exact words (each a 1/(RRF_K+0) single vote),
+    // and the insertion order put the luck first — TOP_K then dropped the
+    // exact match, making the tail fact unreachable. Ties break toward
+    // literal overlap, then cosine; OOB ⇔ NaN ⇔ JS undefined (falsy) ⇔ Equal.
+    seeds.sort_by(|a, b| {
+        cmp_diff(b.1 - a.1)
+            .then(cmp_diff(num_at(&bm, b.0) - num_at(&bm, a.0)))
+            .then(cmp_diff(num_at(&cos, b.0) - num_at(&cos, a.0)))
+    });
     if opts.mode != QueryMode::Exhaustive {
         seeds.truncate(top_k());
     }
@@ -496,7 +597,15 @@ pub fn retrieve_evidence(
     } else {
         (assess.mode.clone(), assess.reason.clone())
     };
-    pack(index, &priority, budget, &opts.demote, &vector_mode, vector_reason)
+    pack(
+        index,
+        &priority,
+        budget,
+        &opts.demote,
+        &bm,
+        &vector_mode,
+        vector_reason,
+    )
 }
 
 #[cfg(test)]
@@ -622,7 +731,7 @@ mod tests {
             // F09b: the mode is DERIVED from the index, exactly as the
             // production path does it -- a test must not fabricate it.
             let a = crate::vectors::assess_vectors(&index.meta, &index.chunks);
-            pack(&index, &p, 10.0, &[], &a.mode, a.reason.clone())
+            pack(&index, &p, 10.0, &[], &[], &a.mode, a.reason.clone())
         };
         assert_eq!(ev.chunk_idxs, [0, 1]);
         assert!(ev.truncated);
@@ -1051,5 +1160,26 @@ mod tests {
             "JS .length budget: {} UTF-16 units",
             js_len(&ev.text)
         );
+    }
+
+    #[test]
+    fn page_cues_scans_every_header_shape_first_mention_order() {
+        // ⇔ the TS regex scan: all three header shapes, first-mention order,
+        // deduped across chunks; a prefix with no digits is not a cue; a
+        // digit run too large for a finite number is filtered (JS Number →
+        // Infinity for 400 digits, exactly what parse/unwrap_or produces).
+        assert_eq!(
+            page_cues_of(&[
+                "### slide 1\nInspection image: the AMBER CLOSE threshold marker.",
+                "[page 12 | read by: native]\nMaintenance threshold\n[page 12 reprinted]\n### page 13",
+                "prose that names no unit at all, and a decoy '[page ' with no digits",
+            ]),
+            vec![1.0, 12.0, 13.0],
+        );
+        assert_eq!(page_cues_of(&["A page. [page 3x] ### slide 4 tail"]), vec![3.0, 4.0]);
+        assert!(page_cues_of(&["[page ] decoy", "### pagex 7"]).is_empty());
+        assert!(page_cues_of(&[&format!("### page {}", "9".repeat(400))]).is_empty());
+        // Non-overlapping resume: the tail of a digit run cannot seed a match.
+        assert_eq!(page_cues_of(&["### page 1234"]), vec![1234.0]);
     }
 }

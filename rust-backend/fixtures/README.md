@@ -249,6 +249,18 @@ SERP + pages via tool envelopes.
   TypeScript "fewer than two candidates were ranked" wording is not computable from Rust `Evidence`
   (it carries no candidate-field size) and no fixture query reaches it.
 
+- **Re-recorded 2026-11-24 (F152 Part 4, the answer-wording law).** The brief's Part 4 mandates that
+  the answer's voice depend on what the reader ACTUALLY read, so the `rules()` base grew one
+  sentence — direct requested format; after a closer read was attempted, name narrowly WHICH part
+  could not be read and WHERE it sits; never blame the user for how the file was made, never claim
+  the content was not given; engine/decoding errors stay in diagnostics. The four fixtures carrying
+  a knowledge_index block (`01`, `04`, `05`, `06`) were re-recorded from the live TypeScript oracle
+  with `RUKE_GOLDEN_UPDATE=1 npx vitest run __tests__/rust-golden/attachments.test.ts` (never
+  hand-edited) — a pure insertion, 2 lines each (`bodyText` + `bodyJson`). Rust parity landed first:
+  `crates/ruke-attach/src/turn.rs` `rules()` segment 1, byte-identical, pinned by
+  `rules_variant_boundaries_are_exact` (ruke-attach lib 100 passed). `attachments/store/` was NOT
+  re-recorded (turn text is not part of the on-disk index).
+
 - **attachments/01–06: GREEN.** `crates/ruke-server/tests/attachment_replay.rs` (6/6) replays
   every fixture through the FULL Rust chat pipeline (`POST /api/chat` on the library router):
   `assert_response` (status, full header set, ms-normalized or byte-exact body, logical frames —

@@ -22,6 +22,11 @@
  * surfaces as an actionable typed outcome naming the SAME pinned engine, and
  * NO whisper module remains reachable anywhere in the extract tree.
  *
+ * F152 (2026-11-24) adds the channel-independence rows at the end: an
+ * audio-only video must be ANSWERED from its transcript although the frame
+ * decoder threw, and a measured-silent video must KEEP its keyframes —
+ * each channel is recoverable on its own, through the real router.
+ *
  * Pins (set before any production import): RUKE_LLM_AUTOMATIC_HANDOFF=0
  * RUKE_OCR_ALLOW_UNLOAD=0 — a test process never hands off to, probes,
  * unloads or restarts the shared :8080 model. RUKE_SPEECH_CAPABILITY=off —
@@ -37,6 +42,7 @@
 import { test, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 process.env.RUKE_LLM_AUTOMATIC_HANDOFF = "0";
 process.env.RUKE_OCR_ALLOW_UNLOAD = "0";
@@ -47,6 +53,10 @@ const ATT = {
   vid: "att_f78gvid",
   av: "att_f78gav",
   asr: "att_f78gasr",
+  aud: "att_f152aud", // F152: audio-only video — speech must survive frame failure
+  sil: "att_f152sil", // F152: measured-silent video — frames must survive silence
+  cap: "att_f153cap", // F153: 20,001-segment tail law — durable + final-request reachability
+  capx: "att_f153capx", // F153: overflow reporting law
 } as const;
 
 let extractFileFromPath: typeof import("@/lib/server/extract").extractFileFromPath;
@@ -71,6 +81,26 @@ afterAll(() => {
     }
   }
 });
+
+/**
+ * F153: the INDEXED-passage timestamp law (retrieve.ts): a timed chunk is
+ * emitted as a `[HH:MM:SS - HH:MM:SS]` header line, then the chunk's text.
+ * Find the fact, walk back to the nearest header, and return the cited
+ * range in seconds - the range the per-turn rules tell the model to cite.
+ */
+function timedRange(transcript: string, fact: string): [number, number] | null {
+  const lines = transcript.split("\n");
+  const idx = lines.findIndex((l) => l.includes(fact));
+  if (idx < 0) return null;
+  for (let j = idx; j >= 0; j--) {
+    const m = /^\[(\d\d):(\d\d):(\d\d) - (\d\d):(\d\d):(\d\d)\]/.exec(lines[j].trim());
+    if (!m) continue;
+    const from = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+    const to = Number(m[4]) * 3600 + Number(m[5]) * 60 + Number(m[6]);
+    return [from, to];
+  }
+  return null;
+}
 
 /** First timestamped line whose text contains `fact`, as [startSec, line]. */
 function timedLine(transcript: string, fact: string): [number, string] | null {
@@ -346,4 +376,262 @@ test(
     ).toBe(true);
   },
   600_000,
+);
+
+/* ------------------------------------------------------------------ *
+ * F152 channel-independence law: the video's visual channel and its
+ * speech channel are INDEPENDENTLY recoverable evidence. The decoder
+ * throws when it obtains no frames; that failure used to take the whole
+ * upload down BEFORE ASR ever ran, so valid speech died with the frames
+ * it never needed. And a measured-silent track must never take the
+ * frames down. Proven through the real production router with the real
+ * bundled ffmpeg; the speech verdict rides the job seam.
+ * ------------------------------------------------------------------ */
+
+test(
+  "F152: valid speech SURVIVES failed frame extraction — an audio-only video is answered from its transcript",
+  async () => {
+    delete process.env.RUKE_SPEECH_CAPABILITY; // seam row: the injected runJob replaces the transport
+    const { ffmpegPath } = await import("@/lib/server/extract/ffmpeg");
+    const ffmpeg = await ffmpegPath();
+    const dir = fs.mkdtempSync(path.join(process.cwd(), ".data", "tmp", "f152av_"));
+    const src = path.join(dir, "audio-only.mp4");
+    try {
+      // A REAL mp4 container (ftyp) carrying ONLY an audio stream — the
+      // honest shape of a recording whose visuals cannot be decoded. The
+      // category stays "video" (the .mp4 name decides), so the frame pass
+      // runs and the decoder throws on zero frames.
+      const mk = spawnSync(ffmpeg, ["-y", "-i", path.join(FIX, "sound.wav"), "-vn", "-c:a", "aac", src], {
+        encoding: "buffer",
+      });
+      expect(mk.status, `ffmpeg could not mux the audio-only fixture: ${mk.stderr}`).toBe(0);
+      const runJob = async () =>
+        envelope("ready", {
+          result: {
+            state: "transcribed",
+            text: "the cargo weighs 47 kg",
+            segments: [{ text: "the cargo weighs 47 kg", start: 60.4, end: 64.2 }],
+            segment_count: 1,
+            language: "en",
+            language_source: "explicit",
+            model: "nvidia/parakeet-tdt-0.6b-v3",
+            device: "cuda",
+            compute_type: "auto",
+            duration: 66,
+            complete: true,
+            asr_ran: true,
+            note: "",
+            examined: [[0, 66]],
+            coverage: { skipped: [] },
+            audio_level: {},
+            probe: {},
+            routing: {},
+            vad_filter: false,
+            vad_state: "unsupported_by_backend",
+            superseded_fragments: 0,
+            superseded: [],
+          },
+        });
+      const r = await extractFileFromPath("audio-only.mp4", src, ATT.aud, undefined, undefined, { runJob } as any);
+      // THE law: the upload did not go down with the frames. The spoken fact
+      // arrives timed, with the pinned engine's reported provenance.
+      const t = String((r as any).transcript ?? "");
+      const kg = timedLine(t, "47 kg");
+      expect(kg, `no timed line for 47 kg in: ${t}`).not.toBeNull();
+      expect(kg![0]).toBe(60);
+      expect(t).toContain("nvidia/parakeet-tdt-0.6b-v3");
+      // No frames were decoded — and the outcome SAYS which channel failed.
+      expect((r as any).frames).toEqual([]);
+      const note = String((r as any).coverageNote ?? "");
+      expect(note).toContain("visual content could not be decoded");
+      expect(note).toContain("the spoken content WAS read");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+  600_000,
+);
+
+test(
+  "F152: a measured-silent video keeps its keyframes — silence is a result, not a failure",
+  async () => {
+    delete process.env.RUKE_SPEECH_CAPABILITY; // seam row: the injected runJob replaces the transport
+    const runJob = async () =>
+      envelope("ready", {
+        result: {
+          state: "silence",
+          text: "",
+          segments: [],
+          segment_count: 0,
+          asr_ran: false,
+          language: "",
+          language_source: "",
+          duration: 125,
+          complete: true,
+          note: "",
+          examined: [[0, 125]],
+          coverage: { skipped: [] },
+          audio_level: { max_volume_db: -90.0, mean_volume_db: -91.2 },
+          probe: {},
+          routing: {},
+          vad_filter: false,
+          vad_state: "unsupported_by_backend",
+          superseded_fragments: 0,
+          superseded: [],
+        },
+      });
+    const r = await extractFileFromPath("mixed-av.mp4", path.join(FIX, "mixed-av.mp4"), ATT.sil, undefined, undefined, {
+      runJob,
+    } as any);
+    expect(r.indexed).toBe(true);
+    const note = String((r as any).coverageNote ?? (r as any).text ?? "");
+    // The silence is a MEASUREMENT with its level, never an inference, and
+    // never a defect that takes the visuals down.
+    expect(note).toContain("measured at -90.0 dBFS");
+    expect(note).toContain("a measured verdict, not an inference");
+    expect(note).toContain("Its visual content WAS read");
+    expect(note).toContain("Questions about what is SPOKEN cannot.");
+    expect((r as any).transcript).toBeUndefined();
+    // The 61 s alignment-control keyframe survives the silent-audio run: the
+    // visual channel stands on its own.
+    const idx = store.readIndex(ATT.sil);
+    const saved = (idx?.meta.frames ?? []).map(f => f.at).sort((a, b) => a - b);
+    expect(saved).toContain(60);
+    expect(fs.existsSync(store.framesDir(ATT.sil))).toBe(true);
+  },
+  600_000,
+);
+
+/* ------------------------------------------------------------------ *
+ * F153 item 2 (2026-11-24): the 20,001-segment recording must stay
+ * fully reachable through the PRODUCTION delivery path. Repro: the
+ * adapter's slice(0, MAX_SEGMENTS) + index.ts's
+ * `timedTranscriptText(asr.segments) || asr.text` precedence dropped the
+ * final segment from the delivered transcript, the durable index, and the
+ * final request — while the run reported complete=true, droppedSegments=0.
+ * Law proven here through extractFileFromPath + buildAttachmentTurn (the
+ * exact answering request): the LAST fact rides with its timestamp, and a
+ * real cap drop is stated, with the full timed transcript preserved in the
+ * durable index (bounded chunks are the store's existing pagination).
+ * ------------------------------------------------------------------ */
+function f153Payload(n: number) {
+  const segments = Array.from({ length: n }, (_, i) => ({
+    start: i * 0.15,
+    end: i * 0.15 + 0.14,
+    text: `filler reading number ${i}`,
+  }));
+  if (n > 20_100) segments[20_100] = { start: 3015.0, end: 3015.14, text: "middle marker five five alpha" };
+  segments[n - 1] = {
+    start: 3599.4,
+    end: 3600.25,
+    text: "the final ledger entry is sealed on March third",
+  };
+  return {
+    state: "transcribed",
+    text: "filler opening ... the final ledger entry is sealed on March third",
+    segments,
+    segment_count: n,
+    language: "en",
+    language_source: "explicit",
+    model: "nvidia/parakeet-tdt-0.6b-v3",
+    device: "cuda",
+    compute_type: "auto",
+    duration: 3600,
+    complete: true,
+    asr_ran: true,
+    note: "",
+    examined: [[0, 3600]],
+    coverage: { skipped: [] },
+    audio_level: {},
+    probe: {},
+    routing: {},
+    vad_filter: false,
+    vad_state: "unsupported_by_backend",
+    superseded_fragments: 0,
+    superseded: [],
+  };
+}
+
+const askIndex = async (att: string, q: string, conv: string) => {
+  const messages: any[] = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: q },
+        { type: "attachment_ref", att_id: att, name: "sound.wav", category: "audio" },
+      ],
+    },
+  ];
+  await buildAttachmentTurn(messages, 0, q, undefined, "default", conv);
+  return systemText(messages);
+};
+
+test(
+  "F153: 20,001 segments — the FINAL fact is durably indexed and reaches the exact answering request with its timestamp",
+  async () => {
+    delete process.env.RUKE_SPEECH_CAPABILITY; // seam row: the injected runJob replaces the transport
+    const runJob = async () => envelope("ready", { result: f153Payload(20_001) });
+    const r = await extractFileFromPath(
+      "sound.wav",
+      path.join(FIX, "sound.wav"),
+      ATT.cap,
+      undefined,
+      undefined,
+      { runJob } as any,
+    );
+    expect((r as any).indexed).toBe(true); // > TEXT_CHAR_LIMIT: the durable path is the law
+    const t = await askIndex(ATT.cap, "What was the final ledger entry?", "conv-f153cap");
+    // The retrieved passage must carry the fact INSIDE a cited time range that
+    // covers the segment's own timestamp — the indexed form of the timed law.
+    const range = timedRange(t, "final ledger entry");
+    expect(range, "the final fact never reached the answering request").not.toBeNull();
+    expect(
+      range![0] <= 3599.4 && 3599.4 <= range![1],
+      `the cited range [${range![0]} - ${range![1]}]s must cover the final segment at 3599.4s`,
+    ).toBe(true);
+  },
+  300_000,
+);
+
+test(
+  "F153: 20,500 segments — the cap drop is STATED, and the skipped middle + tail remain in the durable index",
+  async () => {
+    delete process.env.RUKE_SPEECH_CAPABILITY;
+    const runJob = async () => envelope("ready", { result: f153Payload(20_500) });
+    const r = await extractFileFromPath(
+      "sound.wav",
+      path.join(FIX, "sound.wav"),
+      ATT.capx,
+      undefined,
+      undefined,
+      { runJob } as any,
+    );
+    expect((r as any).indexed).toBe(true);
+    // The statement rides the delivered record (preview header): a reader sees
+    // what was skipped, with the count, at the upload moment.
+    const preview = String((r as any).transcript ?? "");
+    expect(preview, "the delivery must STATE the cap drop, not hide it").toContain("[transcript cap:");
+    expect(preview).toContain("300");
+    // The facts themselves ride the durable index and reach the answering request.
+    // The skipped middle must be RETRIEVABLE (the cap note promises the time
+    // range is readable): a natural follow-up pulls it with a cited range.
+    const t = await askIndex(ATT.capx, "What was middle marker five five alpha?", "conv-f153capx");
+    expect(t, "the skipped middle must be retrievable from the durable index").toContain(
+      "middle marker five five alpha",
+    );
+    const mid = timedRange(t, "middle marker five five alpha");
+    expect(mid, "the middle fact must carry a cited time range").not.toBeNull();
+    expect(mid![0] <= 3015 && 3015 <= mid![1], `cited range [${mid![0]} - ${mid![1]}]s must cover 3015s`).toBe(true);
+    // The tail fact, asked as its own follow-up, rides its own cited range.
+    // This is the SECOND follow-up in the conversation: the first turn's shown
+    // ledger had served the tail chunk as filler noise, and the ledger demoted
+    // the exact lexical match away — the follow-up asking the tail's own words
+    // could not reach it. The ledger now rotates filler only: chunks carrying
+    // the current query's words (BM25 hits) are protected from demotion.
+    const t2 = await askIndex(ATT.capx, "What was the final ledger entry?", "conv-f153capx");
+    const tail = timedRange(t2, "final ledger entry");
+    expect(tail, "the final fact never reached the answering request").not.toBeNull();
+    expect(tail![0] <= 3599.4 && 3599.4 <= tail![1], `cited range [${tail![0]} - ${tail![1]}]s must cover 3599.4s`).toBe(true);
+  },
+  300_000,
 );

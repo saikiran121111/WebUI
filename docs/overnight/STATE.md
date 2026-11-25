@@ -1920,3 +1920,477 @@ f80-c5-mem.csv, f80-c5-8080.csv — CSV shows zero Claude-side :8080 inference).
   Parakeet-GPU/restoration gates pass -> scoped LONG regression (frozen
   119-row matrix incl. fr-V1 + fr-V5 rows; F98–F115 AWAITING REPLAY) +
   C6 GREEN/HOLD + final gate battery. NO commits.
+
+## F152 CLOSED — OCR-decision + Qwen visual-delivery; parts 1–5 shipped, exclusive live batch green at 6/7 (2026-11-24 17:26 local)
+
+SCOPE (5-part amended brief, checkpoint-ocr-visual-f152): automatic OCR routing for
+embedded rasters (PDF/DOCX/PPTX/XLSX/standalone/legacy), in-turn targeted reread by
+REGION id, audio/frames/subtitles independently recoverable + question-driven interval
+ASR with durable cache, answer wording per ACTUAL coverage (TS+Rust), registry-driven
+validation table + one exclusive live Playwright batch. Full per-part evidence:
+C:\Users\Ruku\.claude\projects\D--Projects-WebUI-WebUI\memory\checkpoint-ocr-visual-f152.md
+(items 1–11). NO commits. Web search/browser/machine settings/paused follow-up untouched.
+
+- PARTS 1–4: region cascade (python documents/region_ocr.py rides ocr_cascade
+  unchanged; region id "{kind}:{unit}:{part}"; probe→cascade per region, photo/blank
+  ZERO engine calls pixels kept; position-aware coverage; targeted reread TS
+  reread.ts + store.applyRegionReread ⇄ Rust ruke-attach/reread.rs +
+  store.apply_region_reread + MlRegionInspector; launcher -RequireIsolation + identity
+  record; full-transcript ASR merge law; speech/asr_cache.py interval cache
+  (content-sha key, 3 h bound); wording sentence in rules() byte-identical TS⇄Rust,
+  4 fixtures re-recorded via the sanctioned seam). Laws preserved: engine setting,
+  cascade policy/fallback/busy-wait, frame batching, goldens.
+- PART 5 engine-law fixtures: tests/test_region_ocr.py 37/37 (Paddle-selected takeover
+  records reason+regions; Tesseract-selected zero-Paddle probes; deck "AMBER CLOSE"
+  recognised engine paddleocr-vl-1.6 {probe:1,engine:1}). UNSEEN fixture
+  docs/overnight/fixtures/f152/kappa9-chart-legend.png (pixel-only, below every
+  threshold) — never used to design the logic; graded in the live row.
+- VALIDATION TABLE (.data/tmp/f152-p5-verify.py, runs the REAL inspection code,
+  engines checked against the documents.ocr registry programmatically; exit 0,
+  2026-11-24):
+  | recovered fact | source location | actual engine | registry revision | invocations | region id |
+  |---|---|---|---|---|---|
+  | AMBER CLOSE | deck.pptx slide 1 -> ppt/media/image-3-1.png | paddleocr-vl-1.6 | paddleocr-vl-1.6 `132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd` | {'probe': 1, 'cascade': 1, 'probe_recognitions': 0, 'cascade_recognitions': 0} | pptx:1:ppt/media/image-3-1.png |
+  | AMBER CLOSE | deck.pptx parse job (ocr_text block, loc.provenance=ocr) | paddleocr-vl-1.6 via {'paddleocr-vl-1.6': 1} | paddleocr-vl-1.6 `132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd`, paddleocr-vl-1.6 `132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd` | {'probe': 1, 'engine': 1, 'probe_recognitions': 0, 'cascade_recognitions': 0} | pptx:1:ppt/media/image-3-1.png |
+  | AMBER CLOSE | label.png (standalone raster, unit-scope builder) | paddleocr-vl-1.6 | paddleocr-vl-1.6 `132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd` | {'probe': 1, 'cascade': 1, 'probe_recognitions': 0, 'cascade_recognitions': 0} | image:1:label.png |
+  | KAPPA 9 | docs/overnight/fixtures/f152/kappa9-chart-legend.png (pixel-only, below every threshold) | tesseract-5.5.3 (the primary engine refused the page: loader refused) | tesseract-5.5.3 `tesseract (unpinned, version-stamped from the binary)` | {'probe': 1, 'cascade': 2, 'probe_recognitions': 0, 'cascade_recognitions': 0} | image:1:kappa9-chart-legend.png |
+  registry documents.ocr rows: {'tesseract': 'unpinned', 'tesseract-5.5.3': 'tesseract (unpinned, version-stamped from the binary)', 'PaddleOCR-VL-1.6': '132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd', 'paddleocr-vl-1.6': '132c45f52c0a26ed5a6b2f6bd8e3985794cc27dd'}
+- GATES (F152 final): py discover 800/0 skip=3; vitest 2721/0 (25 skipped); tsc 0
+  (re-verified after spec edits); npm run build clean; contracts:check OK; cargo
+  -p ruke-attach -p ruke-server 410/0 (scratch CARGO_TARGET_DIR .data/tmp/cargo-f152
+  while the dev server holds target\debug\ruke-server.exe — env lock, not code).
+  NEVER cargo fmt --all.
+- f152-live-1 (attempt 2, 12:05–12:12 local) — kit-failure diagnosis: the launcher
+  REUSED a FOREIGN app tree on :3000 → tree used the REAL store .data + :8080 direct
+  (proxy captured 0); the running Rust binary PREDATED the Stage-6 edits (old assembly
+  dropped document frames). Orphan dev-tree provenance (printed, never killed by
+  identification policy): 6068 npm run dev 08:02:50 → 19252 → 18904 dev-supervisor →
+  9352 → 6444 :3000 / 17144 :3101; dev.pid=375 dead since Oct 25; lease pid 760 gone.
+  REPAIRS: kit pre-lock release-wait (300 s, EXIT 88, owners printed); launcher
+  -RequireIsolation + .data/e2e-store/launcher-identity.json record (schema
+  ruke.e2e-launcher-identity.v1: store, pythonOcrResultRoot, resolved llm chain, port
+  owners, reusedForeign, runId, appStartedUtc; under isolation the :3101 owner start ≥
+  app start — kills the old-binary cause; owners reported, never killed); spec P0
+  pre-run identity proof. Product failures that run found (paddle primary-fault
+  reason empty, unit-wide re-OCR) were repaired in parts 2/7/8 (checkpoint items 7–8:
+  fallback_reason travels; region-granular reread).
+- f152-batch-1 (4 rows: office, exact-time video, fr-F152, fr-U1), run 1: 2 passed /
+  2 failed. fr-F152 failed on harness layers; fr-U1 = environment (below).
+- fr-F152 ROOT CAUSE (closed): the live region state "empty" is the engine-ran-empty
+  site (region_ocr.py:713 "the engine ran and found the region empty of text") — the
+  probe passed (live frame PNG: ink 0.0672, glyphs 15, text_structure True), the
+  coverage probe found probe_words 0 with glyph_evidence → the cascade ran → Paddle
+  NOT ready in the live env → the tesseract fallback ran (engine calls 2) → genuinely
+  found no text in the chart crop. Local replay WITH Paddle loaded recognised
+  "KAPPA 9\n\nTHRESHOLD" at dpi 150 AND 200 ⇒ engine-capability reality (the pinned
+  Tesseract cannot read the chart text), not a product defect. Production crop render
+  contract byte-proven: page render at PROBE_DPI=150 rotation=0 cropped by
+  _placement_rect via _crop_png = 77,856 B sha
+  9447198d83c7a8bd7941eddacc22c3683f3c4147eef5ce46531588a4727d5975 = the live
+  persisted frame EXACTLY. The staged key's crop (137,643 B, 1ef623f7…, native
+  750×334) came from a NON-production render path → key regenerated to the production
+  path. Spec repairs (no law weakened): P5 — proxy __captured is an array of JSON
+  STRINGS (e2e-llm-proxy.mjs:170 verbatim capture) → parse each entry; P4 —
+  python/ocr-results persists cascade UNITS only for RECOGNISED regions, so an
+  engine-ran-empty region's durable evidence is the F152 region report on the
+  attachment spine ("N/M region(s) recognised; states {…}; probe passes P, engine
+  calls E; recognised per engine: …") — graded strictly on BOTH channels; P6 — the
+  region id is the product contract "pdf:1:page:1/image:0", state ∈ {recognised,
+  empty} (engine-evidenced), frame pixels sha256 == key crop sha. Key dir via
+  F152_KEY_DIR (kit passes the absolute attempt dir; the spec no longer hardcodes
+  f152-live-1).
+- f152-batch-1 RUN 2 (identity runId a873cfe3-6345-4693-a7a1-596d512f7fc1, owner3101
+  PID 16700 = the launcher's own child, store e2e-store, llm proxy :8099): DONE
+  GATE=PASS EXIT=1 PASS1_EXIT=1 END=11/24/2026 17:26:35; Playwright 2 passed (f78 row
+  2 office, row 5 exact-time video) / 2 failed; launcher-identity-ok=True; lock
+  released, app tree stopped, ports clear; Strata :8080 PID 13952 NEVER touched.
+  fr-F152 6/7 proofs PASS: P0 identity, P1 "KAPPA 9 — pink" (label from delivered
+  pixels, zero text leakage), P3, P4 (channel region-report), P5 (requests 2,
+  imageParts 1, cropSha 9447198d — the exact production crop reached the final Qwen
+  request), P6 (region pdf:1:page:1/image:0, state empty = engine-evidenced, pixels
+  sha == crop). P2 FAIL KEPT STRICT: key violet measured rgb [150,61,219], model
+  answered "pink" — an honest model perception miss on proven-delivered pixels
+  (ISSUES F152a). fr-U1 = F143-family environment: "the enforceable commit ceiling
+  available to a private worker is 256 MiB, under the 4375 MiB of commit this
+  capability was MEASURED needing (measured 2026-11-23…); Free physical RAM 1618 MiB
+  of 65299 MiB" — recorded, check NOT weakened (ISSUES F152b).
+- F143/frozen-matrix notes (kept SEPARATE from this live-batch record): the 14 red
+  GPU-mandatory ASR rows (overlap.{mp3,wav,m4a,aac,ogg,flac} + dual.{8 video}) are
+  harness-boundary + host-capacity (the probe process carries no bridge secret; F123
+  removed the in-process Whisper that made the F78 baseline green; pagefile
+  ASK-blocked). Real production defect found while investigating: the
+  extract/index.ts plain video return (zero transcript, zero keyframes, no decoder
+  throw) wove the coverageNote ONLY on frameIssue, SWALLOWING the speech-blocked
+  verdict on dual.* records. FIXED at the product layer (joins frameIssue+speechIssue,
+  byte-identical wording on every previously-covered shape); regression
+  video-asr-failure-coverage.test.ts 2/2 (ISSUES F152c). The frozen 119-row matrix
+  (105/119, ISSUES F143 row, 2026-11-24 05:13) was NOT re-run by this batch; these
+  4 live rows grade only their own laws.
+- Evidence: docs/overnight/file-regression-fr-20261122a/results-live-f152.jsonl (both
+  runs, per-proof verdicts); .data/tmp/file-regression/f152-batch-1/ (kit, key,
+  planned-ids, f152-submit.log); tests/fr-f152-live.spec.ts (law notes + repairs).
+
+
+## F153 — repair-and-validation brief (§1–§5), 2026-11-24 (IN PROGRESS)
+
+Objective: per confirmed defect, smallest failing regression → fix the production
+owner → exercise the normal entry point. No commits (user keeps them).
+
+COMPLETED (all with fail-first evidence, focused suites + tsc 0):
+- §1a attachment-only send: composerGate.acceptsTurn law; useChat.send answers
+  Promise<boolean>; ChatInput clears draft/tray ONLY on acceptance.
+  __tests__/composer-send-acceptance.test.ts 8/8 (fail-first 4 on HEAD).
+- §1b retry/edit single-use: retryRewind export (drops the last user+assistant
+  pair — send() re-appends the user bubble); busy/no-evidence retry is a no-op
+  (rewind+resend ONE operation); edit validates via acceptsEdit BEFORE touching
+  history; deferred resend bound to the edit's historyGen (chat switch abandons).
+  __tests__/retry-edit-single-use.test.ts 12/12 (fail-first 9/12 on HEAD).
+- §1c navigation ownership: lib/chat/navOwner.ts law; app/page.tsx handleSelect
+  discards a superseded resolution WHOLE, handleNew cancels ownership.
+  __tests__/nav-ownership.test.ts 5/5.
+- §1d persistence ordering: TS disk.ts + Rust persistence.rs — meta.updatedAt <=
+  delete stamp dropped at ANY delay (the 6 s recreation), newer doc = legitimate
+  recreation, out-of-order saves never clobber a newer stored doc, undated legacy
+  writes keep the 5 s window. __tests__/persistence/stale-save-ordering.test.ts
+  5/5 (exact 6 s case reproduced on HEAD); Rust persistence.rs 13/13 incl.
+  dated_stale_save_never_resurrects + out_of_order_save_does_not_clobber.
+
+- §2a settings/client status law: saveSettings/clearSettingsRemote throw
+  SettingsSaveError(status) on non-2xx BEFORE any cache mutation; EnginesSettings
+  surfaces "Save failed — the OCR engine was NOT changed." + reverts the radio.
+  __tests__/settings-client-status.test.ts 6/6 (fail-first 3/6 on HEAD) +
+  engines-settings-view 2 new (10/10).
+- §2b fenceRepair terminal outcome: runRepairRounds returns the outcome and
+  settleBadge resolves the badge on EVERY exit (clean/repaired/aborted/exhausted
+  honest notice). __tests__/fence-repair-rounds.test.ts 5/5 pins the round-trip
+  shape (clean 0, repaired exactly-1 w/ own-error echo + same decision mode,
+  exhausted capped at MAX_FENCE_REPAIRS, zero-collision standard_chat/no-header).
+  Shape suite passes on HEAD too (rounds existed); the badge fix itself is
+  unobservable in SSR → live browser row in the final batch. HARNESS LAW: node
+  has no requestAnimationFrame — hook streams need the rAF/cAF shim
+  (fence-repair-rounds + retry suites mount it) or handleEvent silently dies.
+- §2c compact summary integrity: extractCompactedContext takes the WIDEST span
+  (first open → last close) and strips embedded close tags — a verbatim-quoted
+  </compacted_context> (chats about compaction do this) no longer truncates the
+  snapshot nor closes the promoted block early. 3 fail-first on HEAD, pipeline
+  25/25 + compaction-durability 9/9.
+- §2d partial-export law: dataQuality.exportWarningFromHeaders turns the F11/
+  F77 header report into ONE bounded line (per-section caps); DocumentCard
+  downloadDocument returns it, ExportWarningLine renders role="status"
+  (doc-card-warning). 7/7 new; documents+render suites 363/363; tsc 0.
+  Chromium reopen + partial-download click live row queued for the final batch.
+
+- §3a reread region targeting (reread.ts ⇔ reread.rs): CONFIRMED SHIPPED —
+  explicit closer-read gate, question-named unit wins over cues, figure
+  ordinal + shared-label-word narrowing, scoped job payload regions:[ids],
+  durable refresh of ONLY that region, no-text line names the exact part.
+  Passing regression recorded: TS attach-reread 11/11, Rust ruke-attach
+  103/0 (two-figure, cell-anchor, whole-unit, zero-inspection rows).
+- §3b pdf.py bounds outcomes: CONFIRMED SHIPPED — per-image bounds regions,
+  probe-failure keeps whole-page region WITH bounds_reason (never zero
+  inspection), placement drift tolerance. Passing rows in test_region_ocr
+  PdfRegionLaws (rect assert, drift, two figures); suite 49/49.
+- §3c pdfium cleanup measurement: DEFECT MEASURED + FIXED (pdf.py
+  _image_bounds_prober). Measured 2026-11-24 on HEAD: pdfium PdfDocument
+  keeps the OS file lock until close() — refcount drop AND gc.collect() do
+  NOT release it — os.remove/os.rename WinError 32 for the process's life
+  after ANY load_pdf that opened the probe (upload file undeletable). Fix:
+  probe.close() deterministic, load_pdf page loop wrapped in try/finally
+  (normal + mid-loop-raise paths both measured OK; single-load process now
+  exits with zero pdfium shutdown warnings). Regression:
+  test_region_ocr PdfRegionLaws.test_pdfium_probe_handle_closes_on_every_exit_path
+  (Windows-strict lock proof). NOTE: the suite's "pdfium library is destroyed"
+  shutdown noise predates this fix (individual PdfRegionLaws tests emit 0 —
+  noise owner is elsewhere, recorded not chased).
+- §3d missing-passage targeted read (turn.ts:245 law): DEFECT FIXED TS+Rust.
+  HEAD: an ordinary question naming a unit ("what does the legend on slide 2
+  say?") whose retrieval misses got ZERO evidence — `if (!ev.text) continue`
+  — no targeted-read attempt though the original sat on disk. Fix: reread
+  gate gains missingPassage (targeting = the unit the question NAMES; names
+  no unit → ZERO inspection, control-tested); refresh outcomes ride paired —
+  new <knowledge_index> branch (TS turn.ts regionFrames + Rust turn.rs
+  region_frames) serves the attempt + real result (recovered text becomes
+  the turn's evidence; failure keeps the plain narrow line; refreshed crops
+  paired; coverage/rank lines byte-identical; no canned reply). Fail-first:
+  TS tests 1–2 red on HEAD (0 calls/0 blocks) → attach-reread 11/11;
+  Rust 3 new reread.rs tests (named-unit reason / no-unit zero / ordinary-
+  question control) → ruke-attach 103/0. __tests__/server 410 passed/6 skip;
+  tsc 0.
+
+- §4a duration coverage: DEFECT FIXED (video keyframe sampler, ffmpeg.ts
+  videoKeyframesFromPath). HEAD: the fixed 120 s seek-top-up step spends the
+  whole frame budget at duration/120 samples, and the tail anchor was gated
+  on a FREE slot — every video longer than cap*120 s (production cap 150 ⇒
+  past ~5 h) ends with its final stretch PERMANENTLY frame-less; a
+  timestamped targeted read of a late moment gets a 5 h-old frame plus the
+  honest "no saved moment closer" line. Repro (cap 4, 1000 s static): HEAD
+  grabs 60/180/300/420, interval [420,1000] unreachable → RED. Fix: top-up
+  step adapts to the remaining budget (short videos keep the 120 s cadence —
+  I17 law untouched, its test stays green) AND the tail anchor is now a LAW:
+  when the cap is full the most redundant interior frame (closest
+  neighbours) is evicted — file deleted, cap never grows — and the slot
+  buys duration−30. Regression: extract-keyframe-coverage "a full frame
+  budget still samples the END" fail-first→green (2/2). Audio: one-hour
+  audio needs no span request (MAX_INSPECT_S bounds ONE inspection span, not
+  the file) and merged-window integrity is proven — test_transformers_asr
+  19/19 (superseded-edge / overlap-rehearing / repetition laws),
+  test_asr_interval_cache 11/11 (geometry + 3 h bound) — PASSING recorded.
+- §4b handoff-kit law (f152-submit.ps1:83–84): pins RUKE_LLM_AUTOMATIC_
+  HANDOFF=0 + RUKE_OCR_ALLOW_UNLOAD=0 were in the GENERATED kit only; the
+  law says the maintained template carries it too → added the identical pin
+  block to scripts/run-browser-e2e-exclusive.ps1 (before app children
+  start; supervisor + Rust inherit; PS parse OK). Case (a) handoff-off
+  constrained-memory law = honest retryable refusal naming the policy:
+  ALREADY SHIPPED, proven green — test_memory_policy.py:152 (reason
+  memory_pressure, retryable, refuse_reason names "automatic-handoff policy
+  is off", human_step "already on disk"), suite 18/18; lifecycle.py:492 and
+  the memory floor UNTOUCHED; operator settings untouched. Case (b)
+  (authorized handoff ON → real Parakeet transcript + known spoken fact) is
+  a LIVE row for the final exclusive batch.
+
+- §5 repairs 4+5 DONE (acceptance-test law; grading lives in
+  tests/lib/f152-ocr-grader.ts + deterministic suite
+  __tests__/f152-ocr-grader.test.ts 17/17 — pattern of repair 3).
+  Repair 4 split P4 in fr-f152-live.spec.ts: P4a OCR EXECUTION (record
+  selected by STRUCTURED source.sha256 equality — the old
+  ocrRecordFor searched serialized JSON, so any record MENTIONING the sha
+  matched; adapter = pipeline.engines_used/unit engine, primary_engine is
+  a selection not a run; region unit state; invocations; job_id/written_at
+  correlation; report channel probe>=1 + engineCalls>=1 + states tally)
+  and P4b OCR RECOVERY (the region unit's TEXT FIELD carries the full
+  label incl. digit from a producing engine — serialized-unit metadata
+  matches now fail). Recovery FAIL is a RECORDED FACT (qFact: verdict
+  table shows it, gradeGroup never fails on fact rows) + the three-fact
+  sentence "vision label PASS; OCR execution PASS; OCR recovery FAIL." —
+  the 0/1-recognised live run shape passes execution, fails recovery,
+  visual journey intact (suite proves exactly this). Repair 5 P5/U3:
+  gradeCropDelivery correlates the crop to the ANSWERING request
+  (last captured, __reset-scoped) via this turn's prompt text in the
+  LAST user message, crop in CURRENT-USER content; negative controls
+  crop-only-history / crop-only-different-request FAIL (proven in the
+  suite); conversation record name recorded. P6 stays the separate
+  persisted-frame check; P7/U4 pixel chain unchanged. Deterministic:
+  17/17 + colour-grader 12/12, tsc 0, playwright --list OK.
+
+NEXT (brief order): feature inventory, FULL gates
+(vitest/tsc/py/cargo/contracts/build), then the exclusive live Playwright
+batch (rows: fenceRepair terminal badge, nav click-through, xlsx
+partial-download warning + Chromium reopen, handoff case (b)). Reporting:
+ISSUES.md F152a rewrite (channel-order root cause supersedes "honest model
+perception miss"; crop shas 19a79537136f/081b7902d33c), final report per
+brief format. f152-batch-1 EXIT=1 stays recorded separately; 105/119 matrix
++ f95-w2 reconciliation at final validation.
+
+Validation so far: composer+retry+nav+gate suites 48/48; persistence 21/21;
+tsc 0; cargo check -p ruke-server 0; ruke-server lib persistence 13/13.
+Hooks/notes: useChat.ts is CRLF with LF islands (perl :raw surgery); cargo fmt
+--all forbidden; live Playwright ONLY in the final exclusive batch.
+
+## F153 batch (2026-11-24, f153-batch-1) — RESULTS + media brief opened
+ATTEMPT f153-batch-1 (submitter 24904): GATE=PASS EXIT=1 PASS1_EXIT=1
+launcher-identity-ok=True (handoffAuthorized=true recorded). Launcher
+pipe-split fixed first: npx.cmd re-parsed -g "fr-F152|fr-F153" at the pipe
+(EXIT=90 pre-lock, discovery empty = NOT RUN, recorded separately);
+maintained launcher + kit now run node node_modules/@playwright/test/cli.js
+direct; gate planned==discovered 7/7 model-free before the lock.
+PASSED 4: fr-F153a fenceRepair clean (repair >=1, badge gone); fr-F153b
+terminal badge (repairRequests=2, honest wording); fr-F153c xlsx partial
+(header issues=1, doc-card-warning "Partial export — 1 value decision(s):
+issues=1; B3 missing_value", ExcelJS reopen 1200/300 kept + N/A blank,
+upload-back real-model answer "Rent — 1200 Cloud — (B3 is empty) Tools — 300");
+fr-F153d nav ownership (screen ends BRAVOMARKER, sidebar agrees, New owns
+over a load in flight, 0 bodies).
+FAILED 3 (kept separate, first-failing boundaries):
+- fr-F152 + fr-F152b: 900 s TIMEOUT. Chain: f152-survey.pdf "ready" at 95.8 s
+  (= DOCUMENT_PARSE_DEADLINE 90 s + 5 s grace, ZERO frames), chat round
+  refused "a document/media job holds the endpoint lease" (supervisor
+  16:21:37Z; F152a conversation c_owaqq1ya1mwuw0bb1), refused turn never
+  settled in UI, the job's lease went stale 811-837 s ("admitting anyway,
+  fail-open on proof" at 16:35 — fail-open itself works). Root causes:
+  (a) zero-frame PDF marks ready-as-complete; (b) refused/parked turn has no
+  terminal settlement (one status, preserve question, resume-once, cancel-
+  blocks-send, one actionable error on restore failure); (c) duplicate refusal
+  render (screenshot). MEDIA BRIEF item 1.
+- fr-F153e: chip processing->error at 94.4 s: "speech backend: load_failed:
+  OSError: The paging file is too small (os error 1455)" on Parakeet load —
+  host commit ceiling (handoff.py:58-79 fit-wait window). Host fact recorded;
+  row = blocked-by-commit, re-run in a fresh exclusive window with headroom.
+NEW MEDIA BRIEF (2026-11-24/25, items 1-6): shared handoff law (OCR/ASR/video),
+audio tail loss (CONFIRMED: speech-capability.ts:229 slices to MAX_SEGMENTS
+20_000 while segmentCount=20001/dropped=0/complete passthrough; index.ts:374
+timedTranscriptText wins -> tail fact unreachable), long-audio interval
+reachability + asr_cache by (source,interval,settings), video coverage
+independent of transcript length (150-frame I-cap, keyframe dir deleted on
+short-transcript branch), engine-use proof (selected vs actual backend/device),
+hard acceptance matrix incl 20,001-segment deterministic regression.
+Checkpoint: memory/checkpoint-media-upload-answer-f153.md.
+Hooks: lock ABSENT after 22:07:14; no live runs until code work queues one;
+Parakeet commit headroom must be verified via lifecycle status (NO model
+prompt) before any audio live row.
+
+## 2026-11-25 — F153 item 2 SHIPPED (code): audio tail loss closed, retrieval laws + Rust mirror
+- Adapter cap law in speech-capability.ts: EVERY slice inspected; head 20,000 +
+  200-segment tail serialize chronologically; middle validated, counted
+  (cappedSegments), complete=false on cap; transcriptCapNote at TOP;
+  fullTranscriptText/allSegments carry the full timed transcript into the durable
+  index chunker (audio+video pass allSegments when capped). Regressions: adapter
+  F153 3/3; extract-media-delivery 2/2 (20,001 tail cited 3599.4; 20,500 cap
+  stated "300", middle retrievable 3015, tail follow-up recovered).
+- Retrieval laws: RRF perfect ties break to literal overlap then cosine (never
+  channel insertion order); shown-ledger demote protects a chunk ONLY on a strict
+  BM25 dominance over all fresh candidates (I20 rotation law preserved; probe
+  exposed `new Set([])`-truthy + filter-polarity traps). Rust mirror complete
+  (ruke-attach/retrieve.rs pack lexical_bm; structural routes &[] per golden
+  contract).
+- Gates: vitest 2822/0, tsc 0 (fr-f153-live.spec.ts ExcelJS Buffer cast),
+  contracts OK, py 811/0, cargo workspace 0 failed, build 0. Lock ABSENT all
+  session; no live runs; item 6 exclusive batch queued after items 1/3/4/5.
+- NEXT: item 1 (zero-frame-PDF ready-as-complete, waiting-turn law, duplicate
+  error render, handoff lease on worker exit).
+
+## 2026-11-25 — F153 item 1 SHIPPED (code): record-honesty coverage + single-visible-status law
+
+- Record-honesty (media brief item 1): a capability failure envelope (e.g.
+  deadline_exceeded) over a working TS read is an HONEST PARTIAL.
+  lib/server/extract/index.ts PDF+Office fallbacks prepend a page-level
+  coverage sentence to the DELIVERED+INDEXED text (pages NOT inspected as
+  images, retryable; <=15 enumerated, >15 collapses to a count) and mirror it
+  on the side coverageNote the attachment record shows. Zero-frame
+  ready-as-complete is now impossible on this route; state "none" stays
+  silent (config fact). Audio (F123 throws) + video (F152 frameIssue) audited:
+  already honest, unchanged. Python worker-exit lease: F142 self-heal verified
+  in handoff.py (break_stale=True PID evidence, unlink-only D-054, heartbeat,
+  finally-restore) — no change. Rust admission refusal + lease: by design.
+- Duplicate refusal render (the parked-handoff screenshot): settlement + catch
+  paths record the reason on banner AND bubble. Single-visible-status law as
+  pure predicate lib/chat/errorSurface.ts::showRetryBanner — bubble is THE
+  visible status for an errored turn; banner kept for banner-only outcomes
+  (truncation, mid-stream, preflight, differing reason, post-new-message) and
+  as Retry carrier. No useChat state law changed.
+- Waiting-turn law verified owner-covered: retryRewind single-use, sendBusyRef
+  one-operation guard, composerGate isLoading block, no auto-resume path exists.
+- Regressions: __tests__/server/extract-capability-timeout-coverage.test.ts
+  5/5 (fail-first 4/5 red pre-fix) + adjacent 88/88; __tests__/ui/
+  error-banner-dedupe.test.ts 7/7.
+- Gates: vitest 2834/0 (25 skipped; ONE transient shown-ledger flake at
+  00:40, not reproduced 2/2 full runs — law-tolerated lock-free rebase
+  window, recorded as shown-ledger-flake row), tsc 0, contracts:check OK.
+  py/cargo untouched this session (item-2 gate stands). Lock ABSENT; no live
+  runs; no commits; machine settings untouched.
+- ISSUES.md rows: F153-PDF -> FIXED(code); F153-record-honesty, F153-dup-render
+  added; shown-ledger-flake recorded. Checkpoint
+  memory/checkpoint-media-upload-answer-f153.md updated.
+- NEXT: item 3 audio interval reachability ("around 58:40" retrieves the
+  stored interval or schedules a bounded fresh read; cache by
+  (source, interval, engine settings); boundary continuation; failure-mode
+  distinctions; Parakeet English). Then items 4/5; item 6 exclusive live
+  batch last (incl. F153e lifecycle-status-only re-run).
+
+
+## 2026-11-25 — F153 item 3 SHIPPED (code): full-duration audio reachable from a normal chat follow-up
+
+- Owner law (TS lib/server/attachindex/audio-reread.ts + turn.ts cue wiring;
+  ⇔ Rust ruke-attach audio_reread.rs/store.rs/turn.rs + ruke-server
+  chat/audio.rs MlAudioReader): a routed time_range cue plans per-window
+  from meta+chunks only — covered chunk → searchable, never re-decoded;
+  meta.speech.complete → MEASURED absence; partial examined → MEASURED with
+  partial wording (never "end-to-end"); unexamined → ONE bounded fresh
+  decode of the original (cue±180 s clipped). Fresh decodes persist as
+  timed chunks + meta.speech.examined → adjacent follow-ups continue,
+  completed intervals survive timeouts, python asr_cache backs repeats by
+  (source, span, engine). Every failure names its kind (silence dBFS,
+  gpu_refused, timeout, cancelled, missing upload, unexamined); a cancelled
+  turn writes nothing durable. 240 s wall deadline and MAX_INSPECT_S do not
+  bound the queryable fraction. Parakeet English + RUKE_SPEECH_LANGUAGE
+  preserved. Rust goldens byte-identical (fresh_asr None in golden routes).
+- Evidence: attach-audio-fresh-read 14/14 fail-first; cargo ruke-attach
+  113/0 (11 new), ruke-server 277/0 (7 new), store_compat goldens green;
+  vitest 2848/0 (25 skipped, no shown-ledger flake this run), tsc 0,
+  contracts:check OK. Lock FREE; no commits; no live runs; settings untouched.
+- ISSUES.md: F153-audio-interval row added FIXED(code)+awaiting-live.
+- NEXT: item 4 video coverage (stop deleting the keyframe dir on the
+  short-transcript branch; seek-decode on demand; catch paths carry
+  coverage) + Rust mirror; then item 5; item 6 exclusive live batch last.
+
+
+## 2026-11-25 — F153 item 4 SHIPPED (code): video coverage independent of transcript length (parts 1+2)
+
+- Part 1 (durable record + catch coverage, lib/server/extract/index.ts
+  video branch): the small-transcript branch INDEXES passages + ALL
+  keyframes + baseline and never deletes the frames dir; keyIssue /
+  baselineIssue / sampling / zero-frame lines each name what was NOT
+  inspected and that follow-ups are retryable; every video with an att
+  gets the durable record. extract-video-coverage 2/2 fail-first;
+  media-delivery + keyframe-coverage + narration/label batches green.
+- Part 2 (chat-time seek-decode on demand): frames-only cue with no saved
+  frame near it decodes THAT instant of the ORIGINAL through
+  video.frame_ocr (<= 4 cues, keyframe-accurate, 90 s); configured
+  RUKE_DOCUMENT_OCR_LANGUAGE rides, empty = legal pixels-only pass
+  (report text_pass:false, "UNMEASURED, not absent"). A delivered
+  picture is saved as frames/s_%05d.png (next follow-up answers from the
+  nearest-frames law, no double ffmpeg) and recognised text becomes a
+  timed searchable chunk. Serving mime follows the extension (png seek
+  frames serve image/png). Pixels over the 3 MB transport bound ship as
+  digest + "pixels omitted" and the instant stays NOT durable; every
+  non-delivery names its kind with retryability; a frame failure never
+  voids delivered frames; a cancelled turn writes NOTHING durable.
+  Layers: python frame_ocr.py pixels-only law; TS owner
+  lib/server/attachindex/frame-seek.ts + store.ts appendFrames + turn.ts
+  seam (absent seam = byte-identical goldens) — acceptance 16/16;
+  Rust mirror (Rust owns the chat route): ruke-attach frame_seek.rs +
+  store.rs append_frames + turn.rs 12th param + ruke-server
+  chat/frame_seek.rs MlFrameSeeker. 18 new Rust tests.
+- Gates: cargo workspace 795/0 (ruke-attach 124, ruke-server 282,
+  store_compat goldens byte-identical), contracts:check OK. Lock FREE;
+  no commits; no live runs; settings untouched.
+- ISSUES.md: F153-video-seek row added FIXED(code)+awaiting-live.
+  Traps: read_index None when chunks.jsonl MISSING (seeds must write it);
+  parking_lot const_new needs RawMutex (use std::sync::Mutex::new const).
+- NEXT: item 5 engine-use proof + PDF/Office closure (engine/backend/
+  device provenance, Paddle-first w/ recorded fallback, Strata restore,
+  native-first parsing, pixel crop to Qwen, OCR-timeout region retry);
+  item 6 exclusive live batch last.
+
+## 2026-11-25 — F153 item 5 SHIPPED (code): engine-use proof — the recognition clock
+
+- Survey result: engine/backend/device selection, fallback reason,
+  Tesseract-only honor, handoff restore timings, native-first routing,
+  region reread, pixel-crop pairing and timeout native preservation
+  were ALL already shipped; the record gap was WHEN the engine ran.
+- Python: ocr_cascade._span stamps every recognition pass
+  (primary+fallback: started_utc/finished_utc/epoch/wall_s);
+  _recognition_window aggregates min-start/max-finish/summed-wall into
+  casc.recognition AND pipeline.recognition AT WRITE TIME (_persist
+  runs before run()'s tail — F73 law). Resumed run = NO window (no
+  engine ran); recovery-only clocks only the ran engine; a failed
+  fallback pass still clocks. document_jobs mirrors report.recognition.
+  speech_jobs _recognition_span stamps engine+device+clock around
+  engine.transcribe; payload.recognition rides the durable record
+  (stamped before asr_cache.store); cache hits replay the ORIGINAL
+  run's clock; device-fallback keeps the successful pass's clock.
+- TS: CapabilityOcrReport.recognition {startedAt,finishedAt,wallS};
+  CapabilityAsr.recognition {engine,device,startedAt,finishedAt,wallS}
+  + speechEngineNote user-visible "recognised <utc> by <engine>
+  (<wall>s wall)" bit. Predating worker -> ""/null, never invented.
+- Rust: no mirror — ruke-attach types.rs camelCase+default serde, no
+  deny_unknown_fields (verified): additive fields flow through.
+- Tests: 4 fail-first python (cascade per-pass/recovery-only/durable;
+  asr payload) RED->GREEN 59/59; speech-capability 23/23;
+  document-capability 52/52.
+- Gates: py 824/0 (skipped=1; use `discover -s tests -t .` —
+  test_handoff_devices relative import fails plain discovery),
+  vitest 2868/0 (25 skipped), tsc 0, contracts:check OK, build 0.
+  Lock FREE; no commits; no live runs; settings untouched.
+- ISSUES.md: F153-engine-proof row added FIXED(code)+awaiting-live.
+- NEXT: item 6 hard-acceptance exclusive live batch (audio matrix,
+  video matrix, handoff fixtures, item-5 live rows incl. Paddle-first
+  fallback proof, Parakeet clock, Strata restore, independent
+  OCR/pixel/answer scoring); then the 7-point-brief queue.
+
+
+## 2026-11-25 - F153 item 6 (partial): deterministic handoff fixtures SHIPPED
+
+- Law pinned (acceptance fixtures for the shipped item-1 handoff laws, no production change): the five brief scenarios with isolated stores + fake providers in tests/test_handoff_devices.py: delayed restoration (virtual clock, 5 s delay -> restore_dispatch_ms ~5000 + restore_ready_ms from the journalled phase stamps; a gate refusal that ran no worker reports NO dispatch latency), cancellation (cancelled window with no unload clears its journal + releases the lease; TS-side cancelled-writes-nothing already pinned in attach-audio-fresh-read), worker exit after unload (existing 1267/666 pins stand), restore failure (typed restore_failed, journal RETAINED with the loaded-original evidence, reload retried, lease released), restart after recovery (recover_at_startup - B10, previously zero test references: yields to a live holder touching nothing; restores exactly the loaded model with no holder; failed reload keeps the journal saying RESTORATION FAILED and the next startup recovers from it).
+- Harness: StubMainModel gains a load_ok knob; new _FixedClock (time moves only on explicit advance) makes the timing law deterministic.
+- Evidence: 7 new tests GREEN, targeted 105/0; mutation probe (journal_write neutered) reddens the journal-retention pin - the pins discriminate. Full py suite 831/0 (1 skipped; discover -s tests -t .). Vitest/tsc/cargo/contracts/build untouched (python test file only).
+- NEXT: item 6's exclusive LIVE batch (audio matrix, video matrix, follow-up evidence assertions, reopening-chat repeats, fresh/held-out wording, fr-F152/F152b replay, item-5 live rows, F153e re-run in a fresh exclusive window with measured commit headroom); then the 7-point-brief queue (tasks 6-12). Kit: .data/tmp/file-regression/f153-batch-1/f153-submit.ps1 + tests/fr-f153-live.spec.ts + scripts/run-browser-e2e-exclusive.ps1. Yield the Strata slot for the whole live run; never probe availability with a model request.

@@ -14,6 +14,14 @@ export interface Evidence {
   chunkIdxs: number[];
   /** Timestamps of winning chunks — the chat route picks nearest keyframes. */
   frameAts: number[];
+  /**
+   * F152: unit ordinals the winning passages STATE in their own text
+   * (`[page 12 | …]`, `### page 12`, `### slide 3`). The pairing key for
+   * labelled document frames, whose `at` is a page/slide ordinal, not
+   * seconds — a frame is served only for a passage that names its unit, so
+   * a chart's picture never rides with an unrelated page's text.
+   */
+  pageCues: number[];
   truncated: boolean;
   /**
    * I20: how many ranked candidates this turn's budget (or the demote list)
@@ -120,6 +128,13 @@ function rrfFuse(lists: number[][]): Map<number, number> {
  * of the same top hits. They are only used when nothing else was picked at
  * all — an honest repeat beats an empty answer. Every unserved candidate is
  * counted in `dropped` for the turn's honest marker.
+ *
+ * F153: `lexical` (this query's BM25 per chunk, entries > 0 only) rescues a
+ * demoted chunk ONLY on a strict lexical edge: its BM25 beats EVERY fresh
+ * candidate's. Rotation of equal-standing filler (the I20 pins: one shared
+ * word, identical BM25) stays intact; the capped-transcript tail — BM25 26.2
+ * against fresh passages scoring 0 — is never concealed from the follow-up
+ * asking its own exact words.
  */
 function pack(
   index: LoadedIndex,
@@ -127,13 +142,27 @@ function pack(
   budget: number,
   demote?: number[],
   vectors?: { mode: "hybrid" | "lexical_only"; reason?: string },
+  lexical?: Map<number, number>,
 ): Evidence {
   const chunks = index.chunks;
   const ordered = [...priority.entries()]
     .filter(([i]) => i >= 0 && i < chunks.length)
     .sort((a, b) => b[1] - a[1]);
 
-  const demoteSet = demote?.length ? new Set(demote) : null;
+  // F153: the ledger law is ROTATION of filler, never concealment of the asked
+  // words. A demoted chunk is protected only when it carries a STRICT lexical
+  // edge — its BM25 for THIS query beats every fresh candidate's. Under equal
+  // lexical standing the ledger keeps rotating (the I20 law); a follow-up
+  // asking the exact words of an already-shown chunk gets it back (the tail
+  // fact of a capped transcript had been demoted away as a prior turn's
+  // cosine-luck filler — unreachable).
+  const base = demote?.length ? new Set(demote) : null;
+  let demoteSet = base;
+  if (base && lexical && lexical.size) {
+    let freshMax = 0;
+    for (const [i] of ordered) if (!base.has(i)) freshMax = Math.max(freshMax, lexical.get(i) ?? 0);
+    demoteSet = new Set([...base].filter(i => (lexical.get(i) ?? 0) <= freshMax));
+  }
   const fresh = demoteSet ? ordered.filter(([i]) => !demoteSet.has(i)) : ordered;
   const held = demoteSet ? ordered.filter(([i]) => demoteSet.has(i)) : [];
 
@@ -169,10 +198,24 @@ function pack(
   const frameAts = picked
     .map(i => chunks[i].startSec)
     .filter((n): n is number => n != null);
+  // F152: unit ordinals stated inside the winning passages themselves — the
+  // pairing key for labelled document frames (page axis, never seconds).
+  const pageCues: number[] = [];
+  const cueSeen = new Set<number>();
+  for (const i of picked) {
+    for (const m of chunks[i].text.matchAll(/(?:\[page |### page |### slide )(\d+)/g)) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && !cueSeen.has(n)) {
+        cueSeen.add(n);
+        pageCues.push(n);
+      }
+    }
+  }
   return {
     text,
     chunkIdxs: picked,
     frameAts,
+    pageCues,
     truncated,
     dropped,
     vectorMode: vectors?.mode ?? "lexical_only",
@@ -205,6 +248,19 @@ export interface Ranked {
   vectors: { mode: "hybrid" | "lexical_only"; reason?: string };
   rankable: boolean;
   unrankableReason?: string;
+  /**
+   * F153: BM25 score of THIS query per chunk (only entries > 0), from the
+   * hybrid channel. The shown ledger rotates FILLER passages across
+   * follow-ups; it must never demote a chunk with a STRICT lexical edge —
+   * a demoted chunk whose BM25 beats every fresh candidate's. The tail fact
+   * of a capped transcript had been served as a previous turn's cosine-luck
+   * filler, and the follow-up asking its own exact words (BM25 26.2 against
+   * fresh passages scoring 0) had it demoted away — unreachable. Uniform
+   * lexical fields (every chunk scoring the same) keep rotating. Only the
+   * hybrid branch populates this; structural (time/sequential) fields never
+   * participate in demote, so they stay chronological.
+   */
+  lexicalHits?: Map<number, number>;
 }
 
 export function rankCandidates(
@@ -304,7 +360,17 @@ export function rankCandidates(
         ? "no query embedding available"
         : "query vector could not be compared with the stored vectors"
       : assess.reason;
-  let seeds = [...fused.entries()].sort((a, b) => b[1] - a[1]);
+  // F153: a perfect RRF tie must not be decided by channel insertion order.
+  // In a homogeneous filler sea the cosine channel's top slot is luck: a
+  // chunk carrying NONE of the query's words (bm 0) tied with the ONE chunk
+  // containing the question's exact words (each a 1/(RRF_K+0) single vote),
+  // and the insertion order put the luck first — TOP_K then dropped the
+  // exact match, making the tail fact unreachable. Ties break toward
+  // literal overlap, then cosine. Asks with no lexical hits (byBm empty)
+  // keep the pure semantic order unchanged.
+  let seeds = [...fused.entries()].sort(
+    (a, b) => b[1] - a[1] || bm[b[0]] - bm[a[0]] || cos[b[0]] - cos[a[0]],
+  );
   if (opts.mode !== "exhaustive") seeds = seeds.slice(0, TOP_K);
 
   const priority = new Map<number, number>();
@@ -318,11 +384,25 @@ export function rankCandidates(
       }
     }
   }
-  return { priority, vectors: { mode: vectorMode, reason: vectorReason }, rankable: true };
+  const lexicalHits = new Map<number, number>();
+  for (const i of ids) if (bm[i] > 0) lexicalHits.set(i, bm[i]);
+  return {
+    priority,
+    vectors: { mode: vectorMode, reason: vectorReason },
+    rankable: true,
+    lexicalHits,
+  };
 }
 
 export function evidenceFromRanked(index: LoadedIndex, ranked: Ranked, opts: RetrieveOpts): Evidence {
-  return pack(index, ranked.priority, opts.budget ?? BUDGET, opts.demote, ranked.vectors);
+  return pack(
+    index,
+    ranked.priority,
+    opts.budget ?? BUDGET,
+    opts.demote,
+    ranked.vectors,
+    ranked.lexicalHits,
+  );
 }
 
 /**

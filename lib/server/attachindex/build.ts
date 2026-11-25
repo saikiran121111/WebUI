@@ -4,7 +4,7 @@ import { EMBED_MODEL_ID, EMBED_NORMALIZED, EMBED_POOLING, embedDisabled, embedFi
 import { buildSpine } from "./spine";
 import { writeIndex } from "./store";
 import type { FileCategory } from "../../files/extensions";
-import type { EmbedStamp, FrameEntry, IndexMeta, TranscriptSegment } from "./types";
+import type { EmbedStamp, FrameEntry, IndexMeta, SpeechCoverage, TranscriptSegment } from "./types";
 import type { TimelineSummary } from "./types";
 
 export interface BuildInput {
@@ -16,6 +16,8 @@ export interface BuildInput {
   /** Speech-job segments when the source is audio/video (enables timestamps). */
   segments?: TranscriptSegment[];
   durationSec?: number;
+  /** F153 item 3: the audio run's decode coverage, persisted for follow-up honesty. */
+  speech?: SpeechCoverage;
   /** Keyframes already written into <index>/frames by the extract branch. */
   frames?: FrameEntry[];
   /**
@@ -123,6 +125,7 @@ export async function buildAttachmentIndex(input: BuildInput): Promise<BuildResu
     frames: input.frames ?? [],
     ...(input.observations && input.observations.length ? { observations: input.observations } : {}),
     ...(input.timeline ? { timeline: input.timeline } : {}),
+    ...(input.speech ? { speech: input.speech } : {}),
     ...(embed ? { embed } : {}),
     ...(embedNote ? { embedNote } : {}),
   };

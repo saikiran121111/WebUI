@@ -327,12 +327,13 @@ class VramOnlyShortage(unittest.TestCase):
 class StubMainModel(main_model.MainModelProvider):
     name = "stub"
 
-    def __init__(self, loaded=True, unload_ok=True, unload_status="unloaded"):
+    def __init__(self, loaded=True, unload_ok=True, unload_status="unloaded", load_ok=True):
         self.base_url = "http://stub-llm"
         self.timeout_s = 1.0
         self.loaded = loaded
         self.unload_ok = unload_ok
         self.unload_status = unload_status
+        self.load_ok = load_ok
         self.calls: list[str] = []
 
     def inspect(self):
@@ -353,6 +354,9 @@ class StubMainModel(main_model.MainModelProvider):
 
     def load(self):
         self.calls.append("load")
+        if not self.load_ok:
+            return {"ok": False, "status": "load_failed", "detail": "stub load refused",
+                    "http_status": 500, "retry_after_s": None}
         self.loaded = True
         return {"ok": True, "status": "loaded", "detail": "stub loaded", "http_status": 200,
                 "retry_after_s": None}
@@ -361,6 +365,33 @@ class StubMainModel(main_model.MainModelProvider):
         self.calls.append("ready")
         return {"ok": True, "status": "loaded", "detail": "stub ready", "http_status": 200,
                 "retry_after_s": None}
+
+
+class _FixedClock:
+    """A virtual clock for timing assertions: `now` moves ONLY when the test advances it.
+
+    The handoff heartbeat thread waits on an Event (no sleep call), and every phase
+    stamp, lease heartbeat and timing computation in handoff resolves time through
+    the module's `time` attribute, so patching handoff.time with this object makes
+    the measured restoration windows fully determined by the test's own advances -
+    no wall-clock flake, no invented number.
+    """
+
+    def __init__(self, start: float = 1_000_000.0):
+        self._lock = threading.Lock()
+        self._now = start
+
+    def advance(self, s: float) -> None:
+        with self._lock:
+            self._now += s
+
+    def time(self) -> float:
+        with self._lock:
+            return self._now
+
+    def monotonic(self) -> float:
+        with self._lock:
+            return self._now
 
 
 def _own_child(child: subprocess.Popen) -> None:
@@ -1310,6 +1341,164 @@ class LeaseAndHandoff(unittest.TestCase):
             out2 = handoff.recover(timeout_s=1)
         self.assertTrue(out2["restored"])
         self.assertEqual(provider2.calls, [])
+
+    # ---- F153 item 6: deterministic handoff acceptance fixtures (brief 2026-11-24) ----
+    def test_f153_late_restoration_reports_the_measured_dispatch_and_ready_windows(self):
+        # "Timeout with delayed restoration": the gap between the worker completing and the
+        # restoration being dispatched is MEASURED from the journalled phase stamps, never
+        # invented. The virtual clock advances exactly 5 s at the post-worker measurement -
+        # the one call that sits between "releasing_worker" and "restoring_main_model" -
+        # so the reported window is fully determined by the fixture.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits", {})
+        clock = _FixedClock()
+
+        def measured():
+            clock.advance(5.0)
+            return {"free_physical_mib": 40_000, "commit_available_mib": 24_000,
+                    "free_vram_mib": 11_000, "vram_available": True}
+
+        with mock.patch.object(handoff, "time", clock), \
+                mock.patch.object(handoff, "_measure", measured):
+            out, _seen = self._run(provider, [before, after], allow_unload=True)
+        self.assertTrue(out["ok"])
+        self.assertEqual(provider.calls, ["unload", "load", "ready"])
+        self.assertIn("restore_dispatch_ms", out)
+        self.assertTrue(4_990 <= out["restore_dispatch_ms"] <= 5_010,
+                        f"the fixture delayed restoration by 5 s; the report must say ~5000 ms, "
+                        f"got {out.get('restore_dispatch_ms')}")
+        # The dispatch gap sits BEFORE the restoring_main_model stamp; the ready window is
+        # measured from that stamp, so on the virtual clock the stub's instant reload reads 0.
+        self.assertIn("restore_ready_ms", out)
+        self.assertGreaterEqual(out["restore_ready_ms"], 0)
+        self.assertEqual(handoff.journal_read(), {}, "a clean window still clears its journal")
+
+    def test_f153_a_gate_refusal_before_work_reports_no_dispatch_latency(self):
+        # The honesty half of the same law: on a commit-gate refusal NO worker ran, so there
+        # is no "worker completion -> restoration dispatch" gap to report. The
+        # dispatch-to-verified window stays; the dispatch latency must NOT be invented.
+        provider = StubMainModel(loaded=True)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits", {})
+        out, _seen = self._run(provider, [before, after], allow_unload=True,
+                               commit_mib=10_406, ceiling_bytes=10_000 * (1 << 20))
+        self.assertEqual(out["reason"], "resource_limit")
+        self.assertEqual(provider.calls, ["unload", "load", "ready"])
+        self.assertNotIn("restore_dispatch_ms", out,
+                         "no worker completed, so no dispatch latency exists to report")
+        self.assertIn("restore_ready_ms", out)
+
+    def test_f153_restore_failure_keeps_the_journal_and_stays_typed(self):
+        # "Restore failure": the processing completed, the model did NOT come back. The
+        # window is typed restore_failed (never ok), the journal is RETAINED with the
+        # loaded-original evidence so the next startup recovers, the model is retried once
+        # before handing back, and the lease is released so the machine is usable.
+        provider = StubMainModel(loaded=True, load_ok=False)
+        before = devices.DevicePlan("documents.ocr", "none", False, True, "RAM short", {})
+        after = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits", {})
+        out, seen = self._run(provider, [before, after], allow_unload=True)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["reason"], "restore_failed")
+        self.assertEqual(out["final_status"], "restore_failed")
+        self.assertIn("work", out, "the processing completed; only the restoration failed")
+        self.assertIn("processing output is already on disk", out.get("note", ""))
+        self.assertEqual(provider.calls, ["unload", "load", "load"],
+                         "the in-window restoration and the recovery retry both attempt the load")
+        journal = handoff.journal_read()
+        self.assertEqual(journal.get("phase"), "restore_failed")
+        self.assertTrue(journal.get("unloaded_by_us"))
+        self.assertTrue((journal.get("original") or {}).get("loaded"),
+                        "the journal states the model WAS loaded, so startup recovery reloads it")
+        self.assertIn("restore_dispatch_ms", out)
+        self.assertIn("restore_ready_ms", out)
+        self.assertFalse(handoff.lease_path().exists())
+
+    def test_f153_a_cancelled_window_without_unload_leaves_the_journal_settled(self):
+        # "Cancellation while waiting" on the pipeline side: the caller walks away (the TS
+        # side's cancelled-writes-nothing law is pinned in attach-audio-fresh-read); the
+        # window's journal - opened at "waiting" the moment the lease was taken - must be
+        # cleared by its owner when nothing was unloaded, so startup recovery finds no
+        # phantom window to restore.
+        provider = StubMainModel(loaded=True)
+        plan = devices.DevicePlan("documents.ocr", "cpu", True, False, "fits", {})
+
+        def cancelled(_plan):
+            raise RuntimeError("cancelled by the caller")
+
+        out, _seen = self._run(provider, [plan], work=cancelled)
+        self.assertEqual(out["final_status"], "handoff_failed")
+        self.assertEqual(provider.calls, [], "the model was never touched")
+        self.assertEqual(handoff.journal_read(), {},
+                         "no unload, no journal: recovery after a cancellation has nothing to do")
+        self.assertFalse(handoff.lease_path().exists())
+
+    def test_f153_startup_recovery_yields_to_a_live_holder(self):
+        # B10: one reload owner. A live lease means a window on THIS boot dispatches its
+        # own restoration; startup recovery yields, touches no model, and leaves the
+        # journal for that holder to settle.
+        handoff.journal_write({"token": "t", "owner": "x", "capability": "documents.ocr",
+                               "phase": "processing",
+                               "original": {"loaded": True, "endpoint": "http://stub-llm"}})
+        held = handoff.acquire(owner="live-window")
+        provider = StubMainModel(loaded=False)
+        notes: list[str] = []
+        with mock.patch.object(main_model, "provider_for", return_value=provider):
+            out = handoff.recover_at_startup(
+                timeout_s=1, progress=lambda phase, note: notes.append(note))
+        self.assertTrue(out["yielded"])
+        self.assertFalse(out["restored"])
+        self.assertEqual(provider.calls, [], "the live holder owns the reload; startup never touches it")
+        self.assertEqual(handoff.journal_read().get("phase"), "processing",
+                         "the journal is left intact for the holder")
+        self.assertTrue(any("yielding" in n for n in notes), "the yield is said, not silent")
+        handoff.release(held)
+
+    def test_f153_startup_recovery_restores_the_loaded_model_then_clears_the_journal(self):
+        # With no live holder the journal is the evidence, and recovery restores exactly
+        # the originally-loaded model: loaded -> load + ready + cleared; not-loaded ->
+        # nothing loaded, cleared.
+        handoff.journal_write({"token": "t", "owner": "x", "capability": "documents.ocr",
+                               "phase": "processing",
+                               "original": {"loaded": True, "endpoint": "http://stub-llm"}})
+        provider = StubMainModel(loaded=False)
+        with mock.patch.object(main_model, "provider_for", return_value=provider):
+            out = handoff.recover_at_startup(timeout_s=1)
+        self.assertTrue(out["restored"])
+        self.assertEqual(provider.calls, ["load", "ready"])
+        self.assertEqual(handoff.journal_read(), {})
+
+        handoff.journal_write({"token": "t", "owner": "x", "capability": "documents.ocr",
+                               "phase": "processing",
+                               "original": {"loaded": False, "endpoint": "http://stub-llm"}})
+        provider2 = StubMainModel(loaded=False)
+        with mock.patch.object(main_model, "provider_for", return_value=provider2):
+            out2 = handoff.recover_at_startup(timeout_s=1)
+        self.assertTrue(out2["restored"])
+        self.assertEqual(provider2.calls, [])
+        self.assertEqual(handoff.journal_read(), {})
+
+    def test_f153_startup_recovery_after_a_failed_reload_restarts_from_the_journal(self):
+        # "Restart after recovery": a failed reload keeps the journal and says RESTORATION
+        # FAILED (the answer is typed, the retry is real); the next startup recovers from
+        # exactly that journal and clears it.
+        handoff.journal_write({"token": "t", "owner": "x", "capability": "documents.ocr",
+                               "phase": "processing",
+                               "original": {"loaded": True, "endpoint": "http://stub-llm"}})
+        provider = StubMainModel(loaded=False, load_ok=False)
+        with mock.patch.object(main_model, "provider_for", return_value=provider):
+            out = handoff.recover_at_startup(timeout_s=1)
+        self.assertFalse(out["restored"])
+        self.assertIn("RESTORATION FAILED", out["detail"])
+        self.assertEqual(provider.calls, ["load"], "ready is not polled on a failed load")
+        self.assertEqual(handoff.journal_read().get("phase"), "processing",
+                         "a failed reload must not consume the journal")
+        provider2 = StubMainModel(loaded=False)
+        with mock.patch.object(main_model, "provider_for", return_value=provider2):
+            out2 = handoff.recover_at_startup(timeout_s=1)
+        self.assertTrue(out2["restored"])
+        self.assertEqual(provider2.calls, ["load", "ready"])
+        self.assertEqual(handoff.journal_read(), {})
 
 
 class StrataHttpContract(unittest.TestCase):

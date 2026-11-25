@@ -31,9 +31,15 @@ const pyParakeet = registryPy.match(/^PARAKEET_ID = "([^"]+)"/m);
 function render(props: {
   ocrEngine: "paddle" | "tesseract" | "";
   migratedFrom: string | null;
+  saveError?: string | null;
 }) {
   return renderToStaticMarkup(
-    h(EnginesSettingsView, { ocrEngine: props.ocrEngine, migratedFrom: props.migratedFrom, onOcrEngine: () => {} }),
+    h(EnginesSettingsView, {
+      ocrEngine: props.ocrEngine,
+      migratedFrom: props.migratedFrom,
+      onOcrEngine: () => {},
+      saveError: props.saveError,
+    }),
   );
 }
 
@@ -106,5 +112,22 @@ describe("the ASR migration is announced once, visibly", () => {
   it("a clean read renders no note", () => {
     const html = render({ ocrEngine: "paddle", migratedFrom: null });
     expect(html).not.toContain("engines-migrated-note");
+  });
+});
+
+describe("a refused engine save is visible (F153 status law)", () => {
+  it("the panel names the failed save next to the reverted choice", () => {
+    const html = render({
+      ocrEngine: "paddle",
+      migratedFrom: null,
+      saveError: "Save failed — the OCR engine was NOT changed.",
+    });
+    expect(html).toContain("engines-save-error");
+    expect(html).toContain("NOT changed");
+  });
+
+  it("a saved choice renders no failure line", () => {
+    const html = render({ ocrEngine: "tesseract", migratedFrom: null });
+    expect(html).not.toContain("engines-save-error");
   });
 });

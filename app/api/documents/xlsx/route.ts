@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import { parseSpec, fileResponse, engineError } from "@/lib/documents/http";
 import { buildXlsx } from "@/lib/documents/xlsxEngine";
-import { dataQualityHeaders } from "@/lib/documents/dataQuality";
+import {
+  dataQualityHeaders,
+  CHART_FAILURE_COUNT_HEADER,
+  CHART_FAILURE_SAMPLE_HEADER,
+} from "@/lib/documents/dataQuality";
 
 export const runtime = "nodejs";
 
@@ -20,8 +24,8 @@ export async function POST(req: NextRequest) {
         out.valueIssues.slice(0, 8).map((i) => i.cell + " " + i.reason).join("; ")),
       ...(out.chartFailures.length
         ? {
-            "x-xlsx-chart-failures": String(out.chartFailures.length),
-            "x-xlsx-chart-failure-sample": encodeURIComponent(
+            [CHART_FAILURE_COUNT_HEADER]: String(out.chartFailures.length),
+            [CHART_FAILURE_SAMPLE_HEADER]: encodeURIComponent(
               out.chartFailures.slice(0, 4).map((f) => f.title + ": " + f.reason).join("; ").replace(/[^\x20-\x7E]/g, "?").slice(0, 512),
             ),
           }

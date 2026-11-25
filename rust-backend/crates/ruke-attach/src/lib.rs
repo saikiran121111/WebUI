@@ -43,10 +43,13 @@
 
 use tokio_util::sync::CancellationToken;
 
+pub mod audio_reread;
 pub mod bm25;
 pub mod embedder;
 pub mod format;
+pub mod frame_seek;
 pub mod notes;
+pub mod reread;
 pub mod retrieve;
 pub mod router;
 pub mod store;

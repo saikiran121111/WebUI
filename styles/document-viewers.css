@@ -34,6 +34,7 @@
 .doc-card-btn--primary { background: #38E8FF; color: #000000; border-color: #38E8FF; font-weight: 600; }
 .doc-card-btn--primary:hover { background: #5cf0ff; border-color: #5cf0ff; }
 .doc-card-error { color: #EF4444; font-size: 12.5px; padding: 8px 14px; }
+.doc-card-warning { color: #F59E0B; font-size: 12.5px; padding: 8px 14px; }
 .doc-card-body { overflow: auto; }
 .doc-card--fullscreen .doc-card-body { flex: 1; }
 /* Fullscreen layout per modality: the XLSX grid fills all the way to the

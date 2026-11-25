@@ -111,6 +111,50 @@ describe("extractCompactedContext", () => {
   it("returns null for an empty block", () => {
     expect(extractCompactedContext("<compacted_context>\n   </compacted_context>")).toBeNull();
   });
+
+  // F153 §2c — the SUMMARY-INTEGRITY law. Prompt rule 2 makes the model QUOTE
+  // user constraints verbatim, so a folded turn may itself contain the literal
+  // </compacted_context> (this app's own chats discuss compaction). On HEAD the
+  // first-close split (a) truncated the snapshot at that quote — sections 2–5
+  // silently dropped — and (b) left the close tag inside the body, so the
+  // wrapper's "</compacted_context>" in compactConversation closed the promoted
+  // block EARLY and every section after the quote rode as unframed prompt text
+  // on all later sends. Law: take the WIDEST span (first open → last close)
+  // and neutralize embedded closes so the promoted block is always ONE block.
+  it("a quoted </compacted_context> inside the body never truncates the snapshot", () => {
+    const raw = [
+      "<compacted_context>",
+      "## 1. User Rules",
+      '- user said: "wrap the output in <compacted_context>..</compacted_context> tags"',
+      "## 5. Active Context & Next Steps",
+      "- **Immediate Open Task:** fix the persistence bug",
+      "</compacted_context>",
+    ].join("\n");
+    const out = extractCompactedContext(raw);
+    expect(out).toContain("## 1. User Rules");
+    expect(out).toContain("## 5. Active Context & Next Steps");
+    expect(out).toContain("fix the persistence bug"); // survived the quote
+  });
+
+  it("the extracted body carries NO close tag, so the wrapper stays one block", () => {
+    const raw =
+      "<compacted_context>\n## 1\n- quote: </compacted_context> end quote\n## 2\n- real state\n</compacted_context>";
+    const out = extractCompactedContext(raw);
+    expect(out).not.toContain("</compacted_context>");
+    expect(out).toContain("real state");
+    // The promoted wrapper is then a single well-formed block by construction.
+    const wrapped = "<compacted_context>\n" + out + "\n</compacted_context>";
+    expect(wrapped.match(/<\/compacted_context>/gi)).toHaveLength(1);
+  });
+
+  it("an upper-case embedded close is neutralized too, and prose after the last close is dropped", () => {
+    const raw =
+      "<compacted_context>\n## 1\n- meta: </COMPACTED_CONTEXT> discussion\n## 2\n- keep me\n</compacted_context>\nprose after";
+    const out = extractCompactedContext(raw);
+    expect(out).not.toContain("</COMPACTED_CONTEXT>");
+    expect(out).toContain("keep me");
+    expect(out).not.toContain("prose after");
+  });
 });
 
 describe("toWireMessage", () => {

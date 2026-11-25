@@ -121,6 +121,9 @@ async fn rust_turn(fx: &Value, user_idx: usize, root: &std::path::Path) -> (Vec<
         // The TS golden calls buildAttachmentTurn with NO conversationId, so
         // both sides use the bare attachment key and parity holds.
         None,
+        None, // F152: no reread transport wired — goldens stay byte-identical
+        None, // F153: no fresh-audio seam wired — goldens stay byte-identical
+        None, // F153 item 4: no visual-seam wired — goldens stay byte-identical
     )
     .await
     .expect("retrieval must never fail here");

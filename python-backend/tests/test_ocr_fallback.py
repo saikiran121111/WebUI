@@ -343,6 +343,110 @@ class PerUnitRecovery(unittest.TestCase):
         self.assertFalse(casc["persisted"]["ok"])
         self.assertIn("identity", casc["persisted"]["detail"])
 
+    def test_each_recognition_pass_records_its_own_wall_clock(self):
+        # Item 5 (user brief 2026-11-24): the engine-use proof must carry "recognition
+        # start/finish". Policy, device and the fallback reason were already recorded;
+        # the recognition CLOCK existed nowhere, so "which engine ran, and when" was
+        # unanswerable from any record. Every pass an engine actually ran carries one.
+        primary = [OcrPage(page=1, state="ocr_failed", detail="region decode failed",
+                           engine=ocr_cascade.PRIMARY, language_code="en")]
+
+        def fake_paddle(*a, **k):
+            return list(primary), {"peak_working_set_mib": 10, "peak_commit_mib": 12}
+
+        def fake_tesseract(pdf_path, units, **k):
+            return [OcrPage(page=int(u), state="recognised", text=f"RECOVERED page {u}",
+                            engine="tesseract-5", language_code="en") for u in units]
+
+        with mock.patch.object(ocr_cascade, "_primary_state", lambda: _ready_state()), \
+                mock.patch.object(ocr_paddle, "estimate", lambda: {
+                    "est_peak_mib": 0, "est_peak_basis": "test", "est_peak_vram_mib": 0,
+                    "est_vram_basis": "test", "model_id": "test"}), \
+                mock.patch.object(ocr_cascade, "_paddle_run", fake_paddle), \
+                mock.patch.object(ocr_cascade.ocr_tesseract, "ocr_pdf_pages", fake_tesseract):
+            pages, report = ocr_cascade.run("in.pdf", [1], language="en", dpi=200)
+
+        casc = report["cascade"]
+        self.assertTrue(casc["fallback"].get("ran"), "the unit must have gotten recovery")
+        for name in ("primary", "fallback"):
+            rec = casc[name].get("recognition")
+            self.assertIsInstance(rec, dict, f"{name} ran, so it must carry a recognition clock")
+            self.assertRegex(str(rec.get("started_utc", "")),
+                             r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+            self.assertRegex(str(rec.get("finished_utc", "")),
+                             r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+            self.assertLessEqual(rec["started_utc"], rec["finished_utc"])
+            self.assertIsInstance(rec.get("wall_s"), (int, float))
+            self.assertGreaterEqual(rec["wall_s"], 0)
+        self.assertLessEqual(casc["primary"]["recognition"]["started_epoch"],
+                             casc["fallback"]["recognition"]["started_epoch"],
+                             "the passes run sequentially: primary first, recovery after it")
+        agg = casc.get("recognition")
+        self.assertIsInstance(agg, dict, "the cascade must report ONE recognition window")
+        self.assertLessEqual(agg["started_utc"], casc["primary"]["recognition"]["started_utc"])
+        self.assertGreaterEqual(agg["finished_utc"], casc["fallback"]["recognition"]["finished_utc"])
+        self.assertAlmostEqual(
+            agg["wall_s"],
+            casc["primary"]["recognition"]["wall_s"] + casc["fallback"]["recognition"]["wall_s"],
+            places=1)
+
+    def test_a_recovery_only_run_clocks_only_the_engine_that_ran(self):
+        # Tesseract-only selection (probed False, ready False): the primary never started,
+        # so it must carry NO clock. A clock for an engine that never ran is exactly the
+        # laundering these records exist to prevent; the aggregate is then the fallback's.
+        state = _ready_state()
+        state["ready"] = False
+        state["probed"] = False
+        state["blockers"] = ["the pinned primary runtime is not installed on this machine"]
+
+        def fake_tesseract(pdf_path, units, **k):
+            return [OcrPage(page=int(u), state="recognised", text=f"RECOVERED page {u}",
+                            engine="tesseract-5", language_code="en") for u in units]
+
+        with mock.patch.object(ocr_cascade, "_primary_state", lambda: state), \
+                mock.patch.object(ocr_cascade.ocr_tesseract, "ocr_pdf_pages", fake_tesseract):
+            pages, report = ocr_cascade.run("in.pdf", [1], language="en", dpi=200)
+
+        casc = report["cascade"]
+        self.assertTrue(casc["fallback"].get("ran"))
+        self.assertNotIn("recognition", casc["primary"],
+                         "an engine that never ran must claim no recognition window")
+        rec = casc["fallback"]["recognition"]
+        self.assertEqual(casc["recognition"]["started_utc"], rec["started_utc"])
+        self.assertEqual(casc["recognition"]["wall_s"], rec["wall_s"])
+
+    @unittest.skipUnless(SCANNED.is_file(), "run docs/overnight/fixtures/d1/ocr_docs.py first")
+    def test_the_recognition_window_lands_in_the_durable_record(self):
+        # The durable record is the evidence that outlives the run: pipeline.recognition
+        # must carry the SAME window the cascade report states (F73 self-describing-
+        # record law: a record describes its own work truthfully, never a blank).
+        primary = [OcrPage(page=1, state="ocr_failed", detail="region decode failed",
+                           engine=ocr_cascade.PRIMARY, language_code="en")]
+
+        def fake_paddle(*a, **k):
+            return list(primary), {"peak_working_set_mib": 10, "peak_commit_mib": 12}
+
+        def fake_tesseract(pdf_path, units, **k):
+            return [OcrPage(page=int(u), state="recognised", text=f"RECOVERED page {u}",
+                            engine="tesseract-5", language_code="en") for u in units]
+
+        with tempfile.TemporaryDirectory() as out_dir, \
+                mock.patch.object(ocr_cascade, "_primary_state", lambda: _ready_state()), \
+                mock.patch.object(ocr_paddle, "estimate", lambda: {
+                    "est_peak_mib": 0, "est_peak_basis": "test", "est_peak_vram_mib": 0,
+                    "est_vram_basis": "test", "model_id": "test"}), \
+                mock.patch.object(ocr_cascade, "_paddle_run", fake_paddle), \
+                mock.patch.object(ocr_cascade.ocr_tesseract, "ocr_pdf_pages", fake_tesseract), \
+                mock.patch.dict(os.environ, {ocr_cascade.RESULT_DIR_ENV: out_dir}):
+            pages, report = ocr_cascade.run(str(SCANNED), [1], language="en", dpi=200)
+            persisted = report["cascade"]["persisted"]
+            self.assertTrue(persisted.get("ok"), persisted.get("detail"))
+            with open(str(persisted["path"]), encoding="utf-8") as fh:
+                record = json.load(fh)
+
+        self.assertEqual(record["pipeline"]["recognition"], report["cascade"]["recognition"],
+                         "the durable record must carry the recognition window the report states")
+
     def test_a_cancelled_job_starts_no_recovery(self):
         called: list = []
 

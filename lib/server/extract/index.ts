@@ -61,7 +61,7 @@ import {
   discardTimelineScratch,
   type TimelineEvidence,
 } from "../attachindex/timeline";
-import type { FrameEntry, TranscriptSegment, TimelineSummary } from "../attachindex/types";
+import type { FrameEntry, SpeechCoverage, TranscriptSegment, TimelineSummary } from "../attachindex/types";
 
 export interface ExtractResult {
   name: string;
@@ -77,10 +77,15 @@ export interface ExtractResult {
   /**
    * Sampled video frames as PNG data URLs.
    * CAUTION — `at` is unit-polymorphic: SECONDS for video frames, but the
-   * 1-based PAGE NUMBER for extra pages of multi-page images (tiff/gif). Any
-   * consumer pairing frames with time windows must check `category` first.
+   * 1-based PAGE NUMBER for extra pages of multi-page images (tiff/gif) and
+   * the 1-based UNIT ordinal (slide / sheet / body-paragraph) for document
+   * visual frames. Any consumer pairing frames with time windows must check
+   * `category` first.
+   * F152: document frames carry `label` (the reader's unit name, e.g.
+   * "slide 1") and the stable `region` id so the visual keeps its source
+   * location through chat assembly.
    */
-  frames?: { dataUrl: string; at: number }[];
+  frames?: { dataUrl: string; at: number; label?: string; region?: string; region_state?: string }[];
   /**
    * F68: the primary image's TRUE pixel dimensions (container/decoded source,
    * not the downscaled delivery raster). The model is told these verbatim so
@@ -146,6 +151,20 @@ export function timedTranscriptText(segments: AsrSegment[]): string {
 }
 
 /**
+ * F153 item 2 (2026-11-24): the cap statement, at the TOP of the delivered
+ * record. A run whose middle segments exceed the adapter's serialized window
+ * says so with the numbers the worker, the adapter and this delivery agree on,
+ * and points at the durable full timed transcript (the index) so a time-range
+ * question can still be answered. Silent completeness was the defect: the
+ * 20,001-segment repro dropped the final fact while reporting complete=true.
+ */
+function transcriptCapNote(asr: CapabilityAsr): string {
+  return asr.cappedSegments > 0
+    ? `\n[transcript cap: ${asr.segmentCount} segments produced; ${asr.cappedSegments} middle segment(s) exceed this delivery's window - the complete timed transcript is kept in the index: ask for the time range to read them]`
+    : "";
+}
+
+/**
  * F78 (2026-11-22): the short-video path deleted the eagerly-extracted
  * keyframes and shipped only the 20%/70% previews — a spoken fact at 61 s
  * and the saved moment showing the screen at 60 s never reached the same
@@ -186,19 +205,80 @@ function spreadKeyframes(
 }
 
 /**
+ * F152: persist a document's visual frames into the knowledge index when the
+ * text is oversized. The pixels were rendered once (PDF drawn pages, embedded
+ * rasters of office documents); an indexed document must not lose them — the
+ * brief's law is that document pixels survive chat assembly for SHORT *and*
+ * INDEXED attachments. They are written into framesDir exactly like the ffmpeg
+ * keyframes (before the build, moved into the generation by the publisher)
+ * and referenced by meta.frames, `at` = unit ordinal, label/region keep the
+ * source location. Inline frames ride only the cap path: the client's indexed
+ * branch sends zero pixels, and the retrieval layer serves the relevant crop
+ * per question.
+ */
+const MAX_INDEXED_DOC_FRAMES = 16;
+
+function persistDocFrames(
+  attId: string,
+  frames: NonNullable<ExtractResult["frames"]>,
+): FrameEntry[] {
+  const out: FrameEntry[] = [];
+  try {
+    fs.mkdirSync(framesDir(attId), { recursive: true });
+  } catch { /* publish creates it too; writes below report real failures */ }
+  for (const f of frames.slice(0, MAX_INDEXED_DOC_FRAMES)) {
+    const m = /^data:image\/(png|jpeg);base64,([\s\S]+)$/.exec(f.dataUrl);
+    if (!m) continue;
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(m[2], "base64");
+    } catch {
+      continue;
+    }
+    if (!buf.length) continue;
+    const name = `d_${String(out.length + 1).padStart(3, "0")}.${m[1] === "png" ? "png" : "jpg"}`;
+    try {
+      // meta.frames entries are indexDir-relative ("frames/…", the ffmpeg keyframe
+      // shape); the bytes land in framesDir = indexDir/frames — never a nested
+      // frames/frames (a double join here silently wrote every frame to a missing
+      // directory and the index shipped zero pixels).
+      fs.writeFileSync(path.join(framesDir(attId), name), buf);
+    } catch {
+      continue; // one unwritable frame must not fail the whole indexing
+    }
+    const file = `frames/${name}`;
+    out.push({
+      at: f.at, file,
+      ...(f.label ? { label: f.label } : {}),
+      ...(f.region ? { region: f.region } : {}),
+      ...(f.region_state ? { state: f.region_state } : {}),
+    });
+  }
+  return out;
+}
+
+/**
  * The classic cap path — or the index path when the parsed text overflows
  * the prompt budget and we have a valid attachment id to key the index by.
+ * F152: `frames` (the document's rendered pages/regions) persist into the
+ * index on the index path; the caller ships them inline only for the cap path.
  */
 async function cappedOrIndexed(
   name: string,
   category: FileCategory,
   att: string | undefined,
   raw: string,
+  frames?: NonNullable<ExtractResult["frames"]>,
   signal?: AbortSignal,
 ): Promise<ExtractResult> {
   const clean = (raw ?? "").replace(/\r\n/g, "\n").trim();
   if (att && clean.length > TEXT_CHAR_LIMIT) {
-    const indexed = await indexContent(name, category, att, clean, {}, signal);
+    const extra: { frames?: FrameEntry[] } = {};
+    if (frames?.length) {
+      const persisted = persistDocFrames(att, frames);
+      if (persisted.length) extra.frames = persisted;
+    }
+    const indexed = await indexContent(name, category, att, clean, extra, signal);
     return { name, category, ...indexed, text: clean.slice(0, PREVIEW_CHARS), truncated: true };
   }
   return { name, category, ...cap(clean) };
@@ -226,6 +306,8 @@ export async function indexContent(
     /** F13: durable media baseline for a video/audio attachment. */
     observations?: Array<Record<string, unknown>>;
     timeline?: TimelineSummary;
+    /** F153 item 3: the audio run's decode coverage (meta.speech). */
+    speech?: SpeechCoverage;
   } = {},
   signal?: AbortSignal,
 ): Promise<Pick<ExtractResult, "indexed" | "chunkCount" | "spine"> & { embedNote?: string }> {
@@ -305,8 +387,14 @@ async function deliverSpoken(
       }s; ${asr.unexamined.length} interval(s) were never decoded, so the absence of speech there is unproven]`;
   // F78: segments keep their times on the inline transcript too, not only in
   // the index — the timed header is the citation law the per-turn rules use.
-  const body = timedTranscriptText(asr.segments as AsrSegment[]) || asr.text;
-  const transcript = `${note}\n${body}${coverage}`;
+  // F153 (2026-11-24): when the adapter's cap skipped a middle, the FULL timed
+  // transcript (middle included) is the durable body — the window's head+tail
+  // ride the preview, and the skipped count is stated up top, never hidden.
+  const body =
+    (asr.cappedSegments > 0
+      ? asr.fullTranscriptText
+      : timedTranscriptText(asr.segments as AsrSegment[])) || asr.text;
+  const transcript = `${note}${transcriptCapNote(asr)}\n${body}${coverage}`;
   const durationSec = asr.durationSec;
   if (att && transcript.length > TEXT_CHAR_LIMIT) {
     const indexed = await indexContent(
@@ -314,7 +402,26 @@ async function deliverSpoken(
       category,
       att,
       transcript,
-      { segments: asSegments(asr.segments), ...(durationSec > 0 ? { durationSec } : {}) },
+      {
+        // F153: on a cap drop the INDEX chunks the FULL validated set - the
+        // searchable index must cover the whole timeline, not just the delivery
+        // window (the cap note promises the time range is readable).
+        segments: asSegments(asr.cappedSegments > 0 ? asr.allSegments : asr.segments),
+        // F153 item 3: the decode coverage rides the durable record too, so a
+        // follow-up about an UNCOVERED time can tell measured absence from an
+        // unexamined gap and schedule a bounded fresh read of the original.
+        ...(durationSec > 0
+          ? {
+              durationSec,
+              speech: {
+                durationSec,
+                complete: asr.complete,
+                examined: asr.examined,
+                unexamined: asr.unexamined,
+              } as SpeechCoverage,
+            }
+          : {}),
+      },
       signal,
     );
     return {
@@ -520,20 +627,29 @@ export async function extractFileFromPath(
         if (cap.state === "ready") {
           const merged = mergePdfUnits(ts ?? { pages: 0, perPage: [], pagesWithoutText: [] }, cap.doc);
           if (merged.refusal) throw new Error(`${name}: ${merged.refusal}`);
-          const mergedResult = await cappedOrIndexed(name, category, att, merged.text, signal);
           // Pages whose CONTENT is drawn (vector chart/diagram marks) ride to the model
           // as page-image frames: the text layer of a chart page carries only its labels,
           // so a chart question needs the rendered page. `at` is the 1-based PDF page
           // number here (frames' `at` is polymorphic by design - consumers pair frames
           // with time windows only for media categories, checked before use).
           const visual = cap.doc.visualPages;
+          // The reader names PDF page renders "Page {page}" client-side; the
+          // label is stamped explicitly so an INDEXED frame (served from
+          // meta.frames, where no client fallback exists) is self-describing
+          // and marked page-axis for the retrieval pairing.
+          const visualFrames = visual.map((v) => ({
+            dataUrl: v.dataUrl, at: v.page, label: `page ${v.page}`,
+            ...(v.region ? { region: v.region } : {}),
+            ...(v.region_state ? { region_state: v.region_state } : {}),
+          }));
+          const mergedResult = await cappedOrIndexed(name, category, att, merged.text, visualFrames, signal);
           return {
             ...mergedResult,
             pages: merged.pages,
             coverageNote: merged.coverageNote,
-            ...(visual.length
-              ? { frames: visual.map((v) => ({ dataUrl: v.dataUrl, at: v.page })) }
-              : {}),
+            // F152: inline pixels ride the cap path; an indexed PDF's frames
+            // persisted into the index, and retrieval serves the relevant page.
+            ...(visualFrames.length && !mergedResult.indexed ? { frames: visualFrames } : {}),
           };
         }
         if (!ts) {
@@ -563,6 +679,21 @@ export async function extractFileFromPath(
           }
           throw new Error("No readable text found in this PDF");
         }
+        // F153: a capability failure over a working TS read is an honest
+        // PARTIAL, never a completed record. pdf.js alone says "there is
+        // text"; it cannot see figures. The pages the visual/OCR pass never
+        // rendered are NAMED — and the sentence rides the INDEXED text (the
+        // I06 law: retrieved passages must carry the caveat), not only the
+        // side field. A zero-frame survey PDF whose visual pass hit its parse
+        // deadline shipped READY-as-complete and every figure question
+        // answered from chunks that claimed a full read.
+        const capGap = cap.state === "unavailable"
+          ? `[PDF coverage: the visual/OCR reader did not complete (${cap.reason}) — ` +
+            `${pages <= 15 ? `page(s) ${Array.from({ length: pages }, (_, i) => i + 1).join(", ")}` : `all ${pages} pages`} ` +
+            `were NOT inspected as images; figures, charts and scanned content are ` +
+            `unreachable from this record. This read is retryable: ask about the document again. ` +
+            `${capabilityBlockerLine(cap)}]`
+          : "";
         let full = text;
         if (pagesWithoutText.length) {
           const listed = pagesWithoutText.length <= 15
@@ -573,11 +704,12 @@ export async function extractFileFromPath(
             `image-only (scanned) pages: ${listed} — those pages are NOT readable here (no OCR engine)]\n\n` +
             text;
         }
-        const r = await cappedOrIndexed(name, category, att, full, signal);
+        if (capGap) full = `${capGap}\n\n${full}`;
+        const r = await cappedOrIndexed(name, category, att, full, undefined, signal);
         return {
           ...r,
           pages,
-          ...(cap.state === "unavailable" ? { coverageNote: capabilityBlockerLine(cap) } : {}),
+          ...(capGap ? { coverageNote: capGap } : {}),
         };
       }
       if (category === "office") {
@@ -603,8 +735,28 @@ export async function extractFileFromPath(
           // The merge always carries its coverage statement, so an Office read that produced
           // nothing readable still reaches the user as an honest empty extraction with the
           // per-unit reasons rather than a bare "no readable text" error (F12-2/F12-4).
-          const mergedResult = await cappedOrIndexed(name, category, att, merged.text, signal);
-          return { ...mergedResult, ...(merged.pages ? { pages: merged.pages } : {}), coverageNote: merged.coverageNote };
+          // F152: embedded-raster regions (the PPTX legend, the DOCX screenshot, the
+          // XLSX chart image) render through the capability reader's region
+          // inspection. The recovered text lands in the body as an ocr_text block,
+          // but the PIXELS of every rendered region — photos included — ride as
+          // labelled frames so a visual question ("which line crosses the
+          // threshold?") reaches the multimodal request with its unit identity.
+          const officeVisual = cap.doc.visualPages;
+          const officeFrames = officeVisual.map((v) => ({
+            dataUrl: v.dataUrl, at: v.page,
+            ...(v.label ? { label: v.label } : {}),
+            ...(v.region ? { region: v.region } : {}),
+            ...(v.region_state ? { region_state: v.region_state } : {}),
+          }));
+          const mergedResult = await cappedOrIndexed(name, category, att, merged.text, officeFrames, signal);
+          return {
+            ...mergedResult,
+            ...(merged.pages ? { pages: merged.pages } : {}),
+            coverageNote: merged.coverageNote,
+            // F152: inline pixels ride the cap path; an indexed office doc's
+            // frames persisted into the index with their region ids.
+            ...(officeFrames.length && !mergedResult.indexed ? { frames: officeFrames } : {}),
+          };
         }
         if (officeFail !== null) {
           // cap.state is narrowed to "none" | "unavailable" here: the "ready" case returned above.
@@ -614,13 +766,28 @@ export async function extractFileFromPath(
             capabilityBlockerLine(cap),
           );
         }
+        // F153: same law as PDF. A capability timeout leaves the TS OOXML body
+        // readable, but every embedded picture, chart image and diagram was
+        // never rendered — the deck.f153 lesson (zero regions, no statement).
+        // The gap is named in the delivered text and on the record, retryable.
+        const officeGap = cap.state === "unavailable"
+          ? `[Office coverage: the capability reader did not complete (${cap.reason}) — ` +
+            `embedded images, charts and diagrams were NOT rendered and their content is ` +
+            `unreachable from this record. This read is retryable: ask about the document again. ` +
+            `${capabilityBlockerLine(cap)}]`
+          : "";
         if (!tsOffice.trim()) {
           throw new Error(
             "No readable text found in this document" +
             (cap.state === "unavailable" ? ` ${capabilityBlockerLine(cap)}` : ""),
           );
         }
-        return await cappedOrIndexed(name, category, att, tsOffice, signal);
+        const r = await cappedOrIndexed(
+          name, category, att,
+          officeGap ? `${officeGap}\n\n${tsOffice}` : tsOffice,
+          undefined, signal,
+        );
+        return { ...r, ...(officeGap ? { coverageNote: officeGap } : {}) };
       }
       if (category === "archive") {
         // The uploaded name is passed along because bare .bz2/.xz streams store
@@ -628,7 +795,7 @@ export async function extractFileFromPath(
         // A weak PK sniff can rescue a zip renamed .txt/.dat; the extension
         // then LIES about the container, so the sniffed magic decides instead.
         const arcExt = sniffed && sniffed.category === "archive" ? "zip" : ext;
-        return await cappedOrIndexed(name, category, att, await archiveText(buf, arcExt, name), signal);
+        return await cappedOrIndexed(name, category, att, await archiveText(buf, arcExt, name), undefined, signal);
       }
       // Legacy .doc/.xls/.ppt/.mat: the capability backend carries the real
       // structured readers (Word97 WordDocument, PPT atom walk, BIFF8, MAT v4).
@@ -658,7 +825,7 @@ export async function extractFileFromPath(
             `[document capability ${DOCUMENT_PARSE_CAPABILITY} (${cap.doc.engine}) reads the legacy ` +
             `binary structure; body_source: capability:${cap.doc.engine}; units: ` +
             `${cap.doc.unitsSucceeded.length} of ${cap.doc.unitsTotal} read]`;
-          return await cappedOrIndexed(name, category, att, `${note}\n\n${capText}`, signal);
+          return await cappedOrIndexed(name, category, att, `${note}\n\n${capText}`, undefined, signal);
         }
       }
       const text = extractStrings(buf);
@@ -681,12 +848,44 @@ export async function extractFileFromPath(
       // I07: extra pages (multi-page TIFF / animated GIF) ride along as
       // `frames` with `at` = page number — not seconds.
       const img = await imageToDataUrlFromPath(srcPath, { signal });
-      return {
+      const out: ExtractResult = {
         name, category, dataUrl: img.dataUrl,
         pages: img.pages,
         ...(img.frames ? { frames: img.frames } : {}),
         ...(img.width && img.height ? { width: img.width, height: img.height } : {}),
       };
+      // F152: a standalone raster answers to the SAME region-decision law as an
+      // embedded image — the pixels ARE the content and ride to the model
+      // unchanged (direct image uploads are preserved); the same cheap region
+      // inspection (python documents/region_ocr.py) honestly decides whether an
+      // engine runs: a screenshot's label is OCR-recovered and attached to the
+      // image and its region id, a photo pays zero engine calls and keeps its
+      // pixels for visual questions. The engine POLICY (Paddle-first /
+      // Tesseract-only) is the cascade's, never this seam's.
+      const cap = await readDocumentViaCapability(srcPath, {
+        ...(opts?.runJob ? { runJob: opts.runJob } : {}),
+        ...(signal ? { signal } : {}),
+      });
+      if (cap.state === "ready") {
+        const recognized = cap.doc.units.filter((u) => u.provenance === "ocr");
+        if (recognized.length) {
+          out.text = recognized
+            .map((u) => {
+              // The region frame names the same unit: bind the recovered text
+              // to its label + stable region id (the source-location law).
+              const where = cap.doc.visualPages.find((v) => v.page === u.unit && v.region);
+              const eng = [u.engine, u.language].filter(Boolean).join(" / ");
+              const from = where?.label ? ` from ${where.label}` : "";
+              const region = where?.region ? `, region ${where.region}` : "";
+              return `[text recovered by OCR${eng ? ` (${eng})` : ""}${from}${region}]\n${u.text}`;
+            })
+            .join("\n\n");
+        }
+        // The reader's own note states the region outcome (inspection ran /
+        // engine calls / why a region was skipped) — evidence, never silence.
+        if (cap.doc.note) out.coverageNote = cap.doc.note;
+      }
+      return out;
     }
 
     case "audio": {
@@ -736,9 +935,23 @@ export async function extractFileFromPath(
     }
 
     case "video": {
-      const sampled = await videoFramesFromPath(srcPath, { signal });
-      let frames = sampled.frames;
-      const { durationSec } = sampled;
+      // F152: the visual channel and the speech channel are INDEPENDENTLY
+      // recoverable evidence. The decoder throws when it obtains no frames;
+      // that failure used to take the whole upload down BEFORE ASR ever ran,
+      // so valid speech died with the frames it never needed. A frame-decode
+      // failure is RECORDED here — the outcome states exactly what could and
+      // could not be read — and the speech path runs regardless.
+      let frames: { dataUrl: string; at: number }[] = [];
+      let durationSec = 0;
+      let frameIssue: string | null = null;
+      try {
+        const sampled = await videoFramesFromPath(srcPath, { signal });
+        frames = sampled.frames;
+        durationSec = sampled.durationSec;
+      } catch (err) {
+        if (signal?.aborted) throw new Error("The user aborted this request.");
+        frameIssue = `its visual content could not be decoded (${err instanceof Error ? err.message : String(err)})`;
+      }
       // F13/S60: one probe per upload, reused by the audio-failure classifier
       // and by the durable media baseline. Lazy: the frames-only path with no
       // attachment never pays for it.
@@ -750,6 +963,11 @@ export async function extractFileFromPath(
       // F13/S60: the cheap upload baseline (media identity, streams, duration,
       // scene anchors, coverage). Built before the index because the index is
       // the durable home for the record; null means nothing was published.
+      // F153 item 4 (2026-11-25): every catch that turns media evidence into
+      // null must CARRY COVERAGE. A silent null made the rest of the source
+      // unreachable without saying so — "no event found" must never read as
+      // "never inspected", and "never inspected" must be stated out loud.
+      let baselineIssue: string | null = null;
       const buildBaseline = async (): Promise<TimelineEvidence | null> => {
         if (!att) return null;
         try {
@@ -760,8 +978,12 @@ export async function extractFileFromPath(
             durationSec,
             signal,
           });
-        } catch {
-          return null; // a missing baseline never fails the upload
+        } catch (err) {
+          // A missing baseline never fails the upload — but it is reported:
+          // the durable media record (streams, real durations, scene anchors)
+          // is ABSENT and follow-ups know it.
+          baselineIssue = `the durable media baseline (container streams, real durations, scene anchors) could not be built (${err instanceof Error ? err.message : String(err)})`;
+          return null;
         }
       };
       const publishBaseline = async (attId: string, baseline: TimelineEvidence): Promise<void> => {
@@ -769,10 +991,12 @@ export async function extractFileFromPath(
           await withIndexWriteLock(attId, async () => {
             if (!attachTimelineDir(indexDir(attId), baseline.scratchDir)) {
               discardTimelineScratch(baseline.scratchDir);
+              baselineIssue = "the durable media baseline was built but could not be stored in the index";
             }
           });
-        } catch {
+        } catch (err) {
           discardTimelineScratch(baseline.scratchDir);
+          baselineIssue = `the durable media baseline was built but could not be stored in the index (${err instanceof Error ? err.message : String(err)})`;
         }
       };
       // The audio track carries narration — transcribe it when the clip has
@@ -782,8 +1006,14 @@ export async function extractFileFromPath(
       // otherwise pay after transcription finishes. It is only started when an
       // index could actually use the frames (att present), and it is cleaned
       // up below whenever the transcript turns out not to need an index.
+      let keyIssue: string | null = null;
       const kfPromise: Promise<{ at: number; name: string }[] | null> = att
-        ? videoKeyframesFromPath(srcPath, framesDir(att), { signal }).catch(() => null)
+        ? videoKeyframesFromPath(srcPath, framesDir(att), { signal }).catch((err) => {
+            // F153 item 4: the null carries its reason. The old silent null
+            // left the visual record unreachable with no word about it.
+            keyIssue = `the scene-change keyframe pass ended with no visual record (${err instanceof Error ? err.message : String(err)})`;
+            return null;
+          })
         : Promise.resolve(null);
       let transcript: string | undefined;
       let segments: AsrSegment[] = [];
@@ -846,7 +1076,12 @@ export async function extractFileFromPath(
       const timed = timedTranscriptText(segments);
       if (transcript && timed) transcript = timed;
       if (transcript && pythonAsr) {
-        transcript = `${speechEngineNote(pythonAsr)}\n${transcript}`;
+        // F153 (2026-11-24): on a cap drop the video's durable text is the
+        // FULL timed transcript (middle included) and the drop is STATED —
+        // the same law as the pure-audio delivery, on the video's audio track.
+        if (pythonAsr.cappedSegments > 0 && pythonAsr.fullTranscriptText)
+          transcript = pythonAsr.fullTranscriptText;
+        transcript = `${speechEngineNote(pythonAsr)}${transcriptCapNote(pythonAsr)}\n${transcript}`;
       }
 
       if (!transcript) {
@@ -861,12 +1096,14 @@ export async function extractFileFromPath(
           // INVITED the model to generalize the sample to the whole timeline —
           // the exact over-claim seen in the live UI. Same point-evidence law
           // the timeline layer states for frame OCR, phrased for the record.
+          const baseline = await buildBaseline();
           const coverageNote =
             `Video "${name}"${durationSec > 0 ? ` (${Math.round(durationSec)}s)` : ""}: ${speechIssue ?? "its spoken content could not be read"}. ` +
+            (frameIssue ? `${frameIssue}; its scene-change keyframes decoded separately and ARE readable. ` : "") +
             `Its visual content WAS read: keyframes were sampled at ${keyframes.length} moment(s) across its timeline, each carrying its video timestamp, ` +
             `so questions about what is ON SCREEN at one of those moments can be answered from them; what happens between, ` +
-            `before or after the sampled moments was never examined and cannot be claimed. Questions about what is SPOKEN cannot.`;
-          const baseline = await buildBaseline();
+            `before or after the sampled moments was never examined and cannot be claimed. Questions about what is SPOKEN cannot.` +
+            (baselineIssue ? ` ${baselineIssue}: follow-ups start from the saved keyframes alone.` : "");
           const indexed = await indexContent(name, category, att, coverageNote, {
             durationSec,
             frames: keyframes,
@@ -883,7 +1120,24 @@ export async function extractFileFromPath(
           };
         }
         if (att) try { fs.rmSync(framesDir(att), { recursive: true, force: true }); } catch { /* ignore */ }
-        return { name, category, frames, durationSec };
+        // F152 (Part 3-D): the typed SPEECH verdict must be named on this plain
+        // return too. The old shape wove the note ONLY when the decoder failed,
+        // so a short single-scene clip — zero scene-change keyframes by the
+        // sampler's own law, no decoder throw — with blocked speech delivered
+        // its previews with NO explanation at all: the pinned-backend admission
+        // was swallowed (the mechanism behind the dual.* matrix reds' silent
+        // records). Frame-fail-only, speech-fail-only and both-fail all state
+        // every failure that happened, in the frozen wording, never more.
+        const blockBits = [
+          frameIssue,
+          keyIssue,
+          speechIssue ?? (frameIssue ? "and its spoken content could not be read" : ""),
+        ].filter((s): s is string => !!s);
+        const blockNote = blockBits.join("; ");
+        return {
+          name, category, frames, durationSec,
+          ...(blockNote ? { coverageNote: `${blockNote}.` } : {}),
+        };
       }
 
       if (att && transcript.length > TEXT_CHAR_LIMIT) {
@@ -895,33 +1149,85 @@ export async function extractFileFromPath(
         );
         const baseline = await buildBaseline();
         const indexed = await indexContent(name, category, att, transcript, {
-          segments: asSegments(segments),
+          // F153: cap drop on the video's audio track - index the FULL validated
+          // set so the skipped middle is retrievable; same law as pure audio.
+          segments: asSegments(
+            pythonAsr && pythonAsr.cappedSegments > 0 ? pythonAsr.allSegments : segments,
+          ),
           durationSec,
           frames: keyframes,
           ...(baseline ? { observations: baseline.observations, timeline: baseline.summary } : {}),
         }, signal);
         if (baseline) await publishBaseline(att, baseline);
+        const longBits = [frameIssue, keyIssue,
+          ...(baselineIssue ? [`${baselineIssue}: follow-ups start from the passages and saved keyframes alone`] : [])]
+          .filter((s): s is string => !!s);
         return {
           name, category, ...indexed, frames, durationSec,
           transcript: transcript.slice(0, PREVIEW_CHARS),
           truncated: true,
+          ...(longBits.length ? { coverageNote: `${longBits.join("; ")} — the spoken content below WAS read.` } : {}),
         };
       }
-      // Small transcript: the index will not carry the eagerly-extracted
-      // keyframes — F78 (2026-11-22) ships a TIME-SPREAD of them inline
-      // BEFORE deleting the directory. The 20%/70% previews alone leave a
-      // spoken fact at 61 s and the saved moment showing the screen at ~60 s
-      // in different turns, so the A/V alignment question is unanswerable
-      // from the evidence the model receives.
-      if (att && key && key.length) {
-        try {
-          frames = [...frames, ...spreadKeyframes(frames.map(f => f.at), key, framesDir(att),
-            Math.max(0, INLINE_FRAME_CAP - frames.length))];
-        } catch { /* inline merge is best-effort; the transcript stands */ }
+      // F153 item 4 (2026-11-25): a SMALL transcript is NOT a short recording.
+      // A three-hour screen capture with ten spoken words has a small
+      // transcript and a THREE-HOUR visual record. The old path spread a few
+      // keyframes inline, DELETED the frames dir and built no index: every
+      // follow-up about a later moment had nothing to retrieve (the F78
+      // inline-spread law stands for the FIRST answer; it was never meant to
+      // be the whole record). The durable record — passages, keyframes,
+      // baseline — is built for every video with an attachment; nothing on
+      // disk is deleted.
+      if (att) {
+        if (key && key.length) {
+          try {
+            frames = [...frames, ...spreadKeyframes(frames.map(f => f.at), key, framesDir(att),
+              Math.max(0, INLINE_FRAME_CAP - frames.length))];
+          } catch { /* inline merge is best-effort; the transcript stands */ }
+        }
+        const keyframes: FrameEntry[] = (key ?? []).map(f => ({ at: f.at, file: "frames/" + f.name }));
+        const baseline = await buildBaseline();
+        const indexed = await indexContent(name, category, att, transcript, {
+          // F153: cap drop on the video's audio track - index the FULL validated
+          // set so the skipped middle is retrievable; same law as pure audio.
+          segments: asSegments(
+            pythonAsr && pythonAsr.cappedSegments > 0 ? pythonAsr.allSegments : segments,
+          ),
+          durationSec,
+          frames: keyframes,
+          ...(baseline ? { observations: baseline.observations, timeline: baseline.summary } : {}),
+        }, signal);
+        if (baseline) await publishBaseline(att, baseline);
+        const capped = cap(transcript);
+        // Sampling-coverage law (F76 wording): state WHAT was sampled and that
+        // the space between samples was never examined — no silent reachability
+        // claim, and every catch (frame decode, keyframe pass, baseline) named.
+        const visBits = [
+          frameIssue,
+          keyIssue,
+          keyframes.length
+            ? `Its visual content WAS read: keyframes were sampled at ${keyframes.length} moment(s) across its timeline, each carrying its video timestamp, so questions about what is ON SCREEN at one of those moments can be answered from them; what happens between, before or after the sampled moments was never examined and cannot be claimed`
+            : keyIssue
+              ? "the on-screen content was NOT examined: asking about a visual moment has no saved picture to serve"
+              : "no scene-change keyframe was sampled (the scene pass found no cut and the seek budget produced no frame), so the on-screen content was NOT examined",
+          ...(baselineIssue ? [`${baselineIssue}: follow-ups start from the passages and saved keyframes alone`] : []),
+        ].filter((s): s is string => !!s);
+        return {
+          name, category, ...indexed, frames, durationSec,
+          transcript: capped.text, truncated: capped.truncated,
+          // The F152 assurance law: naming a visual failure must also state
+          // that the audio channel succeeded, in the frozen wording.
+          ...(visBits.length ? { coverageNote: `${visBits.join("; ")} — the spoken content WAS read.` } : {}),
+        };
       }
-      if (att) try { fs.rmSync(framesDir(att), { recursive: true, force: true }); } catch { /* ignore */ }
+      // No attachment: no index is possible, and no frames dir was ever
+      // created (the keyframe pass only runs with an att). The inline
+      // previews and the plain transcript stand unchanged.
       const capped = cap(transcript);
-      return { name, category, frames, durationSec, transcript: capped.text, truncated: capped.truncated };
+      return {
+        name, category, frames, durationSec, transcript: capped.text, truncated: capped.truncated,
+        ...(frameIssue ? { coverageNote: `${frameIssue} — the spoken content WAS read.` } : {}),
+      };
     }
 
     default:

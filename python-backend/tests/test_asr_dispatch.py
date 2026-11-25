@@ -218,9 +218,30 @@ def _fake_adapter(calls: list, result: Transcript | None = None,
     return mod
 
 
+def _isolate_asr_cache(case: unittest.TestCase) -> None:
+    """Fresh durable-record root per test (F152): the record is keyed by file CONTENT,
+    and every fake source in this file is the same handful of identical bytes, so on
+    the shared default root a succeeded test's record answers a later test's request
+    with zero engine invocations - which is exactly what the cache is FOR in
+    production, and exactly what would make these dispatch/placement assertions
+    vacuous. The isolation law is the e2e launcher's RUKE_OCR_RESULT_DIR redirect,
+    applied per test; the environment is restored verbatim on cleanup."""
+    root = tempfile.TemporaryDirectory(prefix="f152-asr-cache-")
+    previous = os.environ.get("RUKE_ASR_RESULT_DIR")
+    os.environ["RUKE_ASR_RESULT_DIR"] = root.name
+    def restore() -> None:
+        if previous is None:
+            os.environ.pop("RUKE_ASR_RESULT_DIR", None)
+        else:
+            os.environ["RUKE_ASR_RESULT_DIR"] = previous
+        root.cleanup()
+    case.addCleanup(restore)
+
+
 class Dispatch(unittest.TestCase):
     def setUp(self):
         self.calls: list = []
+        _isolate_asr_cache(self)
 
     def test_the_row_registered_adapter_runs_not_whisper(self):
         transcript = Transcript(text="the recorded sentence", language="en",
@@ -270,6 +291,33 @@ class Dispatch(unittest.TestCase):
         # 1.0 s at the tail was never decoded -> reported as skipped, completeness false.
         self.assertFalse(result.payload["complete"])
         self.assertEqual([tuple(g) for g in result.coverage.skipped], [(11.0, 12.0)])
+
+    def test_the_payload_records_the_wall_clock_the_engine_recognised(self):
+        # Item 5 (user brief 2026-11-24): "record selected engine, actual backend/device,
+        # recognition start/finish". The per-segment engine/revision/device, placement and
+        # routing were already recorded; the recognition CLOCK existed nowhere, so no
+        # record could answer WHEN the transcription actually ran. The payload carries it.
+        transcript = Transcript(text="the recorded sentence", language="en",
+                                language_source="detected", duration=12.0,
+                                examined=[(0.0, 12.0)], complete=True,
+                                model=ROW_ID, device="cuda", compute_type="float16")
+        adapter = _fake_adapter(self.calls, result=transcript)
+        harness = _Harness(_row(), adapter)
+        try:
+            result = harness.run()
+        finally:
+            harness.close()
+        self.assertEqual(result.state, "ready")
+        rec = result.payload.get("recognition")
+        self.assertIsInstance(rec, dict, "the payload must carry the recognition clock")
+        self.assertRegex(str(rec.get("started_utc", "")), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertRegex(str(rec.get("finished_utc", "")), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertLessEqual(rec["started_utc"], rec["finished_utc"])
+        self.assertIsInstance(rec.get("wall_s"), (int, float))
+        self.assertGreaterEqual(rec["wall_s"], 0)
+        self.assertEqual(rec.get("engine"), FAKE_ADAPTER,
+                         "the clock must name the adapter that actually ran")
+        self.assertIn("device", rec)
 
     def test_an_adapter_typed_failure_reaches_the_wire_through_the_shared_kind_map(self):
         adapter = _fake_adapter(
@@ -449,6 +497,7 @@ class Provisioning(unittest.TestCase):
 
     def setUp(self):
         self.calls: list = []
+        _isolate_asr_cache(self)
 
     def test_a_present_pinned_snapshot_runs_with_zero_download(self):
         snap = os.path.join(self_root := tempfile.mkdtemp(), "snapshots", "rev-pinned-1")
@@ -576,6 +625,7 @@ class Placement(unittest.TestCase):
 
     def setUp(self):
         self.calls: list = []
+        _isolate_asr_cache(self)
 
     def _row(self, **over) -> ModelSpec:
         return _row(est_peak_mib=3_142, est_peak_basis="measured: g103 cold-load peak",

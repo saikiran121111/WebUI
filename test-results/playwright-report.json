@@ -2,11 +2,11 @@
   "config": {
     "argv": [
       "C:\\Program Files\\nodejs\\node.exe",
-      "D:\\Projects\\WebUI\\WebUI\\node_modules\\playwright\\cli.js",
+      "D:\\Projects\\WebUI\\WebUI\\node_modules\\@playwright\\test\\cli.js",
       "test",
       "-g",
-      "fr-C2 ",
-      "tests/fr-live-regression.spec.ts"
+      "fr-F153[fghij]",
+      "tests/fr-f153-live.spec.ts"
     ],
     "configFile": "D:\\Projects\\WebUI\\WebUI\\playwright.config.ts",
     "rootDir": "D:/Projects/WebUI/WebUI/tests",
@@ -68,19 +68,28 @@
   },
   "suites": [
     {
-      "title": "fr-live-regression.spec.ts",
-      "file": "fr-live-regression.spec.ts",
+      "title": "fr-f153-live.spec.ts",
+      "file": "fr-f153-live.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [
         {
-          "title": "fr-C2 stop midstream then one clean subsequent turn",
-          "ok": true,
+          "title": "fr-F153f1 one-hour audio: ready with honest coverage record, START fact answered (F153e re-run shape, measured headroom)",
+          "ok": false,
           "tags": [],
           "tests": [
             {
-              "timeout": 600000,
-              "annotations": [],
+              "timeout": 2100000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
               "expectedStatus": "passed",
               "projectId": "chromium-visible",
               "projectName": "chromium-visible",
@@ -88,27 +97,406 @@
                 {
                   "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 322507,
-                  "errors": [],
-                  "stdout": [
+                  "status": "failed",
+                  "duration": 84061,
+                  "error": {
+                    "message": "Error: extraction never reached ready (phases: processing -> error)\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"ready\"\u001b[39m\nReceived: \u001b[31m\"error\"\u001b[39m",
+                    "stack": "Error: extraction never reached ready (phases: processing -> error)\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"ready\"\u001b[39m\nReceived: \u001b[31m\"error\"\u001b[39m\n    at D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts:507:85",
+                    "location": {
+                      "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                      "column": 85,
+                      "line": 507
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 505 |\u001b[39m   \u001b[36mconst\u001b[39m readyAt \u001b[33m=\u001b[39m \u001b[33mDate\u001b[39m\u001b[33m.\u001b[39mnow()\u001b[33m;\u001b[39m\n \u001b[90m 506 |\u001b[39m   record(\u001b[32m\"fr-F153f1\"\u001b[39m\u001b[33m,\u001b[39m { runId\u001b[33m:\u001b[39m id\u001b[33m.\u001b[39mrunId\u001b[33m,\u001b[39m phase\u001b[33m:\u001b[39m \u001b[32m\"ready\"\u001b[39m\u001b[33m,\u001b[39m status\u001b[33m,\u001b[39m phases\u001b[33m,\u001b[39m extractMs\u001b[33m:\u001b[39m readyAt \u001b[33m-\u001b[39m t0 })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 507 |\u001b[39m   expect(status\u001b[33m,\u001b[39m \u001b[32m`extraction never reached ready (phases: ${phases.join(\" -> \")})`\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[32m\"ready\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                                                                                     \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 508 |\u001b[39m   expect(phases\u001b[33m,\u001b[39m \u001b[32m`no in-flight phase: ${phases.join(\" -> \")}`\u001b[39m)\u001b[33m.\u001b[39mtoContain(\u001b[32m\"processing\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 509 |\u001b[39m   \u001b[36mconst\u001b[39m said \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m sendPrompt(page\u001b[33m,\u001b[39m\n \u001b[90m 510 |\u001b[39m     \u001b[32m\"F153F1 In the first two minutes of the attached hour of audio, what did the widow say about sweating? Reply concisely.\"\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
                     {
-                      "text": "[fr-C2.next] ready=0ms ttft=87465ms total=87792ms :: READY.\n"
+                      "location": {
+                        "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                        "column": 85,
+                        "line": 507
+                      },
+                      "message": "Error: extraction never reached ready (phases: processing -> error)\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"ready\"\u001b[39m\nReceived: \u001b[31m\"error\"\u001b[39m\n\n  505 |   const readyAt = Date.now();\n  506 |   record(\"fr-F153f1\", { runId: id.runId, phase: \"ready\", status, phases, extractMs: readyAt - t0 });\n> 507 |   expect(status, `extraction never reached ready (phases: ${phases.join(\" -> \")})`).toBe(\"ready\");\n      |                                                                                     ^\n  508 |   expect(phases, `no in-flight phase: ${phases.join(\" -> \")}`).toContain(\"processing\");\n  509 |   const said = await sendPrompt(page,\n  510 |     \"F153F1 In the first two minutes of the attached hour of audio, what did the widow say about sweating? Reply concisely.\",\n    at D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts:507:85"
                     }
                   ],
+                  "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-11-23T23:25:59.922Z",
+                  "startTime": "2026-11-25T01:58:03.013Z",
+                  "annotations": [
+                    {
+                      "type": "serial",
+                      "location": {
+                        "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                        "line": 0,
+                        "column": 0
+                      }
+                    }
+                  ],
+                  "attachments": [
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "D:\\Projects\\WebUI\\WebUI\\test-results\\fr-f153-live-fr-F153f1-one-911a5-un-shape-measured-headroom--chromium-visible\\error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "column": 85,
+                    "line": 507
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "bed446080ae48a636341-64a77915023f4af2c6ce",
+          "file": "fr-f153-live.spec.ts",
+          "line": 494,
+          "column": 5
+        },
+        {
+          "title": "fr-F153f2 reopen the hour-chat: MIDDLE fact (graveyard) answered from the same durable record",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.333Z",
                   "annotations": [],
                   "attachments": []
                 }
               ],
-              "status": "expected"
+              "status": "skipped"
             }
           ],
-          "id": "d4e9535a44807c9ad2b6-40ba1eef198f3e8d9b4c",
-          "file": "fr-live-regression.spec.ts",
-          "line": 1596,
+          "id": "bed446080ae48a636341-85b13f02ebda64db36b0",
+          "file": "fr-f153-live.spec.ts",
+          "line": 527,
+          "column": 5
+        },
+        {
+          "title": "fr-F153f3 reopen repeat: END fact + SILENT-INTERVAL honesty (measured silence, never invented speech)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.333Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "bed446080ae48a636341-a5f9b594e3f5bdb663da",
+          "file": "fr-f153-live.spec.ts",
+          "line": 545,
+          "column": 5
+        },
+        {
+          "title": "fr-F153f4 quiet passage (corkscrew under 13.9 dB) + phrase spanning the chapter boundary",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.334Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "bed446080ae48a636341-8ecb72084ebaafda7620",
+          "file": "fr-f153-live.spec.ts",
+          "line": 579,
+          "column": 5
+        },
+        {
+          "title": "fr-F153g container matrix: WAV/M4A/AAC/OGG/FLAC each reach ready and answer the same keyed fact",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.334Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "bed446080ae48a636341-53287359b16c97c777c1",
+          "file": "fr-f153-live.spec.ts",
+          "line": 604,
+          "column": 5
+        },
+        {
+          "title": "fr-F153h1 sparse-speech video: early/middle/late speech + on-screen labels + color + 10s MARK-27 event",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.334Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "bed446080ae48a636341-9f5ad3583aa44a169cfe",
+          "file": "fr-f153-live.spec.ts",
+          "line": 632,
+          "column": 5
+        },
+        {
+          "title": "fr-F153h2 video with NO audio track: honest no-track reporting, never an invented transcript",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.334Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "bed446080ae48a636341-29ba7921c8f372d9daa7",
+          "file": "fr-f153-live.spec.ts",
+          "line": 687,
+          "column": 5
+        },
+        {
+          "title": "fr-F153i engine-use proof: the answering model can disclose the speech engine + recognition clock from the durable record",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.334Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "bed446080ae48a636341-210e01c0d6714309bc63",
+          "file": "fr-f153-live.spec.ts",
+          "line": 710,
+          "column": 5
+        },
+        {
+          "title": "fr-F153j second recording (au-2.mp3): fresh-chat fact + durable record, repeat of the admission path",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "serial",
+                  "location": {
+                    "file": "D:\\Projects\\WebUI\\WebUI\\tests\\fr-f153-live.spec.ts",
+                    "line": 0,
+                    "column": 0
+                  }
+                }
+              ],
+              "expectedStatus": "passed",
+              "projectId": "chromium-visible",
+              "projectName": "chromium-visible",
+              "results": [
+                {
+                  "workerIndex": -1,
+                  "parallelIndex": -1,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-25T01:59:27.334Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "bed446080ae48a636341-7026f2ff2f962d18008c",
+          "file": "fr-f153-live.spec.ts",
+          "line": 730,
           "column": 5
         }
       ]
@@ -116,11 +504,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-11-23T23:25:59.679Z",
-    "duration": 323106.343,
-    "expected": 1,
-    "skipped": 0,
-    "unexpected": 0,
+    "startTime": "2026-11-25T01:58:02.164Z",
+    "duration": 85185.60100000001,
+    "expected": 0,
+    "skipped": 8,
+    "unexpected": 1,
     "flaky": 0
   }
 }

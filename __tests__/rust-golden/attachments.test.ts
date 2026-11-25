@@ -200,6 +200,10 @@ describe("golden: attachment retrieval", () => {
     expect(sys).toBeTruthy();
     expect(String(sys!.content)).toContain("The Calvin cycle fixes carbon dioxide using ATP and NADPH.");
     expect(String(sys!.content)).toContain("You have read this document directly; never mention retrieval or indexing.");
+    // F152 Part 4 wording law rides the rules() base (⇔ ruke-attach rules()).
+    expect(String(sys!.content)).toContain(
+      "Answer directly in the form the question asked for. When a closer read of part of the content has been attempted and it is still unreadable, say plainly and narrowly which part you could not read and where it sits (for example: I couldn't read the small label on page 1); never blame the user for how the file was made, never say the file's content was not given to you, and keep engine and decoding errors out of the answer — they are diagnostics, not the conversation.",
+    );
     const userMsg = msgs.filter((m) => m.role === "user").pop();
     expect(JSON.stringify(userMsg).includes("attachment_ref")).toBe(false);
     expect(run.headers["x-decision-mode"]).toBe("standard_chat");

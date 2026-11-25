@@ -16,6 +16,7 @@ could only be typed in by a caller.
 """
 from __future__ import annotations
 
+import base64
 import struct
 from unittest import mock
 import threading
@@ -365,3 +366,182 @@ def _FrameReading(time_s: float, state: str, text: str = "", detail: str = ""):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CarryPixels(unittest.TestCase):
+    """F153 item 4 (2026-11-25): a chat-time seek of a visual moment must deliver PIXELS to
+    the answering request, not only OCR text — a color, a layout, a diagram has no glyphs.
+    `include_image` rides the payload; frames that decoded carry base64 PNG; the default
+    stays the byte-identical digest-only contract (no new key), so every existing consumer
+    of video.frame_ocr is untouched.
+    """
+
+    def _frames(self, **over):
+        seen: list[float] = []
+
+        def png_at(_s, t):
+            seen.append(t)
+            return _png(8, 6, bytes([int(t * 7) % 256]))
+
+        def ocr(_b, _lang):
+            return _lines("on screen label"), "eng"
+
+        return frame_ocr.ocr_frames(
+            "clip.mp4", [1.0], language="en", duration=10.0,
+            frame_fn=png_at, ocr_fn=ocr, **over)
+
+    def test_pixels_ride_the_frame_when_requested(self) -> None:
+        readings, _report = self._frames(include_image=True)
+        d = readings[0].to_dict()
+        self.assertEqual(d["state"], "recognised")
+        self.assertIn("image_b64", d, "a requested frame carried no pixels")
+        self.assertEqual(base64.b64decode(d["image_b64"]), _png(8, 6, bytes([7])),
+                         "the pixels must be the EXACT decoded frame, not a re-encode")
+
+    def test_pixels_are_absent_by_default_the_digest_contract_stands(self) -> None:
+        readings, _report = self._frames()
+        self.assertNotIn("image_b64", readings[0].to_dict(),
+                         "the default payload shape changed: every existing consumer pays")
+
+    def test_a_duplicate_still_carries_its_pixels(self) -> None:
+        def ocr(_b, _lang):
+            return _lines("on screen label"), "eng"
+
+        readings, _report = frame_ocr.ocr_frames(
+            "clip.mp4", [1.0, 2.0], language="en", duration=10.0,
+            frame_fn=lambda _s, _t: _png(8, 6, b"\x01\x02\x03"),
+            ocr_fn=ocr, include_image=True)
+        self.assertEqual([r.state for r in readings], ["recognised", "duplicate"])
+        d = readings[1].to_dict()
+        self.assertIn("image_b64", d,
+                      "a seek of the duplicate instant needs the pixels AT that instant; "
+                      "skipping OCR text twice is fine, hiding the picture is not")
+
+    def test_an_oversize_frame_is_not_shipped_as_pixels(self) -> None:
+        with mock.patch.object(frame_ocr, "MAX_IMAGE_B64_BYTES", 8):
+            readings, _report = self._frames(include_image=True)
+        d = readings[0].to_dict()
+        self.assertNotIn("image_b64", d)
+        self.assertIn("transport bound", d["detail"],
+                      "the omission must be STATED, never left for the caller to guess")
+
+    def test_the_job_passes_include_image_through_and_bounds_the_pixel_budget(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from ruke_ml.workers.video_jobs import frame_ocr_job
+        d = Path(tempfile.mkdtemp(prefix="ruke-frameocr-img-"))
+        media = d / "clip.mp4"
+        media.write_bytes(b"ftypisom not really media")
+        probe = {"ok": True, "error": "", "duration": 10.0, "video_streams": 1,
+                 "audio_state": "speech", "audio_streams": 1, "rotation_deg": 0,
+                 "stream_start_offsets": {}, "subtitle_tracks": [], "has_audio": True}
+        report = {"planned": 1, "decoded": 0, "recognised": 0, "glyph_free": 0,
+                  "duplicates": 0, "unresolved": [], "failure_kinds": {},
+                  "engine": "stub", "engine_languages": ["eng"],
+                  "requested_language": "en", "seek": "stub",
+                  "character_limit_per_frame": 100, "note": "stub note"}
+        payload = {"path": str(media), "root": str(d), "language": "en",
+                   "times": [1.0], "include_image": True, "max_frames": 64}
+        with mock.patch("ruke_ml.speech.asr.probe_media", return_value=probe), \
+             mock.patch("ruke_ml.video.frame_ocr.ocr_frames",
+                        return_value=([], report)) as ocr_calls:
+            frame_ocr_job(_ctx(_job(**payload)))
+        kwargs = ocr_calls.call_args.kwargs
+        self.assertTrue(kwargs.get("include_image"), "the payload flag never reached the decoder")
+        self.assertLessEqual(kwargs.get("max_frames", 99), 8,
+                             "64 frames of pixels over one RPC response is a transport bomb; "
+                             "the pixel mode bounds its own frame count")
+
+
+class PixelsOnly(unittest.TestCase):
+    """F153 item 4 (2026-11-25): the picture IS the evidence for a chat-time visual
+    follow-up ("what color was the background at 02:10?"). A color has no glyphs, so a
+    pixels-only seek (include_image, no text language) must deliver the decoded frames
+    and must never claim the text was absent — the recogniser never ran, so on-screen
+    text is UNMEASURED. Without include_image the language contract is byte-identical:
+    an empty language stays an input_rejected refusal (pinned in JobWiring).
+    """
+
+    def test_pixels_only_skips_the_recogniser_entirely(self) -> None:
+        def never_ocr(_png_bytes, _lang):
+            raise AssertionError("a pixels-only pass may not invoke the OCR engine")
+
+        readings, report = frame_ocr.ocr_frames(
+            "clip.mp4", [1.0], language="", duration=10.0,
+            frame_fn=lambda _s, _t: _png(8, 6, b"\x01\x02\x03"),
+            ocr_fn=never_ocr, include_image=True)
+        self.assertEqual([r.state for r in readings], ["pixels"])
+        d = readings[0].to_dict()
+        self.assertEqual(base64.b64decode(d["image_b64"]), _png(8, 6, b"\x01\x02\x03"),
+                         "a pixels-only seek must deliver the EXACT decoded frame")
+        self.assertIn("text not read", d["detail"],
+                      "the frame must STATE that its text was not read — a stated scope, "
+                      "never a silent one")
+        self.assertFalse(report["text_pass"],
+                         "a consumer must be able to tell recognised==0 means the pass "
+                         "never ran, not that the screen had no text")
+
+    def test_pixels_only_does_not_require_an_ocr_engine(self) -> None:
+        # The engine/language pre-checks exist to stop a wasted OCR pass. With no
+        # OCR pass planned, a missing engine must not kill a pixel seek.
+        def no_engine():
+            raise OcrUnavailable("engine_missing", "stub: no tesseract installed", "")
+
+        def no_lang(_l):
+            raise AssertionError("stub: language check must not run in pixels-only mode")
+
+        with mock.patch("ruke_ml.documents.ocr_tesseract.engine_state", no_engine), \
+             mock.patch("ruke_ml.documents.ocr_tesseract.language_is_addressable", no_lang):
+            readings, report = frame_ocr.ocr_frames(
+                "clip.mp4", [1.0], language="", duration=10.0,
+                frame_fn=lambda _s, _t: _png(8, 6, b"\x04\x05\x06"),
+                include_image=True)
+        self.assertEqual([r.state for r in readings], ["pixels"])
+        self.assertIn("image_b64", readings[0].to_dict())
+        self.assertFalse(report["text_pass"])
+
+    def test_a_pixels_only_job_reports_text_as_unmeasured_and_keeps_coverage(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from ruke_ml.workers.video_jobs import frame_ocr_job
+        d = Path(tempfile.mkdtemp(prefix="ruke-frameocr-px-"))
+        media = d / "clip.mp4"
+        media.write_bytes(b"ftypisom not really media")
+        probe = {"ok": True, "error": "", "duration": 10.0, "video_streams": 1,
+                 "audio_state": "none", "audio_streams": 0, "rotation_deg": 0,
+                 "stream_start_offsets": {}, "subtitle_tracks": [], "has_audio": False}
+        readings = [frame_ocr.FrameReading(1.0, "pixels", digest="d" * 32,
+                                           image_b64="aW1hZ2U=",
+                                           detail="decoded: pixels delivered; on-screen text "
+                                                  "not read (no text language configured)")]
+        report = {"planned": 1, "decoded": 1, "recognised": 0, "glyph_free": 0,
+                  "duplicates": 0, "unresolved": [], "failure_kinds": {},
+                  "engine": "", "engine_languages": [], "requested_language": "",
+                  "text_pass": False, "seek": "stub",
+                  "character_limit_per_frame": 100, "note": "stub note"}
+        payload = {"path": str(media), "root": str(d), "times": [1.0],
+                   "include_image": True}
+        with mock.patch("ruke_ml.speech.asr.probe_media", return_value=probe), \
+             mock.patch("ruke_ml.video.frame_ocr.ocr_frames",
+                        return_value=(readings, report)):
+            result = frame_ocr_job(_ctx(_job(**payload)))
+        self.assertEqual(result.state, "ready",
+                         "an empty language with pixels requested is a legal pixels-only seek")
+        self.assertEqual(result.payload["frames"][0]["state"], "pixels")
+        self.assertIn("pixels-only pass", result.payload["note"])
+        self.assertIn("UNMEASURED", result.payload["note"],
+                      "'0 of 1 yielded text; 0 carried no glyph' would claim the "
+                      "recogniser ran — it never did")
+        self.assertEqual(result.coverage.examined, [(1.0, 1.0)],
+                         "the instant WAS decoded and delivered: it is examined")
+
+    def test_a_language_alongside_pixels_still_reads_the_text(self) -> None:
+        readings, report = frame_ocr.ocr_frames(
+            "clip.mp4", [1.0], language="en", duration=10.0,
+            frame_fn=lambda _s, _t: _png(8, 6, b"\x07\x08\x09"),
+            ocr_fn=lambda _p, _l: (_lines("quarterly result"), "eng"),
+            include_image=True)
+        self.assertEqual([r.state for r in readings], ["recognised"],
+                         "configuring a language must not downgrade a pixel seek to no OCR")
+        self.assertIn("image_b64", readings[0].to_dict())
+        self.assertTrue(report["text_pass"])

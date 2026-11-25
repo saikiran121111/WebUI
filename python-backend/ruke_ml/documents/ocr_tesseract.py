@@ -203,6 +203,41 @@ def parse_osd(stdout: str) -> tuple[str, float] | None:
 
 
 # ------------------------------------------------------------------ rasterize + encode
+def _pdfium_buffer_rgb(bitmap: Any) -> tuple[bytes, int]:
+    """Turn a pdfium FPDF_BITMAP buffer into rows in the order encode_png's
+    declared PNG format states (RGB/RGBA). Two pdfium realities break a raw
+    pass-through (F152 audit, 2026-11-24, both measured on this host):
+      * pdfium bitmaps are BGR/BGRx in memory (FPDFBitmap_BGR 24bpp, BGRx
+        32bpp, same byte order on every platform); encode_png declares
+        R,G,B(A) - a raw buffer delivers every colour-bearing raster (probe
+        render, region crop, visual page frame, engine input) with R and B
+        exchanged. The live run proved the consequence: the violet crossing
+        line reached Qwen at hue 326 degrees = PINK and the model faithfully
+        answered "pink" about the pixels it was really given.
+      * pdfium rows are 4-byte aligned: a 24bpp raster of width w has pitch
+        (3*w + 3) & ~3, and encode_png assumes packed rows - every row drifts
+        one byte, smearing tall renders diagonally (measured: G read 0 for a
+        g=61 fill at row 250 of a 625x24bpp raster).
+    A 1-channel Gray buffer needs no exchange."""
+    nch = int(bitmap.n_channels)
+    w, h = int(bitmap.width), int(bitmap.height)
+    buf = bytes(bitmap.buffer)
+    stride = w * nch
+    if h > 0 and len(buf) // h != stride:  # pdfium 4-byte row pitch
+        pitch = len(buf) // h
+        buf = b"".join(buf[y * pitch:y * pitch + stride] for y in range(h))
+    if nch == 3:
+        swapped = bytearray(len(buf))
+        swapped[0::3], swapped[1::3], swapped[2::3] = buf[2::3], buf[1::3], buf[0::3]
+        return bytes(swapped), 3
+    if nch == 4:
+        swapped = bytearray(len(buf))
+        swapped[0::4], swapped[1::4], swapped[2::4] = buf[2::4], buf[1::4], buf[0::4]
+        swapped[3::4] = buf[3::4]
+        return bytes(swapped), 4
+    return buf, nch
+
+
 def encode_png(width: int, height: int, channels: int, rows: bytes) -> bytes:
     """Minimal RGB/RGBA PNG writer (no imaging dependency, no Pillow)."""
     color = {"3": 2, "4": 6}.get(str(channels))
@@ -264,11 +299,11 @@ def render_page_png(pdf_path: str | Path, page_1based: int, *, dpi: int = DEFAUL
             # is the correct read, exactly as the standalone ocr_job CLI has always done.
             additional = 0
         bitmap = page.render(scale=dpi / 72.0, rotation=additional)
-        buf = bytes(bitmap.buffer)
+        buf, nch = _pdfium_buffer_rgb(bitmap)
         info = {"page": page_1based, "dpi": dpi, "rotation": requested,
                 "width": bitmap.width, "height": bitmap.height,
-                "channels": bitmap.n_channels, "rasterizer": "pypdfium2"}
-        png = encode_png(bitmap.width, bitmap.height, bitmap.n_channels, buf)
+                "channels": nch, "rasterizer": "pypdfium2", "channelOrder": "RGB"}
+        png = encode_png(bitmap.width, bitmap.height, nch, buf)
     except OcrUnavailable:
         raise
     except Exception as exc:                           # noqa: BLE001 - per page
@@ -303,6 +338,20 @@ class OcrPage:
                 "provenance": "ocr"}
 
 
+# Adapter-level recognition counter (F152 law): every Tesseract pass that recognises
+# words increments HERE - probe passes, language-verification passes and cascade
+# recovery alike. Callers report evidence from these numbers, so a probe can never be
+# counted as "zero engine calls" while it ran the engine. The counters are
+# process-lifetime monotonic: an evidence writer snapshots a delta around its own
+# section, never a total.
+RECOGNITIONS = {"tesseract_ocr_png": 0, "tesseract_osd": 0}
+
+
+def recognize_count() -> dict[str, int]:
+    """Snapshot of the adapter's recognition-call counters (caller takes deltas)."""
+    return dict(RECOGNITIONS)
+
+
 def ocr_png(png: bytes, *, language: str, engine_exe: str = "") -> tuple[list[dict[str, Any]], str]:
     """Run the validated engine over one PNG and parse its TSV (the documented machine form)."""
     exe = engine_exe or binaries.path_for(BINARY)
@@ -314,6 +363,7 @@ def ocr_png(png: bytes, *, language: str, engine_exe: str = "") -> tuple[list[di
         raise OcrUnavailable("unsupported_language", why,
                              "install the language data for the requested language, or accept that "
                              "this document's language is not supported here")
+    RECOGNITIONS["tesseract_ocr_png"] += 1
     tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     try:
         tmp.write(png[:64 << 20])
@@ -346,6 +396,7 @@ def run_osd(png: bytes, *, engine_exe: str = "") -> tuple[str, float] | None:
     if not exe:
         raise OcrUnavailable("engine_missing", "no validated tesseract copy was found",
                              f"install {BINARY} or set {binaries.env_var(BINARY)} to a validated copy")
+    RECOGNITIONS["tesseract_osd"] += 1
     tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     try:
         tmp.write(png[:64 << 20])
@@ -373,7 +424,8 @@ def run_osd(png: bytes, *, engine_exe: str = "") -> tuple[str, float] | None:
 
 
 def detect_language(pdf_path: str | Path, page_1based: int, *, rotation: int = 0,
-                    dpi: int = DEFAULT_DPI, engine_exe: str = "") -> dict[str, Any]:
+                    dpi: int = DEFAULT_DPI, engine_exe: str = "",
+                    verify: bool = True) -> dict[str, Any]:
     """Validated language detection from a page raster: the engine's script estimate,
     gated by a verification OCR pass at the mapped language.
 
@@ -384,6 +436,13 @@ def detect_language(pdf_path: str | Path, page_1based: int, *, rotation: int = 0
     or a page the mapped language reads as garbage all return verified=False with a
     reason. This is the last honest step before a scan is transcribed in a language
     nobody declared.
+
+    F152 audit (2026-11-24): the verification pass is Tesseract WORD recognition, so
+    under a Paddle-selected policy it let the fallback engine read pixels before the
+    primary. `verify=False` answers from the script analyser alone (run_osd is a
+    script estimate, not word recognition): the gate becomes the osd confidence +
+    script mapping + addressability, the result records `verification="script-level"`
+    and the primary engine's first eligible recognition IS the verification.
     """
     png, info = render_page_png(pdf_path, page_1based, dpi=dpi, rotation=rotation)
     result: dict[str, Any] = {"verified": False, "page": int(page_1based), "dpi": info["dpi"]}
@@ -404,6 +463,18 @@ def detect_language(pdf_path: str | Path, page_1based: int, *, rotation: int = 0
     ok, lang, why = language_is_addressable(code)
     if not ok:
         result["reason"] = f"the detected script {script!r} maps to {code!r}, which the engine cannot run: {why}"
+        return result
+    if not verify:
+        # F152 audit: under a Paddle-selected policy the verification pass below is
+        # Tesseract WORD recognition reading pixels before the primary. The script
+        # analyser's gate (confidence bound + script map + addressability) answers
+        # at script level; the primary's first eligible recognition is the verification.
+        result.update(language=lang, verified=True, verification="script-level",
+                      reason=(f"the script estimate {script!r} passed the validated bounds "
+                              f"({confidence} >= {OSD_MIN_SCRIPT_CONFIDENCE}) and maps to the "
+                              "addressable language "
+                              f"{lang!r}; word-recognition verification is skipped under the "
+                              "selected engine policy"))
         return result
     lines, _ = ocr_png(png, language=lang, engine_exe=engine_exe)
     confs = [ln["confidence"] for ln in lines if isinstance(ln.get("confidence"), float)]

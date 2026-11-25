@@ -55,12 +55,41 @@ export function getConversationOnDisk(id: string): string | null {
  */
 const recentlyDeleted = new Map<string, number>();
 
+/** meta.updatedAt of a stored document; 0 = undated/legacy/unparseable. */
+function docUpdatedAt(json: string | null): number {
+  if (!json) return 0;
+  try {
+    const u = JSON.parse(json)?.meta?.updatedAt;
+    return typeof u === "number" && Number.isFinite(u) ? u : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function saveConversationOnDisk(id: string, json: string): void {
+  // F153 (2026-11-24) — the PERSISTENCE-ORDERING law. The 5 s wall-clock
+  // window below only swallows writes racing the delete; the audit found a
+  // queued save landing 6 s later recreating the deleted chat. The law is
+  // by CONTENT, not arrival: a document whose meta.updatedAt predates the
+  // delete is stale at ANY delay — dropped; a document newer than the
+  // delete is a legitimate recreation and retires the tombstone. Undated
+  // legacy writes keep the old race window (parity: Rust `save_at`).
+  const incomingAt = docUpdatedAt(json);
   const deletedAt = recentlyDeleted.get(id);
   if (deletedAt !== undefined) {
-    if (Date.now() - deletedAt < 5000) return; // racing a delete — drop the write
-    recentlyDeleted.delete(id);
+    if (incomingAt > 0) {
+      if (incomingAt <= deletedAt) return; // stale by content — never resurrect
+      recentlyDeleted.delete(id);
+    } else if (Date.now() - deletedAt < 5000) {
+      return; // undated write racing a delete — drop the write
+    } else {
+      recentlyDeleted.delete(id);
+    }
   }
+  // Out-of-order saves: last writer is decided by the CONTENT timestamp,
+  // not by arrival — a late save must not clobber a newer stored document.
+  const storedAt = docUpdatedAt(getConversationOnDisk(id));
+  if (storedAt > 0 && incomingAt > 0 && incomingAt < storedAt) return;
   ensureDir();
   fs.writeFileSync(file(id), json, "utf-8");
 }

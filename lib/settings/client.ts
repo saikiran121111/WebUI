@@ -66,8 +66,25 @@ export function fetchSettings(force = false): Promise<LlmSettings> {
 }
 
 /**
+ * F153 (2026-11-24) — the settings/client STATUS law. On HEAD saveSettings
+ * never looked at `res.ok`: a failed PUT committed the optimistic patch to
+ * the session cache and RESOLVED, so every caller's success path ran (and
+ * EnginesSettings' fire-and-forget radio showed the engine as selected)
+ * while settings.json kept the old value. A non-2xx response is a FAILED
+ * save: throw before touching any cache state; the caller's catch is the
+ * honest outcome.
+ */
+export class SettingsSaveError extends Error {
+  constructor(public readonly status: number) {
+    super(`Settings save failed: HTTP ${status}`);
+    this.name = "SettingsSaveError";
+  }
+}
+
+/**
  * Saves settings (PUT) and updates the in-memory cache immediately so the UI
- * reflects the change without re-fetching.
+ * reflects the change without re-fetching. Throws SettingsSaveError on a
+ * non-2xx response WITHOUT committing the cache (F153 status law).
  */
 export async function saveSettings(patch: LlmSettings): Promise<LlmSettings> {
   const res = await fetch("/api/settings", {
@@ -76,6 +93,7 @@ export async function saveSettings(patch: LlmSettings): Promise<LlmSettings> {
     body: JSON.stringify(patch),
   });
   const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new SettingsSaveError(res.status);
   cached = (data?.settings ?? patch) as LlmSettings;
   engineMigrationNotice =
     typeof data?.speech_model_migrated === "string" && data.speech_model_migrated
@@ -84,8 +102,9 @@ export async function saveSettings(patch: LlmSettings): Promise<LlmSettings> {
   return cached;
 }
 
-/** Deletes settings.json and clears the local cache. */
+/** Deletes settings.json and clears the local cache. Same status law. */
 export async function clearSettingsRemote(): Promise<void> {
-  await fetch("/api/settings", { method: "DELETE" });
+  const res = await fetch("/api/settings", { method: "DELETE" });
+  if (!res.ok) throw new SettingsSaveError(res.status);
   cached = {};
 }

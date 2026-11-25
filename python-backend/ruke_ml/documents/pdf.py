@@ -91,6 +91,70 @@ def _visual_paint_ops(page: Any, media_area: float) -> int:
     return fills + len(_CURVE.findall(data))
 
 
+def _image_bounds_prober(path: Path):
+    """Returns page_index -> ([bounds in PDF points y-up], reason).
+
+    Bounds are the documented placement rect of each embedded raster
+    (pypdfium2 PdfImage.get_bounds(); typecode 3 is PDF_IMAGE). The probe opens
+    lazily - pages without region candidates never pay for it - and caches each
+    page. Any failure yields no bounds plus the real reason: the caller then
+    records a full-page region, so inspection degrades to the old page-wide path
+    with a recorded cause, never to zero inspection.
+
+    F153 §3 (pdfium cleanup measurement, measured 2026-11-24): a pdfium
+    PdfDocument KEEPS its file handle open until `close()` - releasing the
+    closure (refcount drop, gc.collect) does NOT drop the OS lock on Windows,
+    so an indexed PDF could never be deleted or renamed while the process
+    lived. `image_bounds.close()` releases the open document DETERMINISTICALLY;
+    load_pdf calls it on every exit path. A probe that never opened costs
+    nothing.
+    """
+    doc: list[Any] = []                       # [pdfium doc] once opened, [None] once failed
+    cache: dict[int, tuple[list[list[float]], str]] = {}
+
+    def probe(index: int) -> tuple[list[list[float]], str]:
+        if index in cache:
+            return cache[index]
+        if not doc:
+            try:
+                import pypdfium2 as pdfium    # noqa: PLC0415 - lazy by design
+                doc.append(pdfium.PdfDocument(str(path)))
+            except Exception as exc:          # noqa: BLE001 - report the cause, never crash
+                doc.append(None)
+                cache[index] = ([], f"bounds probe unavailable: {type(exc).__name__}: {exc}"[:200])
+                return cache[index]
+        if doc[0] is None:
+            cache[index] = ([], "bounds probe unavailable")
+            return cache[index]
+        try:
+            page = doc[0][index - 1]
+            found: list[list[float]] = []
+            for obj in page.get_objects():
+                if getattr(obj, "type", 0) != 3:
+                    continue                  # PDF_IMAGE: rasters only
+                try:
+                    left, bottom, right, top = obj.get_bounds()
+                    found.append([float(left), float(bottom), float(right), float(top)])
+                except Exception:             # noqa: BLE001 - one bad image must not drop the page
+                    continue
+            cache[index] = (found, "")
+        except Exception as exc:              # noqa: BLE001 - per page, best effort
+            cache[index] = ([], f"bounds probe failed: {type(exc).__name__}: {exc}"[:200])
+        return cache[index]
+
+    def close() -> None:
+        # Deterministic release: pdfium keeps the OS file lock until close().
+        if doc and doc[0] is not None:
+            try:
+                doc[0].close()
+            except Exception:                            # noqa: BLE001 - cleanup is best effort
+                pass
+            doc[0] = None                                # never a double close
+
+    probe.close = close                                  # type: ignore[attr-defined]
+    return probe
+
+
 def stream_sha256(path: Path) -> str:
     """Hash without loading the whole file into memory."""
     h = hashlib.sha256()
@@ -170,66 +234,107 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
         rotations: dict[int, int] = {}
         images: dict[int, int] = {}
         visual: dict[int, int] = {}
+        # F152: pages whose text layer is usable AND carry embedded rasters get a
+        # region record (rotation + the page's own native text) so the region
+        # inspection can compare raster words against the text layer and OCR ONLY
+        # the uncovered text - a decorative logo on a prose page costs zero engine
+        # calls, an image-only legend on the same page gets read. Weak/empty-layer
+        # pages stay on the batch cascade (the scanned-page law, frozen by F73).
+        # F152 amendment: one region per EMBEDDED IMAGE, not per page - two figures
+        # on one page are two regions, so a targeted reread of one never re-runs the
+        # other, and the crop's coverage is judged against native text LOCAL to the
+        # image, not the whole page's word set.
+        regions: list[dict] = []
+        image_bounds = _image_bounds_prober(p)
 
-        for index, page in enumerate(reader.pages, start=1):
-            try:
-                rotation = int(page.get("/Rotate", 0) or 0)
-            except Exception:                             # noqa: BLE001 - malformed optional entry
-                rotation = 0
-            if rotation:
-                rotations[index] = rotation
-            try:
-                text = page.extract_text(extraction_mode="plain") or ""
-            except Exception as exc:                      # noqa: BLE001 - per page, never all-or-nothing
-                failed.append({"page": str(index), "stage": "text_layer",
-                               "detail": f"{type(exc).__name__}: {exc}"[:300]})
-                continue
-            try:
-                image_count = len(page.images)
-            except Exception:                             # noqa: BLE001 - image inventory is best effort
-                image_count = -1
-            if image_count > 0:
-                images[index] = image_count
-            try:
-                media_area = float(page.mediabox.width) * float(page.mediabox.height)
-            except Exception:                             # noqa: BLE001 - malformed optional geometry
-                media_area = 0.0
-            visual_ops = _visual_paint_ops(page, media_area)
-            if visual_ops >= 2:
-                # A page whose CONTENT is drawn, not written: filled rects and curves
-                # beyond a full-page background. The text layer of such a page (a bar
-                # chart reads as title + axis labels) can never carry the fact, so the
-                # page gets a rendered page image as on-demand visual evidence.
-                visual[index] = visual_ops
-
-            stripped = text.strip()
-            glyphs = sum(1 for ch in stripped if not ch.isspace())
-            if glyphs >= MIN_GLYPHS_PER_PAGE:
-                succeeded.append(index)
-                blocks.append(Block(stripped, "page_text", source_id, source_hash,
-                                    {"page": index, "rotation": rotation,
-                                     "extraction": "pypdf-plain"}))
+        try:  # F153 §3: the probe's pdfium handle closes on EVERY exit path
+            for index, page in enumerate(reader.pages, start=1):
+                try:
+                    rotation = int(page.get("/Rotate", 0) or 0)
+                except Exception:                             # noqa: BLE001 - malformed optional entry
+                    rotation = 0
+                if rotation:
+                    rotations[index] = rotation
+                try:
+                    text = page.extract_text(extraction_mode="plain") or ""
+                except Exception as exc:                      # noqa: BLE001 - per page, never all-or-nothing
+                    failed.append({"page": str(index), "stage": "text_layer",
+                                   "detail": f"{type(exc).__name__}: {exc}"[:300]})
+                    continue
+                try:
+                    image_count = len(page.images)
+                except Exception:                             # noqa: BLE001 - image inventory is best effort
+                    image_count = -1
                 if image_count > 0:
-                    # F73 production (frozen fixture d1_mixed p1): the text layer carried
-                    # only the heading while the page body was a raster image. A usable
-                    # layer marked the page fully read and the imagery was never offered to
-                    # OCR, so an image-only fact was undeliverable end-to-end. The page is
-                    # recorded read AND stays OCR-eligible - the same two-flag honesty the
-                    # weak-layer branch below uses. image_count == -1 means the inventory
-                    # itself failed: unknown is not evidence of imagery, so it stays put.
-                    needs_ocr.append(index)
-            elif stripped:
-                # Something is there but too little to be a text layer: the page is
-                # recorded as BOTH extracted and OCR-eligible instead of being called good.
-                succeeded.append(index)
-                needs_ocr.append(index)
-                blocks.append(Block(stripped, "page_text", source_id, source_hash,
-                                    {"page": index, "rotation": rotation,
-                                     "extraction": "pypdf-plain-weak"}))
-            else:
-                empty.append(index)
-                if image_count != 0:
-                    needs_ocr.append(index)
+                    images[index] = image_count
+                try:
+                    media_area = float(page.mediabox.width) * float(page.mediabox.height)
+                except Exception:                             # noqa: BLE001 - malformed optional geometry
+                    media_area = 0.0
+                visual_ops = _visual_paint_ops(page, media_area)
+                if visual_ops >= 2:
+                    # A page whose CONTENT is drawn, not written: filled rects and curves
+                    # beyond a full-page background. The text layer of such a page (a bar
+                    # chart reads as title + axis labels) can never carry the fact, so the
+                    # page gets a rendered page image as on-demand visual evidence.
+                    visual[index] = visual_ops
+
+                stripped = text.strip()
+                glyphs = sum(1 for ch in stripped if not ch.isspace())
+                if glyphs >= MIN_GLYPHS_PER_PAGE:
+                    succeeded.append(index)
+                    blocks.append(Block(stripped, "page_text", source_id, source_hash,
+                                        {"page": index, "rotation": rotation,
+                                         "extraction": "pypdf-plain"}))
+                    if image_count > 0:
+                        # F73 production (frozen fixture d1_mixed p1): the text layer carried
+                        # only the heading while the page body was a raster image. A usable
+                        # layer marked the page fully read and the imagery was never offered to
+                        # OCR, so an image-only fact was undeliverable end-to-end. The page is
+                        # recorded read AND stays OCR-eligible - the same two-flag honesty the
+                        # weak-layer branch below uses. image_count == -1 means the inventory
+                        # itself failed: unknown is not evidence of imagery, so it stays put.
+                        needs_ocr.append(index)
+                        # F152: the eligibility is decided by inspection, not by the flag:
+                        # the raster is probed and only words the page's own text layer
+                        # lacks reach the cascade (documents/region_ocr.py, kind "pdf").
+                        bounds, bounds_reason = image_bounds(index)
+                        if bounds:
+                            for image_index, rect in enumerate(bounds):
+                                regions.append({"unit": index, "part": f"page:{index}/image:{image_index}",
+                                                "ext": "page", "rotation": rotation,
+                                                "bounds": rect, "native_text": stripped[:4000]})
+                        else:
+                            # No placement rect: inspect the whole page (old law) and record
+                            # why the targeted crop was impossible - the reason travels.
+                            regions.append({"unit": index, "part": f"page:{index}", "ext": "page",
+                                            "rotation": rotation, "bounds": [],
+                                            "bounds_reason": bounds_reason,
+                                            "native_text": stripped[:4000]})
+                elif stripped:
+                    # Something is there but too little to be a text layer: the page is
+                    # recorded as BOTH extracted and OCR-eligible instead of being called
+                    # good - when the page has a raster to read. F152: a clean one-word
+                    # native page ("OK") with no imagery and no drawn content has nothing
+                    # left to recognise; scheduling OCR for it spent a real engine pass on
+                    # pixels that already were the text. Weakness alone is not evidence of
+                    # imagery, so OCR is scheduled only with image_count > 0 (rasters) or
+                    # visual_ops >= 2 (the page's content is drawn, not written).
+                    # image_count == -1 (inventory failed) stays on the cascade: unknown
+                    # is not evidence of ABSENCE, matching the F73 unknown-stays-put law.
+                    succeeded.append(index)
+                    if image_count > 0 or image_count < 0 or visual_ops >= 2:
+                        needs_ocr.append(index)
+                    blocks.append(Block(stripped, "page_text", source_id, source_hash,
+                                        {"page": index, "rotation": rotation,
+                                         "extraction": "pypdf-plain-weak"}))
+                else:
+                    empty.append(index)
+                    if image_count != 0:
+                        needs_ocr.append(index)
+        finally:
+            image_bounds.close()
+
 
     failed_ids = [int(f["page"]) for f in failed]
     cov = DocCoverage(
@@ -251,6 +356,7 @@ def load_pdf(path: str | Path, *, password: str = "", max_bytes: int = MAX_PDF_B
         "rotated_pages": rotations,
         "pages_with_images": images,
         "pages_with_visual": visual,
+        "embedded_images": regions,
         "page_failures": failed,
         "needs_ocr": sorted(needs_ocr),
         "metadata": _safe_metadata(pypdf, reader),

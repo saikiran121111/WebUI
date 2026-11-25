@@ -23,6 +23,21 @@ export interface FrameEntry {
   at: number;
   /** Path relative to the index dir (e.g. "frames/f_00012.jpg"). */
   file: string;
+  /**
+   * F152: document frames name their unit ("slide 1", "sheet 2, cell C4");
+   * video keyframes carry no label. The label also marks the frame's `at` as
+   * a UNIT ORDINAL (page axis) rather than seconds, which is what the
+   * retrieval pairing checks before matching.
+   */
+  label?: string;
+  /** F152: stable region id ("pptx:1:ppt/media/image-3-1.png") for the targeted reread. */
+  region?: string;
+  /**
+   * F152: the region inspection's state for this frame ("recognised", "skipped",
+   * "unreadable", "needs_language", "waiting") — the cached evidence an
+   * explicit reread refreshes, and the record of why a region stayed unread.
+   */
+  state?: string;
 }
 
 /** One block of the zero-LLM structural spine (table of contents). */
@@ -54,12 +69,30 @@ export interface EmbedStamp {
   fingerprint: string;
 }
 
+/**
+ * F153 item 3 (2026-11-25): the audio decode coverage, persisted at index
+ * time from the speech run's own report. This is what lets a follow-up about
+ * a time the transcript never covered answer honestly: the seconds the run
+ * ACTUALLY decoded (`examined`) and the ones it never touched (`unexamined`)
+ * are separate facts, and a fresh bounded decode extends `examined` durably
+ * so the same span is never decoded twice. `complete` = the whole timeline
+ * was decoded, so a timed gap means MEASURED absence, never an unproven one.
+ */
+export interface SpeechCoverage {
+  durationSec: number;
+  complete: boolean;
+  examined: Array<[number, number]>;
+  unexamined: Array<[number, number]>;
+}
+
 export interface IndexMeta {
   attId: string;
   name: string;
   category: FileCategory;
   createdAt: number;
   durationSec?: number;
+  /** F153: audio decode coverage (see SpeechCoverage). Absent = never reported. */
+  speech?: SpeechCoverage;
   chunkCount: number;
   /** Compact table of contents — always injected for indexed attachments. */
   spine: string;

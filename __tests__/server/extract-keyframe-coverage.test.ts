@@ -87,4 +87,49 @@ describe("keyframe coverage spans the whole timeline (I17)", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }, 300_000);
+
+  it("a full frame budget still samples the END of a long static video (F153 §4)", async () => {
+    // F153 §4: with the fixed 120 s top-up step, a video longer than
+    // cap*120 s spends the WHOLE budget before its end, and the old tail
+    // anchor — gated on a FREE slot — never fires. On HEAD (cap 4, 1000 s):
+    // grabs land at 60/180/300/420, the loop ends at the cap, and the
+    // interval [420, 1000] is PERMANENTLY frame-less — the exact unreachable
+    // interval I17 outlaws, reproduced at production scale (cap 150 ⇒ the
+    // final hours of a >5 h lecture). The law: the tail anchor is not a
+    // leftover-slot luxury; when the budget is spent the sampler EVICTS the
+    // most redundant interior frame and buys the end.
+    const dir = path.join(process.cwd(), ".data", "tmp", `kf_tail_${Date.now().toString(36)}`);
+    const src = path.join(dir, "static.mp4");
+    const outDir = path.join(dir, "frames");
+    fs.mkdirSync(outDir, { recursive: true });
+    const bin = await ffmpegPath();
+    const DURATION = 1000;
+    try {
+      // One static 1000 s stream: the scene pass finds ZERO cuts, so the
+      // seek top-up carries all coverage (a webcam lecture that barely cuts).
+      await ffmpeg(bin, [
+        "-f", "lavfi", "-i", `color=c=red:s=32x32:d=${DURATION}:r=1`,
+        "-c:v", "libx264", "-preset", "veryfast", "-g", "30", "-keyint_min", "30",
+        "-pix_fmt", "yuv420p", src,
+      ]);
+
+      const { videoKeyframesFromPath } = await import("../../lib/server/extract/ffmpeg");
+      const frames = await videoKeyframesFromPath(src, outDir, { maxFrames: 4 });
+
+      expect(frames.length).toBeLessThanOrEqual(4);
+      const maxAt = Math.max(...frames.map(f => f.at));
+      expect(maxAt, `keyframes stopped at ${maxAt.toFixed(0)}s of a ${DURATION}s video — the cap was full and the tail was never sampled`)
+        .toBeGreaterThanOrEqual(DURATION - 90);
+
+      // The budget law holds: eviction frees a slot, it never grows the cap.
+      const names = fs.readdirSync(outDir);
+      expect(names.length).toBe(frames.length);
+      for (const f of frames) {
+        expect(names, `missing ${f.name}`).toContain(f.name);
+        expect(fs.statSync(path.join(outDir, f.name)).size).toBeGreaterThan(0);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 300_000);
 });

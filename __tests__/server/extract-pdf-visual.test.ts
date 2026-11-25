@@ -8,7 +8,8 @@
  * Laws:
  *  1. payload visual_pages become result frames with `at` = the 1-based PDF page
  *     number (frames' `at` is polymorphic by design; consumers pairing frames with
- *     time windows check the category first);
+ *     time windows check the category first), each labelled `page N` (F152: an
+ *     indexed frame must be self-describing once it rides alone);
  *  2. no visual pages (an ordinary text PDF) -> NO frames key at all, never an
  *     empty array pretending to be evidence;
  *  3. malformed visual entries (page <= 0, missing png) drop individually, never
@@ -82,7 +83,8 @@ describe("extractFileFromPath - drawn-content PDF pages deliver page-image frame
     });
     expect(r.category).toBe("pdf");
     expect(r.text).toContain("Reservoir measurements"); // the text merge is untouched
-    expect(r.frames).toEqual([{ dataUrl: `data:image/png;base64,${PNG_B64}`, at: 1 }]);
+    // F152: document frames are self-describing — each carries its unit label.
+    expect(r.frames).toEqual([{ dataUrl: `data:image/png;base64,${PNG_B64}`, at: 1, label: "page 1" }]);
   });
 
   it("a text-only PDF (no visual_pages) carries NO frames key at all", async () => {
@@ -103,7 +105,7 @@ describe("extractFileFromPath - drawn-content PDF pages deliver page-image frame
         { page: 3, ops: 2, png_base64: PNG_B64 },
       ])),
     });
-    expect(r.frames).toEqual([{ dataUrl: `data:image/png;base64,${PNG_B64}`, at: 3 }]);
+    expect(r.frames).toEqual([{ dataUrl: `data:image/png;base64,${PNG_B64}`, at: 3, label: "page 3" }]);
   });
 
   it("frames reach the reader through the real payload field names (visual_pages)", async () => {

@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { injectSystemBefore } from "../../skills/lazy";
 import { embedOne } from "./embed";
+import type { FreshAsrOutcome, FreshAsrReader } from "./audio-reread";
+import type { FrameSeekOutcome, SeekFramesReader } from "./frame-seek";
+import type { RegionReader, RereadOutcome } from "./reread";
 import { generateNotes, notesVersion } from "./notes";
 import {
   fingerprintQuery,
@@ -86,6 +89,29 @@ export function stripAttachmentRefs(messages: any[]): void {
  */
 const FRAME_WINDOW_SEC = 180;
 
+/**
+ * The asked moments behind a routed time_range question. The router builds
+ * each cue window as [c-180, c+180] CLIPPED to the recording's length; the
+ * midpoint of a clipped window is NOT the asked instant (a cue at 00:00:45 →
+ * window [0, 225] → midpoint 00:01:53 would mislabel what the user asked).
+ * Un-clip from the edge that was clipped; midpoint only when the window is
+ * full width. ⇔ cue_moments in ruke-attach turn.rs (F78 law, F153 shared).
+ */
+function cueMoments(routed: RoutedQuery, dur: number): number[] {
+  const cueAt = (w: { fromSec: number; toSec: number }): number => {
+    const mid = (w.fromSec + w.toSec) / 2;
+    if (w.toSec - w.fromSec >= 2 * FRAME_WINDOW_SEC) return mid;
+    if (w.fromSec <= 0.5) return Math.max(0, w.toSec - FRAME_WINDOW_SEC);
+    if (dur > 0 && w.toSec >= dur - 0.5) return w.fromSec + FRAME_WINDOW_SEC;
+    return mid;
+  };
+  return (
+    routed.windows?.length
+      ? routed.windows.map(cueAt)
+      : [cueAt({ fromSec: routed.fromSec ?? 0, toSec: routed.toSec ?? 0 })]
+  ).slice(0, MAX_FRAMES);
+}
+
 function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; at: number }[] {
   const frames = index.meta.frames ?? [];
   if (!frames.length || !frameAts.length) return [];
@@ -110,7 +136,11 @@ function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; a
     used.add(best);
     try {
       const buf = fs.readFileSync(path.join(indexDir(index.meta.attId), frames[best].file));
-      out.push({ url: "data:image/jpeg;base64," + buf.toString("base64"), at: frames[best].at });
+      // Mime by extension, the nearest_unit_frames law: video keyframes are
+      // JPEG, renderer/seek frames are PNG. A PNG served under a jpeg prefix
+      // is a broken picture in the model's eyes.
+      const mime = frames[best].file.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+      out.push({ url: `data:${mime};base64,` + buf.toString("base64"), at: frames[best].at });
     } catch {
       // Frame file missing on disk — the transcript evidence still stands.
     }
@@ -118,6 +148,78 @@ function nearestFrames(index: LoadedIndex, frameAts: number[]): { url: string; a
   }
   return out;
 }
+
+/**
+ * F152: labelled document frames ride with the retrieval ONLY for the units
+ * the winning passages themselves name — a chart page's picture is served
+ * exactly when a retrieved passage carries that page's header, never as some
+ * neighbour's picture. Document frames sit on the UNIT-ordinal axis (pages/
+ * slides/sheets), not seconds, so the honesty window is an exact match: a
+ * frame no passage names is not shown at all. ⇔ nearest_unit_frames in
+ * ruke-attach turn.rs.
+ */
+function unitFrames(
+  index: LoadedIndex,
+  cues: number[],
+): { url: string; at: number; label: string }[] {
+  const frames = index.meta.frames ?? [];
+  if (!frames.length || !cues.length) return [];
+  const used = new Set<number>();
+  const out: { url: string; at: number; label: string }[] = [];
+  for (const cue of cues) {
+    frames.forEach((f, k) => {
+      if (out.length >= MAX_FRAMES) return;
+      if (used.has(k) || !f.label || f.at !== cue) return;
+      used.add(k);
+      try {
+        const buf = fs.readFileSync(path.join(indexDir(index.meta.attId), f.file));
+        // Document frames are PNG (renderer output); video keyframes are JPEG.
+        const mime = /\.png$/i.test(f.file) ? "image/png" : "image/jpeg";
+        out.push({ url: `data:${mime};base64,` + buf.toString("base64"), at: f.at, label: f.label });
+      } catch {
+        // Frame file missing on disk — the text evidence still stands.
+      }
+    });
+    if (out.length >= MAX_FRAMES) break;
+  }
+  return out;
+}
+
+/**
+ * F153 §3: the crops a targeted reread JUST refreshed, selected by region id
+ * (the outcome's invocation proof), paired to their labels. The missing-
+ * passage turn answers from these refreshed pictures, so they ride exactly
+ * as unitFrames pairs a retrieved passage's picture — never a neighbour's.
+ * ⇔ region_frames in ruke-attach turn.rs.
+ */
+function regionFrames(
+  index: LoadedIndex,
+  regions: string[],
+): { url: string; at: number; label: string }[] {
+  const frames = index.meta.frames ?? [];
+  const out: { url: string; at: number; label: string }[] = [];
+  for (const f of frames) {
+    if (out.length >= MAX_FRAMES) break;
+    if (!f.region || !f.label || !regions.includes(f.region)) continue;
+    try {
+      const buf = fs.readFileSync(path.join(indexDir(index.meta.attId), f.file));
+      const mime = /\.png$/i.test(f.file) ? "image/png" : "image/jpeg";
+      out.push({ url: `data:${mime};base64,` + buf.toString("base64"), at: f.at, label: f.label });
+    } catch {
+      // Frame file missing on disk — the text evidence still stands.
+    }
+  }
+  return out;
+}
+
+/**
+ * F152: lead-in for document pictures, kept separate from the video moments
+ * law (video bytes stay golden-frozen). Byte-identical to DOC_FRAMES_LEAD_IN
+ * in ruke-attach/src/turn.rs; the per-frame label format matches
+ * lib/chat/client.ts ("<label> — drawn content:").
+ */
+const DOC_FRAMES_LEAD_IN =
+  "Each picture below is labelled with where it sits in the attached document — the file's own drawn content (chart pages, embedded images), kept separate from the retrieved text passages. Answer questions about appearance from the labelled picture and say which one you read it from:";
 
 /**
  * F14: machine-readable COVERAGE, inside the block the model actually
@@ -184,6 +286,17 @@ function rules(ref: AttachmentRef): string {
   const timed = isVideo || ref.category === "audio";
   return (
     "Rules for this content: answer from the material below whenever it covers the question. " +
+    // F152 Part 4 wording law: the answer's voice must depend on what the reader
+    // ACTUALLY read — direct format, a narrow plain statement of what could not
+    // be read (after the closer read was attempted), no blame for how the file
+    // was made, no "you were not given the content", engine errors stay in
+    // diagnostics. ⇔ ruke-attach turn.rs rules() segment 1, byte-identical.
+    "Answer directly in the form the question asked for. When a closer read of part of the " +
+    "content has been attempted and it is still unreadable, say plainly and narrowly which part " +
+    "you could not read and where it sits (for example: I couldn't read the small label on page 1); " +
+    "never blame the user for how the file was made, never say the file's content was not given to " +
+    "you, and keep engine and decoding errors out of the answer — they are diagnostics, not the " +
+    "conversation. " +
     "Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. " +
     "If the question concerns a time range or section NOT present below, state that you cannot see that part of the " +
     "content clearly enough to answer it — do not guess, and do not explain how the content was processed. " +
@@ -269,12 +382,40 @@ export async function buildAttachmentTurn(
   model?: string,
   /** F07: the conversation this turn belongs to; the shown ledger is scoped to it. */
   conversationId?: string,
+  /**
+   * F152 targeted reread: called with (attId, raw question, index, the units
+   * the retrieved passages name, whether THIS attachment's retrieval came up
+   * empty) when the attachment carries region-labelled frames; returns the
+   * outcome — evidence lines + the regions actually re-inspected — from a
+   * CLOSER read of the requested region(s) ONLY. Absent (the golden path) =
+   * the assembly is byte-identical.
+   */
+  reread?: RegionReader,
+  /**
+   * F153 item 3: called with (attId, index, the asked moments) when a routed
+   * time_range question on an AUDIO index found no timed passage — it returns
+   * what the record knows about the asked window(s): the measured verdict, the
+   * durable fresh decode's lines, or the honest failure (attachindex/
+   * audio-reread.ts). Absent = the golden path is byte-identical.
+   */
+  freshAsr?: FreshAsrReader,
+  /**
+   * F153 item 4: called with (attId, index, the asked moments that NO saved
+   * frame covers) on a routed time_range question over an attachment with no
+   * readable speech — it decodes the ORIGINAL at those instants on demand and
+   * returns the delivered pixels, the on-screen words, and the named failures
+   * (attachindex/frame-seek.ts). Absent = the golden path is byte-identical.
+   */
+  seekFrames?: SeekFramesReader,
 ): Promise<number> {
   const refs = collectAttachmentRefs(messages);
   if (!refs.length) return 0;
 
   const blocks: string[] = [];
   const images: { url: string; at: number }[] = [];
+  // F152: labelled document frames are kept apart from video keyframes so
+  // each kind gets its own lead-in law.
+  const docImages: { url: string; at: number; label: string }[] = [];
   // Which query the retrieval runs on (F07, 2026-11-15): RAW FIRST. The raw
   // question keeps its own tokens, so an explicit phrase ("every mention",
   // "summarize", "at 1:45") still decides the route and the time window, and
@@ -296,7 +437,7 @@ export async function buildAttachmentTurn(
   let turnUsed = 0;
 
   for (const ref of refs) {
-    const index = readIndex(ref.attId);
+    let index = readIndex(ref.attId);
     if (!index) {
       blocks.push(
         `<knowledge_index name="${ref.name}">\n` +
@@ -435,6 +576,30 @@ export async function buildAttachmentTurn(
       );
     }
 
+    // F152 targeted reread: an explicit closer-read request about a picture
+    // the retrieved passages name re-inspects EXACTLY that region — the
+    // reader runs with the region ids as scope, refreshes only that region's
+    // pixels/state/passage (see attachindex/reread.ts), and the recovered
+    // lines answer THIS turn. F153 §3: a MISSING retrieved passage is also a
+    // targeted-read reason (the reader enforces the named-unit targeting).
+    // Ordinary follow-ups that retrieve material never reach work here: the
+    // cached evidence (index passages + frames) is what they reuse. The
+    // reader must never throw into the turn — a failed reread leaves the
+    // cached evidence standing.
+    let rereadOut: RereadOutcome = { lines: [], regions: [] };
+    if (reread && (index.meta.frames ?? []).some(f => f.region && f.label)) {
+      try {
+        rereadOut = await reread(ref.attId, rawQ, index, ev.pageCues, !ev.text);
+      } catch {
+        rereadOut = { lines: [], regions: [] };
+      }
+      if (rereadOut.lines.length) {
+        const fresh = readIndex(ref.attId);
+        if (fresh) index = fresh; // refreshed state/pixels visible to the pairing below
+      }
+    }
+    const rereadLines = rereadOut.lines;
+
     // F78 (2026-11-22): a video whose speech could not be read indexes its
     // keyframes + one coverage note — there is NO timed passage for a routed
     // time_range question to retrieve, so `!ev.text` below fires and the
@@ -446,42 +611,59 @@ export async function buildAttachmentTurn(
     // honesty intact — nearestFrames already refuses a far moment) and the
     // unconfirmable-between law. Generic: routed window + index meta only,
     // never content inspection.
-    if (!ev.text && routed.mode === "time_range" && (index.meta.frames?.length ?? 0) > 0) {
+    if (!ev.text && routed.mode === "time_range" && ((index.meta.frames?.length ?? 0) > 0 || seekFrames)) {
       // The router builds each cue window as [c-180, c+180] CLIPPED to the
       // video's length; midpoint of a clipped window is NOT the asked instant
       // (a cue at 00:00:45 → window [0, 225] → midpoint 00:01:53 would
       // mislabel what the user asked). Un-clip from the edge that was
       // clipped; midpoint only when the window is full width.
       const dur = index.meta.durationSec ?? 0;
-      const cueAt = (w: { fromSec: number; toSec: number }): number => {
-        const mid = (w.fromSec + w.toSec) / 2;
-        if (w.toSec - w.fromSec >= 2 * FRAME_WINDOW_SEC) return mid;
-        if (w.fromSec <= 0.5) return Math.max(0, w.toSec - FRAME_WINDOW_SEC);
-        if (dur > 0 && w.toSec >= dur - 0.5) return w.fromSec + FRAME_WINDOW_SEC;
-        return mid;
-      };
-      const cues = (
-        routed.windows?.length
-          ? routed.windows.map(cueAt)
-          : [cueAt({ fromSec: routed.fromSec ?? 0, toSec: routed.toSec ?? 0 })]
-      ).slice(0, MAX_FRAMES);
+      const cues = cueMoments(routed, dur);
       const perCue = cues.map(cue => ({ cue, frames: nearestFrames(index, [cue]) }));
+      // F153 item 4 (2026-11-25): a moment no saved frame covers is NOT
+      // "never captured" while the original sits on disk — those instants get
+      // ONE bounded on-demand decode (attachindex/frame-seek.ts): the
+      // picture rides THIS turn, and the frame + any on-screen words become
+      // part of the record so the next follow-up answers from it. Absent seam
+      // = the golden path is byte-identical.
+      const missingCues = perCue.filter(pc => !pc.frames.length).map(pc => pc.cue);
+      let seek: FrameSeekOutcome | null = null;
+      if (seekFrames && missingCues.length) {
+        try {
+          seek = await seekFrames(ref.attId, index, missingCues, signal);
+        } catch {
+          seek = null; // never throws into the turn (buildAttachmentTurn law)
+        }
+      }
+      if (seek) {
+        for (const pc of perCue) {
+          for (const im of seek.images) {
+            // Same honesty window as saved frames: a seeked pixel answers
+            // only for the instant it decoded.
+            if (Math.abs(im.at - pc.cue) <= FRAME_WINDOW_SEC && !pc.frames.some(f => f.at === im.at)) {
+              pc.frames.push(im);
+            }
+          }
+        }
+      }
       const shownFrames: { url: string; at: number }[] = [];
       for (const pc of perCue) {
         for (const f of pc.frames) {
           if (!shownFrames.some(x => x.at === f.at && x.url === f.url)) shownFrames.push(f);
         }
       }
+      const cueLines = perCue
+        .map(({ cue, frames }) =>
+          frames.length
+            ? `Asked time ${fmtStamp(cue)}: the saved moment${frames.length > 1 ? "s" : ""} nearest ${fmtStamp(cue)} ${frames.length > 1 ? "are" : "is"} at ${frames.map(f => fmtStamp(f.at)).join(", ")} (the record holds no saved moment closer).`
+            : `Asked time ${fmtStamp(cue)}: NO saved moment lies within this turn's time window, so what is on screen at that time was never captured.`,
+        )
+        .join("\n");
+      const seekLines = seek && seek.lines.length ? "\n" + seek.lines.join("\n") : "";
       if (shownFrames.length) {
         const totalChunks = index.meta.chunkCount || index.chunks.length;
-        const totalFrames = index.meta.frames.length;
-        const lines = perCue
-          .map(({ cue, frames }) =>
-            frames.length
-              ? `Asked time ${fmtStamp(cue)}: the saved moment${frames.length > 1 ? "s" : ""} nearest ${fmtStamp(cue)} ${frames.length > 1 ? "are" : "is"} at ${frames.map(f => fmtStamp(f.at)).join(", ")} (the record holds no saved moment closer).`
-              : `Asked time ${fmtStamp(cue)}: NO saved moment lies within this turn's time window, so what is on screen at that time was never captured.`,
-          )
-          .join("\n");
+        const totalFrames = index.meta.frames.length + (seek?.durable ?? 0);
+        const lines = cueLines + seekLines;
         const block =
           `<knowledge_index name="${ref.name}">\n` +
           `The question asks about a moment on this video's timeline. Its saved record carries no readable speech, so the visual record is the evidence served for the asked time.\n` +
@@ -496,6 +678,87 @@ export async function buildAttachmentTurn(
         images.push(...shownFrames);
         continue;
       }
+      // Nothing saved AND the seek delivered nothing: the golden "never
+      // captured" sentence rides WITH the seek's named failures, so the
+      // answer distinguishes "the record never held this moment" from "the
+      // on-demand decode failed for reason X and is retryable" — and the
+      // moment is no longer silently unreachable while the original is on disk.
+      if (seek && seek.lines.length) {
+        const totalChunks = index.meta.chunkCount || index.chunks.length;
+        const block =
+          `<knowledge_index name="${ref.name}">\n` +
+          `The question asks about a moment on this video's timeline. Its saved record carries no readable speech, so the visual record is the evidence served for the asked time.\n` +
+          cueLines + seekLines +
+          "\n" +
+          `The saved moments are isolated points: the record holds NO evidence about the time between, before or after them. Answer about the asked moment from the saved moment nearest it, give its time, and state that what happens between saved moments cannot be confirmed.\n` +
+          coverageMarker(ev, 0, ref.name, totalChunks, 0) +
+          rankingMarker(ev) +
+          `\n${rules(ref)}\n</knowledge_index>`;
+        blocks.push(block);
+        turnUsed += block.length;
+        continue;
+      }
+    }
+    // F153 item 3 (2026-11-25) — the UNCOVERED-TIME fresh-read law: an audio
+    // index whose routed time_range question retrieved NO passage had nothing
+    // to answer from (reproduced: "what did she say around 58:40?" over an
+    // hour whose decode stopped early → zero evidence for the asked time).
+    // audio-reread.ts decides honestly from the durable record: a window the
+    // record covers is never re-decoded; a fully-decoded recording states the
+    // measured absence; an unexamined window gets ONE bounded fresh decode of
+    // the ORIGINAL, persisted so follow-ups continue across the boundary.
+    // Never throws into the turn: a failed read leaves the block reporting the
+    // failure plainly. Generic: routed window + index meta only.
+    if (
+      !ev.text
+      && routed.mode === "time_range"
+      && freshAsr
+      && index.meta.category === "audio"
+      && (index.meta.durationSec ?? 0) > 0
+    ) {
+      let fresh: FreshAsrOutcome = { lines: [], spans: [] };
+      try {
+        fresh = await freshAsr(ref.attId, index, cueMoments(routed, index.meta.durationSec ?? 0), signal);
+      } catch {
+        fresh = { lines: [], spans: [] };
+      }
+      if (fresh.lines.length) {
+        const totalChunks = index.meta.chunkCount || index.chunks.length;
+        const block =
+          `<knowledge_index name="${ref.name}">\n` +
+          `The question asks about a moment on this recording's timeline. The saved transcript carried no passage for the asked window(s), so this turn consulted the record and, where the window had never been listened to, ran ONE bounded decode of the original. What it found:\n` +
+          fresh.lines.join("\n") + "\n" +
+          coverageMarker(ev, 0, ref.name, totalChunks, 0) +
+          rankingMarker(ev) +
+          `\n${rules(ref)}\n</knowledge_index>`;
+        blocks.push(block);
+        turnUsed += block.length;
+        continue;
+      }
+    }
+    // F153 §3 — the MISSING-PASSAGE targeted-read law: a missing retrieved
+    // passage is a reason to TRY a targeted read when the original is
+    // available. If the read recovered text, THAT text is this turn's
+    // evidence — the user uploaded the document and the answer speaks about
+    // it; if the read still failed, the reread line names the exact
+    // unreadable part plainly (reread.ts law). The refreshed crops ride
+    // paired to their labels. The block states the attempt and its real
+    // outcome — no wording change hides missing evidence, no canned reply.
+    if (!ev.text && rereadLines.length) {
+      const crops = regionFrames(index, rereadOut.regions);
+      const totalChunks = index.meta.chunkCount || index.chunks.length;
+      const totalFrames = index.meta.frames?.length ?? 0;
+      const block =
+        `<knowledge_index name="${ref.name}">\n` +
+        `No passage in this attachment's saved record matched the question, so this turn attempted a targeted closer read of the picture(s) the question names. Its result:\n` +
+        rereadLines.join("\n") + "\n" +
+        coverageMarker(ev, crops.length, ref.name, totalChunks, totalFrames) +
+        rankingMarker(ev) +
+        `\n${rules(ref)}\n</knowledge_index>`;
+      blocks.push(block);
+      turnUsed += block.length;
+      docImages.push(...crops);
+      continue;
     }
     if (!ev.text) continue;
 
@@ -503,15 +766,22 @@ export async function buildAttachmentTurn(
     // below — the byte templates live there so the frames-only path can
     // report the same honest numbers).
     const frames = nearestFrames(index, ev.frameAts);
+    const docFrames = unitFrames(index, ev.pageCues);
     const totalChunks = index.meta.chunkCount || index.chunks.length;
     const totalFrames = index.meta.frames?.length ?? 0;
-    const covered = coverageMarker(ev, frames.length, ref.name, totalChunks, totalFrames);
+    const covered = coverageMarker(ev, frames.length + docFrames.length, ref.name, totalChunks, totalFrames);
     const rankLine = rankingMarker(ev);
 
     blocks.push(
       `<knowledge_index name="${ref.name}">\n` +
         `Passages relevant to this question, retrieved from "${ref.name}" ` +
         `(its complete text is preserved locally — the passages below are the parts the retrieval matched):\n${ev.text}` +
+        // F152: lines recovered by THIS turn's targeted reread — labelled,
+        // region-keyed, kept separate from the retrieved passages (native and
+        // re-read text stay distinguishable; the section header states scope).
+        (rereadLines.length
+          ? `\n[close re-read this turn: only the requested picture(s) were inspected again; each entry names its region and engine]\n${rereadLines.join("\n")}`
+          : "") +
         // I20: an honest COUNT of what the budget left out, not a vague
         // "more exist". Ask-to-continue works because of the shown ledger.
         (ev.dropped > 0
@@ -530,34 +800,46 @@ export async function buildAttachmentTurn(
         queryFp,
       });
     images.push(...frames);
+    docImages.push(...docFrames);
   }
 
-  if (!blocks.length && !images.length) return 0;
+  if (!blocks.length && !images.length && !docImages.length) return 0;
 
   // Keyframes ride at the END of the user turn (the template appends media
   // after text); the evidence itself is one system block right before it.
-  if (images.length) {
+  if (images.length || docImages.length) {
     const msg = messages[userIdx];
     if (msg) {
       const parts = Array.isArray(msg.content)
         ? msg.content
         : [{ type: "text", text: typeof msg.content === "string" ? msg.content : "" }];
-      parts.push({
-        type: "text",
-        text:
-          // F76 (2026-11-21): the sampling law. Two delivered instants say nothing
-          // about the time BETWEEN them, and without this line the model fills that
-          // gap ("visible throughout the clip"). Byte-identical to FRAME_LEAD_IN in
-          // ruke-attach/src/turn.rs (the attachment goldens replay these bytes) and
-          // to VIDEO_MOMENTS_LAW in lib/chat/client.ts.
-          "Moments from the attached video nearest to the discussed time range — they come from the video's saved " +
-          "record; describe them as things that happen in the video, never as frames:" +
-          " The images are isolated moments: the record holds no evidence about the time between, before or after them. " +
-          "Never claim that something is visible throughout a video, always or never shown, or unchanged across any " +
-          "stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say " +
-          "the rest cannot be confirmed.",
-      });
-      for (const img of images) parts.push({ type: "image_url", image_url: { url: img.url } });
+      if (images.length) {
+        parts.push({
+          type: "text",
+          text:
+            // F76 (2026-11-21): the sampling law. Two delivered instants say nothing
+            // about the time BETWEEN them, and without this line the model fills that
+            // gap ("visible throughout the clip"). Byte-identical to FRAME_LEAD_IN in
+            // ruke-attach/src/turn.rs (the attachment goldens replay these bytes) and
+            // to VIDEO_MOMENTS_LAW in lib/chat/client.ts.
+            "Moments from the attached video nearest to the discussed time range — they come from the video's saved " +
+            "record; describe them as things that happen in the video, never as frames:" +
+            " The images are isolated moments: the record holds no evidence about the time between, before or after them. " +
+            "Never claim that something is visible throughout a video, always or never shown, or unchanged across any " +
+            "stretch between two shown moments; when asked about such a stretch, answer from the shown moments and say " +
+            "the rest cannot be confirmed.",
+        });
+        for (const img of images) parts.push({ type: "image_url", image_url: { url: img.url } });
+      }
+      if (docImages.length) {
+        // F152: the indexed document's drawn content, paired to the passages
+        // that name its unit (see unitFrames). Video lead-in bytes untouched.
+        parts.push({ type: "text", text: DOC_FRAMES_LEAD_IN });
+        for (const img of docImages) {
+          parts.push({ type: "text", text: `${img.label} — drawn content:` });
+          parts.push({ type: "image_url", image_url: { url: img.url } });
+        }
+      }
       msg.content = parts;
     }
   }

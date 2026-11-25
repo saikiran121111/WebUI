@@ -30,11 +30,14 @@ use ruke_skills::lazy::inject_system_before;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::audio_reread::{fresh_asr_for_windows, FreshAsrInspector};
+use crate::frame_seek::{seek_frames_for_cues, FrameSeekOutcome, FrameSeeker};
 use crate::notes::{generate_notes, notes_version, Cancelled, NotesLlm};
+use crate::reread::{reread_regions, RereadOutcome, RegionInspector};
 use crate::retrieve::{env_number, notes_budget, per_ref_budget, retrieve_evidence, RetrieveOpts};
 use crate::router::{
     count_bounded, fingerprint_query, is_continuation_ask, pronoun_re, QueryMode, RouteAxis,
-    route_query_in,
+    RoutedQuery, route_query_in,
 };
 use crate::format::fmt_stamp;
 use crate::store;
@@ -169,7 +172,7 @@ pub fn collect_attachment_refs(messages: &[Value]) -> Vec<AttachmentRef> {
 
 /// Standard-alphabet base64 with padding ⇔ Node `buf.toString("base64")`.
 /// Hand-rolled: the workspace deliberately carries no base64 crate.
-fn b64_std(data: &[u8]) -> String {
+pub(crate) fn b64_std(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
@@ -197,6 +200,37 @@ fn b64_std(data: &[u8]) -> String {
 /// asked-about moment is NOT served — showing what is on screen minutes
 /// away as if it belonged to the discussed time would mislead.
 const FRAME_WINDOW: f64 = 180.0;
+
+/// F78/F153 (⇔ `cueMoments` in turn.ts): the asked instants behind a routed
+/// time-range question. The router builds each cue window as [c-180, c+180]
+/// CLIPPED to the media's length; the midpoint of a clipped window is NOT
+/// the asked instant (a cue at 00:00:45 → window [0, 225] → midpoint
+/// 00:01:53 would mislabel what the user asked). Un-clip from the clipped
+/// edge; midpoint only when the window is full width. At most MAX_FRAMES.
+pub fn cue_moments(routed: &RoutedQuery, dur: f64) -> Vec<f64> {
+    let cue_at = |w: (f64, f64)| -> f64 {
+        let mid = (w.0 + w.1) / 2.0;
+        if w.1 - w.0 >= 2.0 * FRAME_WINDOW {
+            return mid;
+        }
+        if w.0 <= 0.5 {
+            return (w.1 - FRAME_WINDOW).max(0.0);
+        }
+        if dur > 0.0 && w.1 >= dur - 0.5 {
+            return w.0 + FRAME_WINDOW;
+        }
+        mid
+    };
+    let all: Vec<f64> = if !routed.windows.is_empty() {
+        routed.windows.iter().copied().map(cue_at).collect()
+    } else {
+        vec![cue_at((
+            routed.from_sec.unwrap_or(0.0),
+            routed.to_sec.unwrap_or(0.0),
+        ))]
+    };
+    all.into_iter().take(MAX_FRAMES).collect()
+}
 
 /// `nearestFrames` — per timestamp, the nearest UNUSED frame (strict `<`
 /// keeps the first minimum in frame order); a used slot stays consumed
@@ -241,8 +275,17 @@ fn nearest_frames(root: &Path, index: &LoadedIndex, frame_ats: &[f64]) -> Vec<(S
             // the dir in BOTH engines (documented, frozen format never emits it).
             let path = dir.join(&frames[best].file);
             if let Ok(buf) = std::fs::read(&path) {
+                // Mime-by-extension law ⇔ turn.ts nearestFrames: seeked
+                // frames persist as PNG ("s_%05d.png"), build keyframes as
+                // JPEG ("f_%05d.jpg") — serve the real mime of what is on
+                // disk (nearest_unit_frames already picks by extension).
+                let mime = if frames[best].file.to_lowercase().ends_with(".png") {
+                    "image/png"
+                } else {
+                    "image/jpeg"
+                };
                 out.push((
-                    format!("data:image/jpeg;base64,{}", b64_std(&buf)),
+                    format!("data:{mime};base64,{}", b64_std(&buf)),
                     frames[best].at,
                 ));
             }
@@ -254,12 +297,121 @@ fn nearest_frames(root: &Path, index: &LoadedIndex, frame_ats: &[f64]) -> Vec<(S
     out
 }
 
+/// `unitFrames` ⇔ lib/server/attachindex/turn.ts: labelled document frames
+/// ride with the retrieval ONLY for the units the winning passages themselves
+/// name. Document frames sit on the UNIT-ordinal axis (pages/slides/sheets),
+/// not seconds, so the honesty window is an EXACT match — a frame no passage
+/// names is not shown at all. Only labelled frames qualify (video keyframes
+/// stay on the `nearest_frames` time axis). Multiple regions of one unit all
+/// match its cue, up to MAX_FRAMES.
+fn nearest_unit_frames(
+    root: &Path,
+    index: &LoadedIndex,
+    cues: &[f64],
+) -> Vec<(String, f64, String)> {
+    let frames = &index.meta.frames;
+    if frames.is_empty() || cues.is_empty() {
+        return Vec::new();
+    }
+    let dir = store::index_dir(root, &index.meta.att_id);
+    let mut used: HashSet<usize> = HashSet::new();
+    let mut out: Vec<(String, f64, String)> = Vec::new();
+    for &cue in cues {
+        for (k, f) in frames.iter().enumerate() {
+            if out.len() >= MAX_FRAMES {
+                break;
+            }
+            if used.contains(&k) || f.label.is_none() || f.at != cue {
+                continue;
+            }
+            used.insert(k);
+            if let Some(dir) = &dir {
+                let path = dir.join(&f.file);
+                if let Ok(buf) = std::fs::read(&path) {
+                    // Document frames are PNG (renderer output); video
+                    // keyframes are JPEG — mime chosen by extension.
+                    let mime = if f.file.to_lowercase().ends_with(".png") {
+                        "image/png"
+                    } else {
+                        "image/jpeg"
+                    };
+                    out.push((
+                        format!("data:{};base64,{}", mime, b64_std(&buf)),
+                        f.at,
+                        f.label.clone().unwrap_or_default(),
+                    ));
+                }
+            }
+        }
+        if out.len() >= MAX_FRAMES {
+            break;
+        }
+    }
+    out
+}
+
+/// `regionFrames` ⇔ lib/server/attachindex/turn.ts (F153 §3): the crops of
+/// the regions a targeted reread JUST refreshed, in frame order, so the
+/// refreshed pixels ride paired to their labels. A frame file missing on disk
+/// is skipped — the text evidence stands.
+fn region_frames(
+    root: &Path,
+    index: &LoadedIndex,
+    regions: &[String],
+) -> Vec<(String, f64, String)> {
+    let frames = &index.meta.frames;
+    let dir = store::index_dir(root, &index.meta.att_id);
+    let mut out: Vec<(String, f64, String)> = Vec::new();
+    for f in frames {
+        if out.len() >= MAX_FRAMES {
+            break;
+        }
+        let (Some(region), Some(label)) = (f.region.as_ref(), f.label.as_ref()) else {
+            continue;
+        };
+        if !regions.iter().any(|r| r == region) {
+            continue;
+        }
+        let Some(dir) = &dir else { continue };
+        if let Ok(buf) = std::fs::read(dir.join(&f.file)) {
+            let mime = if f.file.to_lowercase().ends_with(".png") {
+                "image/png"
+            } else {
+                "image/jpeg"
+            };
+            out.push((
+                format!("data:{};base64,{}", mime, b64_std(&buf)),
+                f.at,
+                label.clone(),
+            ));
+        }
+    }
+    out
+}
+
+/// F152: lead-in for document pictures, kept separate from the video moments
+/// law (video bytes stay golden-frozen). Byte-identical to
+/// DOC_FRAMES_LEAD_IN in lib/server/attachindex/turn.ts; the per-frame label
+/// format matches lib/chat/client.ts ("<label> — drawn content:").
+const DOC_FRAMES_LEAD_IN: &str = concat!(
+    "Each picture below is labelled with where it sits in the attached document — the file's own drawn content (chart pages, embedded images), kept separate from the retrieved text passages. Answer questions about appearance from the labelled picture and say which one you read it from:",
+);
+
 /// `rules(ref)` — byte-exact four-segment base + variant.
 fn rules(r: &AttachmentRef) -> String {
     let is_video = r.category == "video";
     let timed = is_video || r.category == "audio";
     let mut s = String::from(concat!(
         "Rules for this content: answer from the material below whenever it covers the question. ",
+        // F152 Part 4 wording law — byte-identical to the TS rules() segment
+        // above (direct format, narrow plain unreadable statement after the
+        // closer read, no blame, no "not given", engine errors = diagnostics).
+        "Answer directly in the form the question asked for. When a closer read of part of the ",
+        "content has been attempted and it is still unreadable, say plainly and narrowly which part ",
+        "you could not read and where it sits (for example: I couldn't read the small label on page 1); ",
+        "never blame the user for how the file was made, never say the file's content was not given to ",
+        "you, and keep engine and decoding errors out of the answer — they are diagnostics, not the ",
+        "conversation. ",
         "Where passages carry [HH:MM:SS - HH:MM:SS] headers, cite that header for every claim taken from it. ",
         "If the question concerns a time range or section NOT present below, state that you cannot see that ",
         "part of the content clearly enough to answer it — do not guess, and do not explain how the content ",
@@ -381,9 +533,9 @@ const FRAME_LEAD_IN: &str = concat!(
 /// The ONLY `Err` is [`Cancelled`] ⇔ the TS AbortError out of the notes
 /// fetch; every other failure degrades in place exactly like the TS.
 // The parameter list mirrors `buildAttachmentTurn(messages, userIdx,
-// question, root, embedder, http, llm, token)` one-for-one (parity port);
-// bundling the deps into a struct would rename the seam the Part-6 web
-// seam will parallel.
+// question, root, embedder, http, llm, token, conversation, reread)`
+// one-for-one (parity port); bundling the deps into a struct would rename
+// the seam the Part-6 web seam will parallel.
 #[allow(clippy::too_many_arguments)]
 pub async fn build_attachment_turn(
     messages: &mut Vec<Value>,
@@ -397,6 +549,17 @@ pub async fn build_attachment_turn(
     // F07: the conversation this turn belongs to; the shown ledger is scoped to
     // it (None = the bare attachment key, as before F07).
     conversation: Option<&str>,
+    // F152: the targeted-reread transport (reread.ts's RegionReader seam).
+    // `None` = no closer-read work is wired: goldens stay byte-identical.
+    reread: Option<&dyn RegionInspector>,
+    // F153 item 3: the bounded fresh audio read (audio-reread.ts's
+    // FreshAsrReader seam). `None` = no fresh decode work is wired:
+    // goldens stay byte-identical.
+    fresh_asr: Option<&dyn FreshAsrInspector>,
+    // F153 item 4: the on-demand visual seek (frame-seek.ts's
+    // SeekFramesReader seam). `None` = no seek work is wired: goldens stay
+    // byte-identical.
+    seek_frames: Option<&dyn FrameSeeker>,
 ) -> Result<usize, Cancelled> {
     let refs = collect_attachment_refs(messages);
     if refs.is_empty() {
@@ -405,6 +568,9 @@ pub async fn build_attachment_turn(
 
     let mut blocks: Vec<String> = Vec::new();
     let mut images: Vec<(String, f64)> = Vec::new();
+    // F152: labelled document frames are kept apart from video keyframes so
+    // each kind gets its own lead-in law.
+    let mut doc_images: Vec<(String, f64, String)> = Vec::new();
     let mut turn_used: f64 = 0.0;
 
     // I22 direct-route guard (turn.ts:197-200): when the RAW question by
@@ -426,7 +592,7 @@ pub async fn build_attachment_turn(
     };
 
     for r in &refs {
-        let index = match store::read_index(root, &r.att_id) {
+        let mut index = match store::read_index(root, &r.att_id) {
             Some(index) => index,
             None => {
                 blocks.push(format!(
@@ -591,6 +757,49 @@ pub async fn build_attachment_turn(
             ev = retrieve_evidence(&index, &anchored, &fallback_vec, &opts);
         }
 
+        // F152 targeted reread (⇔ turn.ts): an explicit closer-read request
+        // about a picture the retrieved passages name re-inspects EXACTLY
+        // that region — the inspector runs with the region ids as scope,
+        // refreshes only that region's pixels/state/passage (reread.rs), and
+        // the recovered lines answer THIS turn. Ordinary follow-ups never
+        // reach work here: the cached evidence is what they reuse. A failed
+        // reread leaves the cached evidence standing (never throws). The
+        // index is RE-READ after a refresh so the pairing below serves the
+        // refreshed pixels and state this same turn.
+        let mut reread_out = RereadOutcome::default();
+        if let Some(insp) = reread {
+            if index
+                .meta
+                .frames
+                .iter()
+                .any(|f| f.region.is_some() && f.label.is_some())
+            {
+                // F153 §3: `ev.text.is_empty()` marks the MISSING-PASSAGE
+                // case — retrieval found nothing, which is itself a
+                // targeted-read reason (reread.rs enforces the named-unit
+                // targeting). ⇔ turn.ts.
+                let out = reread_regions(
+                    root,
+                    embedder,
+                    insp,
+                    &r.att_id,
+                    &trimmed_q,
+                    &index,
+                    &ev.page_cues,
+                    ev.text.is_empty(),
+                    token,
+                )
+                .await;
+                if !out.lines.is_empty() {
+                    if let Some(fresh) = store::read_index(root, &r.att_id) {
+                        index = fresh; // refreshed state/pixels visible to the pairing below
+                    }
+                }
+                reread_out = out;
+            }
+        }
+        let reread_lines = &reread_out.lines;
+
         // F78 (2026-11-22): a video whose speech could not be read indexes
         // its keyframes + one coverage note — there is NO timed passage for a
         // routed time_range question to retrieve, so an empty `ev.text` below
@@ -603,41 +812,52 @@ pub async fn build_attachment_turn(
         // (FRAME_WINDOW honesty intact — nearest_frames already refuses a far
         // moment) and the unconfirmable-between law. Generic: routed window +
         // index meta only, never content inspection. ⇔ turn.ts F78 block.
-        if ev.text.is_empty() && routed.mode == QueryMode::TimeRange && !index.meta.frames.is_empty() {
-            // The router builds each cue window as [c-180, c+180] CLIPPED to
-            // the video's length; midpoint of a clipped window is NOT the
-            // asked instant (a cue at 00:00:45 → window [0, 225] → midpoint
-            // 00:01:53 would mislabel what the user asked). Un-clip from the
-            // clipped edge; midpoint only when the window is full width.
+        if ev.text.is_empty() && routed.mode == QueryMode::TimeRange
+            && (!index.meta.frames.is_empty() || seek_frames.is_some())
+        {
+            // Cue geometry: ⇔ cue_moments (the un-clip law lives there).
             let dur = index.meta.duration_sec.unwrap_or(0.0);
-            let cue_at = |w: (f64, f64)| -> f64 {
-                let mid = (w.0 + w.1) / 2.0;
-                if w.1 - w.0 >= 2.0 * FRAME_WINDOW {
-                    return mid;
-                }
-                if w.0 <= 0.5 {
-                    return (w.1 - FRAME_WINDOW).max(0.0);
-                }
-                if dur > 0.0 && w.1 >= dur - 0.5 {
-                    return w.0 + FRAME_WINDOW;
-                }
-                mid
-            };
-            let cues: Vec<f64> = {
-                let all: Vec<f64> = if !routed.windows.is_empty() {
-                    routed.windows.iter().copied().map(cue_at).collect()
-                } else {
-                    vec![cue_at((
-                        routed.from_sec.unwrap_or(0.0),
-                        routed.to_sec.unwrap_or(0.0),
-                    ))]
-                };
-                all.into_iter().take(MAX_FRAMES).collect()
-            };
-            let per_cue: Vec<(f64, Vec<(String, f64)>)> = cues
+            let cues: Vec<f64> = cue_moments(&routed, dur);
+            let mut per_cue: Vec<(f64, Vec<(String, f64)>)> = cues
                 .iter()
                 .map(|cue| (*cue, nearest_frames(root, &index, &[*cue])))
                 .collect();
+            // F153 item 4 (2026-11-25): a moment no saved frame covers is NOT
+            // "never captured" while the original sits on disk — those instants
+            // get ONE bounded on-demand decode (frame_seek.rs): the picture
+            // rides THIS turn, and the frame + any on-screen words become part
+            // of the record so the next follow-up answers from it. Absent seam
+            // = the golden path is byte-identical.
+            let missing: Vec<f64> = per_cue
+                .iter()
+                .filter(|(_, frames)| frames.is_empty())
+                .map(|(cue, _)| *cue)
+                .collect();
+            let mut seek: Option<FrameSeekOutcome> = None;
+            if let Some(seeker) = seek_frames {
+                if !missing.is_empty() {
+                    // The Rust transport is total (frame_seek module docs):
+                    // every fault resolves to a named outcome, so the TS
+                    // try/catch around the seam has no Rust route.
+                    seek = Some(
+                        seek_frames_for_cues(
+                            root, embedder, seeker, &r.att_id, &index, &missing, token,
+                        )
+                        .await,
+                    );
+                }
+            }
+            if let Some(s) = &seek {
+                for (cue, frames) in per_cue.iter_mut() {
+                    for (url, at) in &s.images {
+                        // Same honesty window as saved frames: a seeked pixel
+                        // answers only for the instant it decoded.
+                        if (*at - *cue).abs() <= FRAME_WINDOW && !frames.iter().any(|f| f.1 == *at) {
+                            frames.push((url.clone(), *at));
+                        }
+                    }
+                }
+            }
             let mut shown: Vec<(String, f64)> = Vec::new();
             for (_, frames) in &per_cue {
                 for f in frames {
@@ -646,35 +866,43 @@ pub async fn build_attachment_turn(
                     }
                 }
             }
+            let cue_lines = per_cue
+                .iter()
+                .map(|(cue, frames)| {
+                    let cue_s = fmt_stamp(*cue);
+                    if frames.is_empty() {
+                        format!("Asked time {cue_s}: NO saved moment lies within this turn's time window, so what is on screen at that time was never captured.")
+                    } else {
+                        let plural = frames.len() > 1;
+                        let stamps = frames
+                            .iter()
+                            .map(|f| fmt_stamp(f.1))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!(
+                            "Asked time {cue_s}: the saved moment{} nearest {cue_s} {} at {stamps} (the record holds no saved moment closer).",
+                            if plural { "s" } else { "" },
+                            if plural { "are" } else { "is" },
+                        )
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let seek_lines = match &seek {
+                Some(s) if !s.lines.is_empty() => format!("\n{}", s.lines.join("\n")),
+                _ => String::new(),
+            };
             if !shown.is_empty() {
                 let total_chunks = if index.meta.chunk_count != 0 {
                     index.meta.chunk_count
                 } else {
                     index.chunks.len() as i64
                 };
-                let total_frames = index.meta.frames.len() as i64;
-                let lines = per_cue
-                    .iter()
-                    .map(|(cue, frames)| {
-                        let cue_s = fmt_stamp(*cue);
-                        if frames.is_empty() {
-                            format!("Asked time {cue_s}: NO saved moment lies within this turn's time window, so what is on screen at that time was never captured.")
-                        } else {
-                            let plural = frames.len() > 1;
-                            let stamps = frames
-                                .iter()
-                                .map(|f| fmt_stamp(f.1))
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            format!(
-                                "Asked time {cue_s}: the saved moment{} nearest {cue_s} {} at {stamps} (the record holds no saved moment closer).",
-                                if plural { "s" } else { "" },
-                                if plural { "are" } else { "is" },
-                            )
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                // The seeked frames that became saved frames count toward the
+                // honest total — the marker reports the record AFTER this turn.
+                let total_frames = index.meta.frames.len() as i64
+                    + seek.as_ref().map(|s| s.durable as i64).unwrap_or(0);
+                let lines = format!("{cue_lines}{seek_lines}");
                 let mut block = format!(
                     "<knowledge_index name=\"{name}\">\nThe question asks about a moment on this video's timeline. Its saved record carries no readable speech, so the visual record is the evidence served for the asked time.\n{lines}\nThe saved moments are isolated points: the record holds NO evidence about the time between, before or after them. Answer about the asked moment from the saved moment nearest it, give its time, and state that what happens between saved moments cannot be confirmed.\n",
                     name = r.name,
@@ -726,6 +954,208 @@ pub async fn build_attachment_turn(
                 images.extend(shown);
                 continue;
             }
+            // Nothing saved AND the seek delivered no frame: the golden
+            // "never captured" sentence rides WITH the seek's named
+            // failures, so the answer distinguishes "the record never held
+            // this moment" from "the on-demand decode failed for reason X
+            // and is retryable" — and the moment is no longer silently
+            // unreachable while the original is on disk. ⇔ turn.ts branch.
+            if let Some(s) = &seek {
+                if !s.lines.is_empty() {
+                    let total_chunks = if index.meta.chunk_count != 0 {
+                        index.meta.chunk_count
+                    } else {
+                        index.chunks.len() as i64
+                    };
+                    let lines = format!("{cue_lines}{seek_lines}");
+                    let mut block = format!(
+                        "<knowledge_index name=\"{name}\">\nThe question asks about a moment on this video's timeline. Its saved record carries no readable speech, so the visual record is the evidence served for the asked time.\n{lines}\nThe saved moments are isolated points: the record holds NO evidence about the time between, before or after them. Answer about the asked moment from the saved moment nearest it, give its time, and state that what happens between saved moments cannot be confirmed.\n",
+                        name = r.name,
+                        lines = lines,
+                    );
+                    // coverageMarker(ev, 0, name, totalChunks, 0) ⇔ turn.ts:
+                    // no stored passage and no frame was shown, so the frame
+                    // clause is never emitted.
+                    {
+                        let mut c = format!(
+                            "\n[coverage: {} of {} indexed passages of \"{}\" were shown this turn",
+                            ev.chunk_idxs.len(),
+                            total_chunks,
+                            r.name
+                        );
+                        if ev.dropped > 0 {
+                            c.push_str(&format!("; {} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)", ev.dropped));
+                        } else if ev.truncated {
+                            c.push_str("; more passages matched than this turn's budget could show");
+                        } else {
+                            c.push_str("; no matched passage was withheld from this turn");
+                        }
+                        c.push_str(&format!(
+                            "; ranking mode: {}",
+                            if ev.vector_mode == crate::vectors::MODE_HYBRID {
+                                "semantic + lexical"
+                            } else {
+                                "lexical only"
+                            }
+                        ));
+                        if let Some(reason) = &ev.vector_reason {
+                            c.push_str(&format!(" ({})", reason));
+                        }
+                        c.push_str(" -- anything outside this selection was NOT read this turn]");
+                        block.push_str(&c);
+                    }
+                    block.push_str(&rank_line(&opts, &ev.vector_mode));
+                    block.push('\n');
+                    block.push_str(&rules(r));
+                    block.push_str("\n</knowledge_index>");
+                    turn_used += js_len(&block) as f64;
+                    blocks.push(block);
+                    continue;
+                }
+            }
+        }
+        // F153 item 3 (⇔ turn.ts): the UNCOVERED-TIME fresh-read law. An
+        // audio index whose routed time_range question retrieved NO passage
+        // had nothing to answer from; audio_reread decides honestly from the
+        // durable record: a covered window is never re-decoded, a fully
+        // decoded recording states the measured absence, an unexamined
+        // window gets ONE bounded fresh decode of the ORIGINAL, persisted so
+        // follow-ups continue across the boundary. The Rust seam resolves
+        // every fault to a typed outcome (reread transport law), so no
+        // catch is needed — a failed read leaves the block reporting the
+        // failure plainly. Generic: routed window + index meta only.
+        if ev.text.is_empty()
+            && routed.mode == QueryMode::TimeRange
+            && fresh_asr.is_some()
+            && index.meta.category == "audio"
+            && index.meta.duration_sec.unwrap_or(0.0) > 0.0
+        {
+            let fresh = fresh_asr_for_windows(
+                root,
+                embedder,
+                fresh_asr.unwrap(),
+                &r.att_id,
+                &index,
+                &cue_moments(&routed, index.meta.duration_sec.unwrap_or(0.0)),
+                token,
+            )
+            .await;
+            if !fresh.lines.is_empty() {
+                let total_chunks = if index.meta.chunk_count != 0 {
+                    index.meta.chunk_count
+                } else {
+                    index.chunks.len() as i64
+                };
+                let mut block = format!(
+                    "<knowledge_index name=\"{name}\">\nThe question asks about a moment on this recording's timeline. The saved transcript carried no passage for the asked window(s), so this turn consulted the record and, where the window had never been listened to, ran ONE bounded decode of the original. What it found:\n{lines}\n",
+                    name = r.name,
+                    lines = fresh.lines.join("\n"),
+                );
+                // coverageMarker ⇔ turn.ts coverageMarker(ev, 0, name,
+                // totalChunks, 0): the same honest numbers — no stored
+                // passage and no frame was shown for this block, so the
+                // frame clause is never emitted.
+                {
+                    let mut c = format!(
+                        "\n[coverage: {} of {} indexed passages of \"{}\" were shown this turn",
+                        ev.chunk_idxs.len(),
+                        total_chunks,
+                        r.name
+                    );
+                    if ev.dropped > 0 {
+                        c.push_str(&format!("; {} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)", ev.dropped));
+                    } else if ev.truncated {
+                        c.push_str("; more passages matched than this turn's budget could show");
+                    } else {
+                        c.push_str("; no matched passage was withheld from this turn");
+                    }
+                    c.push_str(&format!(
+                        "; ranking mode: {}",
+                        if ev.vector_mode == crate::vectors::MODE_HYBRID {
+                            "semantic + lexical"
+                        } else {
+                            "lexical only"
+                        }
+                    ));
+                    if let Some(reason) = &ev.vector_reason {
+                        c.push_str(&format!(" ({})", reason));
+                    }
+                    c.push_str(" -- anything outside this selection was NOT read this turn]");
+                    block.push_str(&c);
+                }
+                block.push_str(&rank_line(&opts, &ev.vector_mode));
+                block.push('\n');
+                block.push_str(&rules(r));
+                block.push_str("\n</knowledge_index>");
+                turn_used += js_len(&block) as f64;
+                blocks.push(block);
+                continue;
+            }
+        }
+        // F153 §3 (⇔ turn.ts): the retrieval came up empty AND the targeted
+        // read produced lines — serve the attempt and its real outcome. When
+        // the read recovered text, it IS this turn's evidence; when it
+        // recovered none, the reread line names the exact unreadable part
+        // plainly (reread.ts law); the refreshed crops ride paired to their
+        // labels. No wording change hides missing evidence; no canned reply.
+        if ev.text.is_empty() && !reread_lines.is_empty() {
+            let crops = region_frames(root, &index, &reread_out.regions);
+            let total_chunks = if index.meta.chunk_count != 0 {
+                index.meta.chunk_count
+            } else {
+                index.chunks.len() as i64
+            };
+            let total_frames = index.meta.frames.len() as i64;
+            let mut block = format!(
+                "<knowledge_index name=\"{name}\">\nNo passage in this attachment's saved record matched the question, so this turn attempted a targeted closer read of the picture(s) the question names. Its result:\n{lines}\n",
+                name = r.name,
+                lines = reread_lines.join("\n"),
+            );
+            // coverageMarker ⇔ turn.ts — the same honest numbers; the
+            // refreshed crops are the frames shown.
+            {
+                let mut c = format!(
+                    "\n[coverage: {} of {} indexed passages of \"{}\" were shown this turn",
+                    ev.chunk_idxs.len(),
+                    total_chunks,
+                    r.name
+                );
+                if ev.dropped > 0 {
+                    c.push_str(&format!("; {} further matched passages were withheld by this turn's budget (ask to continue and a different set is served)", ev.dropped));
+                } else if ev.truncated {
+                    c.push_str("; more passages matched than this turn's budget could show");
+                } else {
+                    c.push_str("; no matched passage was withheld from this turn");
+                }
+                c.push_str(&format!(
+                    "; ranking mode: {}",
+                    if ev.vector_mode == crate::vectors::MODE_HYBRID {
+                        "semantic + lexical"
+                    } else {
+                        "lexical only"
+                    }
+                ));
+                if let Some(reason) = &ev.vector_reason {
+                    c.push_str(&format!(" ({})", reason));
+                }
+                if total_frames > 0 {
+                    c.push_str(&format!(
+                        "; {} of {} saved keyframes shown",
+                        crops.len(),
+                        total_frames
+                    ));
+                }
+                c.push_str(" -- anything outside this selection was NOT read this turn]");
+                block.push_str(&c);
+            }
+            block.push_str(&rank_line(&opts, &ev.vector_mode));
+            block.push('\n');
+            block.push_str(&rules(r));
+            block.push_str("\n</knowledge_index>");
+            turn_used += js_len(&block) as f64;
+            blocks.push(block);
+            doc_images.extend(crops);
+            continue;
         }
         if ev.text.is_empty() {
             continue;
@@ -736,6 +1166,7 @@ pub async fn build_attachment_turn(
         // retrieval; the ranking mode is reported honestly, so a lexical-only
         // pass is never dressed up as semantic retrieval.
         let frames = nearest_frames(root, &index, &ev.frame_ats);
+        let doc_frames = nearest_unit_frames(root, &index, &ev.page_cues);
         let total_chunks = if index.meta.chunk_count != 0 {
             index.meta.chunk_count
         } else {
@@ -768,7 +1199,10 @@ pub async fn build_attachment_turn(
                 c.push_str(&format!(" ({})", reason));
             }
             if total_frames > 0 {
-                c.push_str(&format!("; {} of {} saved keyframes shown", frames.len(), total_frames));
+                // F152: doc frames shown this turn count alongside keyframes —
+                // both live in meta.frames, and TS passes
+                // frames.length + docFrames.length into the same marker.
+                c.push_str(&format!("; {} of {} saved keyframes shown", frames.len() + doc_frames.len(), total_frames));
             }
             c.push_str(" -- anything outside this selection was NOT read this turn]");
             c
@@ -779,6 +1213,13 @@ pub async fn build_attachment_turn(
             name = r.name,
             text = ev.text,
         );
+        // F152: the close re-read rides the evidence block AFTER the passages
+        // and BEFORE the dropped/truncated conditionals — byte-placed as in
+        // turn.ts, each entry naming its region and engine.
+        if !reread_lines.is_empty() {
+            block.push_str("\n[close re-read this turn: only the requested picture(s) were inspected again; each entry names its region and engine]\n");
+            block.push_str(&reread_lines.join("\n"));
+        }
         if ev.dropped > 0 {
             // I20: the exact count of candidates the budget refused — and
             // the promise of a DIFFERENT set on the follow-up is real
@@ -815,22 +1256,35 @@ pub async fn build_attachment_turn(
         }
         blocks.push(block);
         images.extend(frames);
+        doc_images.extend(doc_frames);
     }
 
-    if blocks.is_empty() && images.is_empty() {
+    if blocks.is_empty() && images.is_empty() && doc_images.is_empty() {
         return Ok(0);
     }
 
-    if !images.is_empty() {
+    if !images.is_empty() || !doc_images.is_empty() {
         if let Some(msg) = messages.get_mut(user_idx) {
             let mut parts: Vec<Value> = match msg.get("content") {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(Value::String(s)) => vec![json!({ "type": "text", "text": s.clone() })],
                 _ => vec![json!({ "type": "text", "text": "" })],
             };
-            parts.push(json!({ "type": "text", "text": FRAME_LEAD_IN }));
-            for (url, _) in &images {
-                parts.push(json!({ "type": "image_url", "image_url": { "url": url } }));
+            if !images.is_empty() {
+                parts.push(json!({ "type": "text", "text": FRAME_LEAD_IN }));
+                for (url, _) in &images {
+                    parts.push(json!({ "type": "image_url", "image_url": { "url": url } }));
+                }
+            }
+            if !doc_images.is_empty() {
+                // F152: the indexed document's drawn content, paired to the
+                // passages that name its unit (see nearest_unit_frames).
+                // Video lead-in bytes untouched.
+                parts.push(json!({ "type": "text", "text": DOC_FRAMES_LEAD_IN }));
+                for (url, _, label) in &doc_images {
+                    parts.push(json!({ "type": "text", "text": format!("{label} — drawn content:") }));
+                    parts.push(json!({ "type": "image_url", "image_url": { "url": url } }));
+                }
             }
             // `msg.content = parts` — a non-object entry would TypeError in
             // TS too (never produced by the history loader).
@@ -905,11 +1359,16 @@ mod tests {
         // next, then the variant starts "This video's…" — one space at each
         // boundary, no re-flowing.
         assert!(v.contains("do not explain how the content was processed. When quoting a figure from the material, keep its exact digits and digit grouping."));
+        // F152 Part 4 wording law: rides the base (EVERY category), one space
+        // at each boundary — never re-flowed.
+        assert!(v.contains("whenever it covers the question. Answer directly in the form the question asked for."));
+        assert!(v.contains("they are diagnostics, not the conversation. Where passages carry [HH:MM:SS - HH:MM:SS] headers"));
         assert!(v.contains("never give two versions of one figure that have different values. This applies to every restated version anywhere in the answer, including brief asides. This video's complete saved record is kept locally and you are shown the parts of it that matter to this question"));
         assert!(v.ends_with("when a time reference genuinely helps."));
         // The law rides every category, not just video.
         let doc = rules(&ref_of("att_x1", "D", "document"));
         assert!(doc.contains("When quoting a figure from the material") && doc.contains("including brief asides. You have read this document directly"));
+        assert!(doc.contains("never blame the user for how the file was made, never say the file's content was not given to you"));
         let a = rules(&ref_of("att_x1", "A", "audio"));
         assert!(a.ends_with("This recording's complete saved record is kept locally and you are shown the parts that matter to this question: speak of what the recording says; never claim to have heard it yourself, and never mention transcription, retrieval or indexing."));
         let d = rules(&ref_of("att_x1", "D", "document"));
@@ -976,10 +1435,12 @@ mod tests {
             crate::types::FrameEntry {
                 at: 100.0,
                 file: "frames/f1.jpg".into(),
+                ..Default::default()
             },
             crate::types::FrameEntry {
                 at: 200.0,
                 file: "frames/missing.jpg".into(),
+                ..Default::default()
             },
         ];
 
@@ -1001,6 +1462,93 @@ mod tests {
     }
 
     #[test]
+    fn unit_frames_pair_exact_labelled_and_capped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = store::index_dir(root, "att_unit1").unwrap();
+        std::fs::create_dir_all(dir.join("frames")).unwrap();
+        std::fs::write(dir.join("frames/d_001.png"), b"ABC").unwrap();
+        std::fs::write(dir.join("frames/d_002.jpg"), b"AB").unwrap();
+        std::fs::write(dir.join("frames/d_003.png"), b"A").unwrap();
+        let mut index = LoadedIndex::default();
+        index.meta.att_id = "att_unit1".into();
+        index.meta.frames = vec![
+            crate::types::FrameEntry {
+                at: 1.0,
+                file: "frames/d_001.png".into(),
+                label: Some("slide 1".into()),
+                region: Some("pptx:1:ppt/media/image-3-1.png".into()),
+                ..Default::default()
+            },
+            crate::types::FrameEntry {
+                at: 1.0,
+                file: "frames/d_003.png".into(),
+                label: Some("slide 1".into()),
+                ..Default::default()
+            },
+            // Video keyframe on the seconds axis: NEVER qualifies on the unit axis.
+            crate::types::FrameEntry {
+                at: 3.0,
+                file: "frames/d_002.jpg".into(),
+                ..Default::default()
+            },
+            // Missing on disk: slot consumed, honest degradation.
+            crate::types::FrameEntry {
+                at: 9.0,
+                file: "frames/gone.png".into(),
+                label: Some("page 9".into()),
+                ..Default::default()
+            },
+        ];
+
+        // Exact unit match only: cue 3 has NO labelled frame (the jpg has no
+        // label) ⇒ nothing served; cue 1 serves BOTH of its regions.
+        let out = nearest_unit_frames(root, &index, &[3.0]);
+        assert!(out.is_empty());
+        let out = nearest_unit_frames(root, &index, &[1.0]);
+        assert_eq!(
+            out,
+            vec![
+                ("data:image/png;base64,QUJD".to_string(), 1.0, "slide 1".to_string()),
+                ("data:image/png;base64,QQ==".to_string(), 1.0, "slide 1".to_string()),
+            ],
+        );
+        // Used-set dedup: cue 1 twice serves each region once.
+        assert_eq!(nearest_unit_frames(root, &index, &[1.0, 1.0]).len(), 2);
+        // Missing-file cue: slot consumed, nothing emitted.
+        assert!(nearest_unit_frames(root, &index, &[9.0]).is_empty());
+        // MAX_FRAMES cap across cues.
+        let out = nearest_unit_frames(root, &index, &[1.0, 1.0, 1.0]);
+        assert!(out.len() <= MAX_FRAMES);
+    }
+
+    #[test]
+    fn nearest_frames_serves_png_by_extension() {
+        // F153 item 4 mime law: a durable seek frame ("s_%05d.png") serves
+        // as image/png; a build keyframe ("f_%05d.jpg") stays image/jpeg.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = store::index_dir(root, "att_frame3").unwrap();
+        std::fs::create_dir_all(dir.join("frames")).unwrap();
+        std::fs::write(dir.join("frames/s_00000.png"), b"ABC").unwrap();
+        std::fs::write(dir.join("frames/f_00000.jpg"), b"ABC").unwrap();
+        let mut index = LoadedIndex::default();
+        index.meta.att_id = "att_frame3".into();
+        index.meta.frames = vec![
+            crate::types::FrameEntry { at: 100.0, file: "frames/s_00000.png".into(), ..Default::default() },
+            crate::types::FrameEntry { at: 130.0, file: "frames/f_00000.jpg".into(), ..Default::default() },
+        ];
+        assert_eq!(
+            nearest_frames(root, &index, &[105.0]),
+            vec![("data:image/png;base64,QUJD".to_string(), 100.0)]
+        );
+        assert_eq!(
+            nearest_frames(root, &index, &[135.0]),
+            vec![("data:image/jpeg;base64,QUJD".to_string(), 130.0)]
+        );
+    }
+
+    #[test]
     fn nearest_frames_cap_four() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
@@ -1013,6 +1561,7 @@ mod tests {
             index.meta.frames.push(crate::types::FrameEntry {
                 at: k as f64 * 10.0,
                 file: format!("frames/f{k}.jpg"),
+                ..Default::default()
             });
         }
         let ats: Vec<f64> = (0..6).map(|k| k as f64 * 10.0).collect();
@@ -1055,6 +1604,9 @@ mod tests {
             &dummy_llm(),
             token,
             None,
+            None, // F152: no reread transport wired — goldens stay byte-identical
+            None, // F153: no fresh-audio seam wired — goldens stay byte-identical
+            None, // F153 item 4: no visual-seam wired — goldens stay byte-identical
         )
         .await
     }
@@ -1368,6 +1920,9 @@ mod tests {
             &dummy_llm(),
             token,
             conversation,
+            None, // F152: no reread transport wired — goldens stay byte-identical
+            None, // F153: no fresh-audio seam wired — goldens stay byte-identical
+            None, // F153 item 4: no visual-seam wired — goldens stay byte-identical
         )
         .await
     }

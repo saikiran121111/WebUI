@@ -50,6 +50,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::Span;
 
+use ruke_attach::audio_reread::FreshAsrInspector;
+use ruke_attach::reread::RegionInspector;
 use ruke_attach::{build_attachment_turn, collect_attachment_refs, Cancelled, NotesLlm};
 use ruke_contracts::decision::DecisionEnvelope;
 use ruke_contracts::stages::{CitationMap, ResearchMeta, StageEvent};
@@ -195,6 +197,22 @@ pub async fn run_turn_pipeline(
                 // F08: resolve the CURRENT position of the user turn (any
                 // injected system block above it shifts the entry-time index).
                 let att_turn_idx = resolve_turn_index(messages, last_user_idx);
+                // F152: the targeted-reread transport. The decision, region
+                // resolution and durability law live in ruke-attach; this is
+                // only the scoped documents.parse call (⇔ TS reader seam in
+                // lib/server/attachindex/reread.ts). Every fault resolves to
+                // zero frames — the cached evidence stands.
+                let region_inspector = crate::chat::reread::MlRegionInspector;
+                // F153 item 3: the bounded fresh audio read transport. The
+                // decision, geometry and durability law live in ruke-attach
+                // (audio_reread.rs ⇔ audio-reread.ts); this is only the
+                // scoped speech.asr call (⇔ TS makeFreshAsrReader seam).
+                let audio_reader = crate::chat::audio::MlAudioReader;
+                // F153 item 4: the on-demand visual seek transport. The
+                // decision, geometry and durability law live in
+                // ruke-attach (frame_seek.rs ⇔ frame-seek.ts); this is only
+                // the scoped video.frame_ocr call (⇔ TS makeFrameSeeker).
+                let frame_seeker = crate::chat::frame_seek::MlFrameSeeker;
                 build_attachment_turn(
                     messages,
                     att_turn_idx,
@@ -209,6 +227,9 @@ pub async fn run_turn_pipeline(
                     // the Rust request carries (it rides EVERY chat send), so
                     // turns without it keep the bare v1 attachment key.
                     browser.as_ref().map(|b| b.0.as_str()),
+                    Some(&region_inspector as &dyn RegionInspector),
+                    Some(&audio_reader as &dyn FreshAsrInspector),
+                    Some(&frame_seeker as &dyn ruke_attach::frame_seek::FrameSeeker),
                 )
                 .await
             }

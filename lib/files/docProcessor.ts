@@ -27,7 +27,9 @@ interface ExtractResponse {
   pages?: number;
   transcript?: string;
   dataUrl?: string;
-  frames?: { dataUrl: string; at: number }[];
+  /** F152: document frames carry their unit label + region id; video frames
+   *  keep `at` = seconds, document frames use the page/unit ordinal. */
+  frames?: { dataUrl: string; at: number; label?: string; region?: string }[];
   /** F68: primary image's true pixel dimensions (source, not the delivery raster). */
   width?: number;
   height?: number;
@@ -128,9 +130,17 @@ export async function processAttachment(
         if (ANIMATED_CONTAINERS.has(ext)) return await extractOnServer(file, att, signal);
         try {
           const { dataUrl, width, height, frames } = await encodeImage(file);
+          // F152: the canvas path keeps the pixels (direct image uploads are
+          // preserved), but the OCR DECISION is the server's single law: the
+          // same cheap region inspection runs on these bytes, and a
+          // screenshot's recovered label arrives with its engine + region.
+          // A photo pays zero engine calls and this call returns no text.
+          // A text-side failure NEVER fails an upload vision can answer.
+          const recovered = await serverImageText(file, att, signal);
           return {
             ...att, dataUrl, width, height,
             ...(frames?.length ? { frames } : {}),
+            ...(recovered ? { text: recovered } : {}),
             status: "ready",
           };
         } catch {
@@ -186,6 +196,10 @@ async function extractOnServer(
     transcript: data.transcript,
     dataUrl: data.dataUrl,
     frames: data.frames,
+    // F152 audit: the reader's coverage verdict rides the attachment — the
+    // upload used to drop it, so the model claimed completeness on a
+    // partially readable file. Persisted with the attachment (JSON passthrough).
+    coverageNote: data.coverageNote,
     width: data.width,
     height: data.height,
     durationSec: data.durationSec,
@@ -197,6 +211,37 @@ async function extractOnServer(
     spine: data.spine,
     status: "ready",
   };
+}
+
+/**
+ * F152: run the server's region-decision law on a browser-decoded image and
+ * return ONLY the recovered text channel (the canvas dataUrl/width/height stay
+ * authoritative). The server-side inspection is cheap by design: a photo
+ * answers with no text (zero engine calls); a screenshot's label comes back
+ * with its engine and region id. Any failure degrades to no text — the upload
+ * keeps its pixels, which is what vision needs.
+ */
+async function serverImageText(
+  file: File,
+  att: Attachment,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    const res = await fetch(
+      `/api/files/extract?name=${encodeURIComponent(file.name)}&att=${encodeURIComponent(att.id)}`,
+      {
+        method: "POST",
+        body: file,
+        headers: { "content-type": file.type || "application/octet-stream" },
+        ...(signal ? { signal } : {}),
+      },
+    );
+    if (!res.ok) return undefined;
+    const data = (await res.json().catch(() => null)) as ExtractResponse | null;
+    return data && !data.error ? data.text : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Encode one region of the bitmap: alpha flattened, long side capped, JPEG. */

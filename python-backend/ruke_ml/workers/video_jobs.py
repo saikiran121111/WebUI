@@ -81,8 +81,14 @@ def frame_ocr_job(ctx: JobContext) -> Any:
         return ctx.failed("input_rejected",
                           "video.frame_ocr needs a path and a root inside the allowed upload root",
                           human_step="pass the uploaded media path and its allowed root")
+    # F153 item 4: pixels first. A chat-time visual seek asks for the PICTURE
+    # (a color, a layout); with include_image set an empty language is an
+    # explicit pixels-only request — the OCR pass is skipped and every frame
+    # says its text was not read. Without include_image the language contract
+    # is byte-identical: the engine never defaults to English.
+    include_image = bool(ctx.req.payload.get("include_image"))
     language = str(ctx.req.payload.get("language", "") or "").strip()
-    if not language:
+    if not language and not include_image:
         return ctx.failed("input_rejected",
                           "video.frame_ocr needs an explicit text language for the frames",
                           human_step="pass payload.language as an ISO tag; the engine never "
@@ -111,7 +117,15 @@ def frame_ocr_job(ctx: JobContext) -> Any:
                           human_step="pass payload.times as source-relative seconds, or "
                                      "plan=true for a bounded sample")
 
-    ctx.progress("extracting", f"{len(times)} frame(s), language={language}")
+    # Pixels ride the RPC response, so the pixel mode bounds its own frame
+    # count — 64 PNGs in one response is a transport bomb; a bounded seek is
+    # the point.
+    max_frames = int(ctx.req.payload.get("max_frames", frame_ocr.MAX_FRAMES))
+    if include_image:
+        max_frames = min(max_frames, 8)
+
+    ctx.progress("extracting",
+                 f"{len(times)} frame(s), " + (f"language={language}" if language else "pixels only"))
     try:
         readings, report = frame_ocr.ocr_frames(
             str(target), times, language=language, duration=duration,
@@ -119,7 +133,8 @@ def frame_ocr_job(ctx: JobContext) -> Any:
             cancel=ctx.cancel.is_set,
             progress=lambda state, note: ctx.progress(state, note),
             deadline_at=ctx.deadline_at(),
-            max_frames=int(ctx.req.payload.get("max_frames", frame_ocr.MAX_FRAMES)))
+            max_frames=max_frames,
+            include_image=include_image)
     except (OcrUnavailable, frame_ocr.FrameDecodeFailed) as exc:
         return _typed(ctx, exc)
 
@@ -130,9 +145,17 @@ def frame_ocr_job(ctx: JobContext) -> Any:
         return ctx.cancelled()
 
     instants = [(r.time_s, r.time_s) for r in readings if r.read or r.state == "empty"]
-    note = (f"{len(read)} of {len(readings)} sampled instant(s) yielded text; "
-            f"{len(glyph_free)} decoded frame(s) carried no glyph; "
-            f"{len(unresolved)} unresolved. {report['note']} Sampling basis: {plan_note}.")
+    if report.get("text_pass", True):
+        basis = (f"{len(read)} of {len(readings)} sampled instant(s) yielded text; "
+                 f"{len(glyph_free)} decoded frame(s) carried no glyph; ")
+    else:
+        # Pixels-only: "0 glyphs" would claim the recogniser ran and found
+        # nothing. It never ran — say so.
+        pixels = [r for r in readings if r.state == "pixels"]
+        basis = (f"pixels-only pass: the recogniser was not run (no text language configured), "
+                 f"so on-screen text is UNMEASURED, not absent; {len(pixels)} frame(s) "
+                 f"delivered pixels; ")
+    note = (basis + f"{len(unresolved)} unresolved. {report['note']} Sampling basis: {plan_note}.")
     return ctx.ready(
         {"frames": [r.to_dict() for r in readings],
          "blocks": [{"start": r.time_s, "end": r.time_s, "text": r.text,

@@ -9,8 +9,15 @@
  */
 import { ReactNode, useCallback, useRef, useState } from "react";
 import { useElementFullscreen } from "../../hooks/useElementFullscreen";
+import { exportWarningFromHeaders } from "../../lib/documents/dataQuality";
 
-export async function downloadDocument(endpoint: string, spec: unknown, fallbackName: string): Promise<void> {
+/**
+ * Saves the file and returns the engine's PARTIAL-EXPORT warning (F153 §2d)
+ * — the one bounded line saying the file is incomplete (value decisions,
+ * missing chart images) — or null when the export was complete. A complete
+ * download is silent; an incomplete one is never saved without a face.
+ */
+export async function downloadDocument(endpoint: string, spec: unknown, fallbackName: string): Promise<string | null> {
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -24,6 +31,7 @@ export async function downloadDocument(endpoint: string, spec: unknown, fallback
     } catch { /* non-JSON error body */ }
     throw new Error(msg);
   }
+  const warning = exportWarningFromHeaders(res.headers);
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition") ?? "";
   const match = /filename="?([^";]+)"?/.exec(cd);
@@ -35,6 +43,21 @@ export async function downloadDocument(endpoint: string, spec: unknown, fallback
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return warning;
+}
+
+/**
+ * The visible face of a partial export. Exported as a seam so the law is
+ * pinned deterministically (renderToStaticMarkup); DocumentCard wires it to
+ * the download result.
+ */
+export function ExportWarningLine({ text }: { text: string | null }): JSX.Element | null {
+  if (!text) return null;
+  return (
+    <div className="doc-card-warning" role="status" data-testid="doc-card-warning">
+      {text}
+    </div>
+  );
 }
 
 export function saveBlob(blob: Blob, filename: string): void {
@@ -64,14 +87,16 @@ interface DocumentCardProps {
 export default function DocumentCard({ badge, filename, endpoint, spec, testId, actions, hideFullscreen, children }: DocumentCardProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const { fullscreen, toggleFullscreen } = useElementFullscreen(cardRef);
 
   const onDownload = useCallback(async () => {
     setBusy(true);
     setError(null);
+    setWarning(null);
     try {
-      await downloadDocument(endpoint, spec, filename);
+      setWarning(await downloadDocument(endpoint, spec, filename));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -108,6 +133,7 @@ export default function DocumentCard({ badge, filename, endpoint, spec, testId, 
         </span>
       </div>
       {error && <div className="doc-card-error" role="alert">{error}</div>}
+      <ExportWarningLine text={warning} />
       <div className="doc-card-body">{children}</div>
       {fullscreen && <div className="doc-card-esc-hint">Press Esc to exit</div>}
     </div>

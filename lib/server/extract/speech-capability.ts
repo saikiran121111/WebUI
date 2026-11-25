@@ -39,6 +39,8 @@ import {
   type MlJobOptions,
 } from "../ml-job";
 
+import { fmtStamp } from "../attachindex/format";
+
 export const SPEECH_ASR_CAPABILITY = "speech.asr";
 
 /**
@@ -58,6 +60,15 @@ export const SPEECH_CAPABILITY_ENV = "RUKE_SPEECH_CAPABILITY";
 /** Segments on the wire are bounded by the adapter (MAX_RETAINED_SEGMENTS). */
 const MAX_SEGMENTS = 20_000;
 
+/**
+ * F153 (2026-11-24): the cap must never silently eat the TAIL. On overflow the
+ * adapter serializes the head PLUS this bounded tail window, so the final fact rides
+ * with its timestamp into every consumer; the skipped MIDDLE is counted
+ * (cappedSegments), forces complete=false, and survives in the full timed
+ * transcript the index keeps durably.
+ */
+const MAX_TAIL_SEGMENTS = 200;
+
 /** The injectable job seam, identical in shape to the document/timeline modules. */
 export type RunAsrJob = (
   capability: string,
@@ -75,6 +86,14 @@ export interface SpeechCapabilityOptions {
   wordTimestamps?: boolean;
   /** Bounds a long recording's decode windows; the worker clamps to >= 2 s. */
   windowSec?: number;
+  /**
+   * F152 (question-driven interval): bound the DECODED span — "what is said around
+   * 12:40?" decodes that span, not the whole track. Geometry and the 3-hour bound are
+   * the WORKER's law (it refuses a span that does not fit the measured duration);
+   * this seam only refuses to serialize numbers that are not numbers.
+   */
+  startSec?: number;
+  endSec?: number;
 }
 
 export interface AsrCapabilitySegment {
@@ -118,6 +137,21 @@ export interface CapabilityAsr {
   /** What the worker says it produced, kept separate from what survived validation. */
   segmentCount: number;
   droppedSegments: number;
+  /** F153: valid segments beyond the serialized head+tail window - the skipped middle. */
+  cappedSegments: number;
+  /**
+   * F153: the FULL timed transcript ([HH:MM:SS - HH:MM:SS] per validated segment,
+   * middle included) for the durable index; "" when nothing was skipped, because
+   * then the serialized segments already carry everything.
+   */
+  fullTranscriptText: string;
+  /**
+   * F153: EVERY validated segment (head + skipped middle + tail). The durable
+   * index must CHUNK the whole timeline, not just the delivery window - chunking
+   * from the window alone left the skipped middle in full.txt with NO searchable
+   * chunk, so the time-range retrieval the cap note promises found nothing.
+   */
+  allSegments: AsrCapabilitySegment[];
   language: string;
   languageSource: string;
   languageProbability: number | null;
@@ -145,6 +179,22 @@ export interface CapabilityAsr {
   superseded: AsrCapabilityFragment[];
   /** How many segments carry `windowTruncated`. */
   truncatedSegments: number;
+  /**
+   * F152 durable-record state as the worker reported it: "hit" (served from the
+   * durable record: zero engine invocations), "stored", "not_stored", "" (worker
+   * predates the record). "hit" is provenance: the answer is the recorded one for
+   * these exact bytes, span and engine.
+   */
+  cacheState: string;
+  /** The span the record is keyed on, [start, end] source seconds (""-list unstated). */
+  cacheSpan: number[];
+  /**
+   * Item 5 (user brief 2026-11-24): wall clock the recognition engine ran, stamped by
+   * the worker at the adapter call's boundaries. "" / null = a worker that recorded no
+   * clock. On a durable-record hit this is the ORIGINAL run's clock — no engine ran for
+   * this request, and the recorded span is the only honest timestamp.
+   */
+  recognition: { engine: string; device: string; startedAt: string; finishedAt: string; wallS: number | null };
 }
 
 export type AsrOutcome =
@@ -207,20 +257,34 @@ function normalizeAsr(result: unknown): CapabilityAsr | null {
   const raw = obj(result);
   const state = str(raw.state);
   const segmentsIn = Array.isArray(raw.segments) ? raw.segments : [];
+  // F153 (2026-11-24): inspect EVERY slice the cap touches. The old
+  // `segmentsIn.slice(0, MAX_SEGMENTS)` kept the first 20k and walked away: with
+  // 20,001 valid segments and a unique fact in the last one, the final fact was
+  // gone from the delivered evidence, the index, the cache and reload/compaction
+  // while the record claimed segmentCount=20001, droppedSegments=0, complete=true.
+  // Now: head + a bounded tail window serialize (the final fact keeps its
+  // timestamp); the middle is validated, counted, and preserved in the full timed
+  // transcript the index keeps durably.
+  const headEnd = Math.min(segmentsIn.length, MAX_SEGMENTS);
+  const tailStart =
+    segmentsIn.length > headEnd
+      ? Math.max(headEnd, segmentsIn.length - MAX_TAIL_SEGMENTS)
+      : segmentsIn.length;
   const segments: AsrCapabilitySegment[] = [];
+  const validated: AsrCapabilitySegment[] = [];
   let dropped = 0;
-  for (const entry of segmentsIn.slice(0, MAX_SEGMENTS)) {
+  segmentsIn.forEach((entry, idx) => {
     const seg = obj(entry);
     const text = str(seg.text).trim();
     const start = num(seg.start);
     const end = num(seg.end);
     if (!text || start === null || start < 0) {
       dropped++;
-      continue;
+      return;
     }
     if (end !== null && end < start) {
       dropped++;
-      continue;
+      return;
     }
     const words = Array.isArray(seg.words)
       ? seg.words
@@ -239,15 +303,18 @@ function normalizeAsr(result: unknown): CapabilityAsr | null {
           })
           .filter((w): w is NonNullable<typeof w> => w !== null)
       : undefined;
-    segments.push({
+    const kept: AsrCapabilitySegment = {
       start,
       end,
       text,
       ...(words && words.length ? { words } : {}),
       // Only ever set from the adapter's own provenance; never inferred from text.
       ...(seg.window_truncated === true ? { windowTruncated: true } : {}),
-    });
-  }
+    };
+    validated.push(kept);
+    if (idx < headEnd || idx >= tailStart) segments.push(kept);
+  });
+  const cappedSegments = tailStart - headEnd;
   // A fragment is only ever evidence that a window was cut: it is NOT part of `text`,
   // and a caller that flattens these into an answer would be inventing sentence ends.
   const superseded: AsrCapabilityFragment[] = (
@@ -277,12 +344,24 @@ function normalizeAsr(result: unknown): CapabilityAsr | null {
     .filter((f): f is AsrCapabilityFragment => f !== null);
   const asrRan = typeof raw.asr_ran === "boolean" ? raw.asr_ran : state !== "silence";
   const truncatedSegments = segments.filter((s) => s.windowTruncated).length;
+  const cacheObj = obj(raw.cache);
+  const cacheSpan: number[] = Array.isArray(cacheObj.span)
+    ? (cacheObj.span as unknown[]).map((v) => num(v)).filter((v): v is number => v !== null)
+    : [];
   const asr: CapabilityAsr = {
     state: state || (asrRan ? "transcribed" : "silence"),
     text: str(raw.text).trim(),
     segments,
     segmentCount: num(raw.segment_count) ?? segmentsIn.length,
     droppedSegments: dropped,
+    cappedSegments,
+    fullTranscriptText:
+      cappedSegments > 0
+        ? validated
+            .map((s) => `[${fmtStamp(s.start)} - ${fmtStamp(s.end ?? s.start)}] ${s.text}`)
+            .join("\n")
+        : "",
+    allSegments: validated,
     language: str(raw.language),
     languageSource: str(raw.language_source),
     languageProbability: num(raw.language_probability),
@@ -290,7 +369,8 @@ function normalizeAsr(result: unknown): CapabilityAsr | null {
     device: str(raw.device),
     computeType: str(raw.compute_type),
     durationSec: num(raw.duration) ?? 0,
-    complete: raw.complete === true,
+    // A run whose middle the cap skipped is NOT complete, whatever the worker said.
+    complete: raw.complete === true && cappedSegments === 0,
     asrRan,
     note: str(raw.note),
     examined: spanList(raw.examined),
@@ -305,6 +385,18 @@ function normalizeAsr(result: unknown): CapabilityAsr | null {
     supersededFragments: num(raw.superseded_fragments) ?? superseded.length,
     superseded,
     truncatedSegments,
+    cacheState: str(cacheObj.state),
+    cacheSpan,
+    recognition: (() => {
+      const rec = obj(raw.recognition);
+      return {
+        engine: str(rec.engine),
+        device: str(rec.device),
+        startedAt: str(rec.started_utc),
+        finishedAt: str(rec.finished_utc),
+        wallS: num(rec.wall_s),
+      };
+    })(),
   };
   // A "ready" result must carry SOMETHING inspectable. Empty text plus zero counted
   // segments is only honest when the worker says why (silence / measured level),
@@ -347,6 +439,17 @@ export function speechEngineNote(asr: CapabilityAsr): string {
     bits.push(`${asr.truncatedSegments} segment(s) cut at a decode-window boundary`);
   if (asr.supersededFragments)
     bits.push(`${asr.supersededFragments} window-boundary fragment(s) replaced by a complete reading`);
+  // F152: a record hit is provenance, stated from the worker's own cache state -
+  // the words are the recorded ones for these exact bytes, span and engine.
+  if (asr.cacheState === "hit")
+    bits.push("served from the durable record of these exact bytes, span and engine (zero inference runs this request)");
+  // Item 5: the recognition clock, from the worker's own stamps — the user-visible
+  // proof of WHEN the named engine ran. Absent = a predating worker, stated plainly.
+  if (asr.recognition.startedAt)
+    bits.push(
+      `recognised ${asr.recognition.startedAt}${asr.recognition.engine ? ` by ${asr.recognition.engine}` : ""}` +
+        (asr.recognition.wallS != null ? ` (${asr.recognition.wallS}s wall)` : ""),
+    );
   if (!asr.complete) bits.push("coverage was partial: unexamined audio cannot prove absence");
   return `[${bits.join("; ")}]`;
 }
@@ -368,6 +471,19 @@ export async function transcribeViaCapability(
   if (language) payload.language = language;
   if (opts.wordTimestamps) payload.word_timestamps = true;
   if (opts.windowSec) payload.window_s = opts.windowSec;
+  // F152: the interval travels as the worker's own payload keys. Only a real pair of
+  // finite numbers is serialized; a half-named span is NOT sent (a lone bound would
+  // make the worker treat the run as an inspection with an open edge, and the caller
+  // asking for "around 12:40" must mean a named range). Geometry refusals and the
+  // 3-hour bound stay the worker's typed law - this seam does not second-guess the
+  // probe's duration it does not have.
+  if (
+    typeof opts.startSec === "number" && Number.isFinite(opts.startSec) && opts.startSec >= 0 &&
+    typeof opts.endSec === "number" && Number.isFinite(opts.endSec) && opts.endSec > opts.startSec
+  ) {
+    payload.start_s = opts.startSec;
+    payload.end_s = opts.endSec;
+  }
 
   const envelope = await run(SPEECH_ASR_CAPABILITY, payload, {
     deadlineMs: opts.deadlineMs ?? SPEECH_ASR_DEADLINE_MS,

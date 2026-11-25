@@ -11,6 +11,9 @@ import { beginUserTurn, endUserTurn } from "../../../lib/server/inference-busy";
 import { buildDecisionSkillBlock } from "../../../lib/decision/skill-loader";
 import { foldTaskScope, type TaskScope } from "../../../lib/decision/task-scope";
 import { buildAttachmentTurn, stripAttachmentRefs } from "../../../lib/server/attachindex/turn";
+import { makeRegionReader } from "../../../lib/server/attachindex/reread";
+import { makeFreshAsrReader } from "../../../lib/server/attachindex/audio-reread";
+import { makeFrameSeeker } from "../../../lib/server/attachindex/frame-seek";
 import { buildClockContext, sessionDateString } from "../../../lib/chat/clock-context";
 import { RESPONSE_POLICY } from "../../../lib/chat/response-policy";
 import {
@@ -508,15 +511,26 @@ async function runTurnPipeline(
   try {
     if (hasAttachmentRefs) stage({ stage: "retrieval" });
     const attTurnIdx = resolveTurnIndex(payload.messages, lastUserIdx);
-    // F07: the conversation id scopes the shown-evidence ledger, so another chat's
-    // "already shown" list can never demote evidence here.
-    const injected = await buildAttachmentTurn(
-      payload.messages,
-      attTurnIdx,
-      fullText,
-      signal,
-      opts.model,
-      opts.conversationId,
+    // F07: the conversation id scopes the shown-evidence ledger, so another chat's
+    // "already shown" list can never demote evidence here.
+    const injected = await buildAttachmentTurn(
+      payload.messages,
+      attTurnIdx,
+      fullText,
+      signal,
+      opts.model,
+      opts.conversationId,
+      // F152: an explicit "look closer at <figure>" re-inspects ONLY that
+      // region and answers this same turn (attachindex/reread.ts).
+      makeRegionReader({ signal }),
+      // F153 item 3: a time-range question on audio the transcript never
+      // covered gets a bounded fresh decode of the original, durably
+      // (attachindex/audio-reread.ts).
+      makeFreshAsrReader({ signal }),
+      // F153 item 4: a time-range question on video whose saved keyframes do
+      // not reach the asked instant decodes that frame of the ORIGINAL on
+      // demand — pixels to this turn, durably (attachindex/frame-seek.ts).
+      makeFrameSeeker({ signal }),
     );
     if (injected) log.info({ blocks: injected }, "attachment evidence injected (this turn only)");
     if (hasAttachmentRefs) {

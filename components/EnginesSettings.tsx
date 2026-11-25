@@ -29,10 +29,12 @@ interface EnginesViewProps {
   /** The obsolete ASR preference the server rewrote on the last read, when one was. */
   migratedFrom: string | null;
   onOcrEngine: (engine: "paddle" | "tesseract") => void;
+  /** F153: visible failure when the server refused the choice (null = saved). */
+  saveError?: string | null;
 }
 
 /** The pure panel, exported for renderToStaticMarkup tests. */
-export function EnginesSettingsView({ ocrEngine, migratedFrom, onOcrEngine }: EnginesViewProps) {
+export function EnginesSettingsView({ ocrEngine, migratedFrom, onOcrEngine, saveError }: EnginesViewProps) {
   const paddleChosen = ocrEngine !== "tesseract";
   return (
     <div className="p-3 space-y-3" data-testid="engines-panel">
@@ -115,6 +117,11 @@ export function EnginesSettingsView({ ocrEngine, migratedFrom, onOcrEngine }: En
             </span>
           </button>
         </div>
+        {saveError && (
+          <p data-testid="engines-save-error" className="mt-1 text-[10px] text-red-300 leading-snug">
+            {saveError}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -124,6 +131,7 @@ export function EnginesSettingsView({ ocrEngine, migratedFrom, onOcrEngine }: En
 export default function EnginesSettings({ active }: { active: boolean }) {
   const [ocrEngine, setOcrEngine] = useState<"paddle" | "tesseract" | "">("");
   const [migratedFrom, setMigratedFrom] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -138,8 +146,19 @@ export default function EnginesSettings({ active }: { active: boolean }) {
 
   const onOcrEngine = useCallback((engine: "paddle" | "tesseract") => {
     setOcrEngine(engine);
-    void saveSettings({ ocr_engine: engine });
+    setSaveError(null);
+    // F153 (2026-11-24): the radio must never display an engine the server
+    // refused. On HEAD the save was fire-and-forget and saveSettings never
+    // threw, so a failed PUT left the new engine SELECTED while
+    // settings.json kept the old one. Revert to the server-confirmed value
+    // and say so visibly.
+    saveSettings({ ocr_engine: engine })
+      .then((s) => setOcrEngine(s.ocr_engine ?? ""))
+      .catch(() => {
+        fetchSettings(true).then((s) => setOcrEngine(s.ocr_engine ?? ""));
+        setSaveError("Save failed — the OCR engine was NOT changed.");
+      });
   }, []);
 
-  return <EnginesSettingsView ocrEngine={ocrEngine} migratedFrom={migratedFrom} onOcrEngine={onOcrEngine} />;
+  return <EnginesSettingsView ocrEngine={ocrEngine} migratedFrom={migratedFrom} onOcrEngine={onOcrEngine} saveError={saveError} />;
 }

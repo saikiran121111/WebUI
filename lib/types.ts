@@ -38,8 +38,10 @@ export type AttachmentStatus = "pending" | "processing" | "ready" | "error";
 export interface AttachmentFrame {
   /** Frame image inlined as a data URL — what the model actually receives. */
   dataUrl: string;
-  /** Seconds from the start of the clip. */
+  /** Seconds from the start of the clip; PAGE/unit ordinal for document frames. */
   at: number;
+  /** F152: document frames name their unit ("slide 1", "sheet 2, cell C4"). */
+  label?: string;
 }
 
 export interface Attachment {
@@ -81,6 +83,15 @@ export interface Attachment {
 
   /* Audio metadata */
   transcript?: string;
+
+  /**
+   * F152 audit (2026-11-24): the reader's coverage verdict for this file —
+   * in its producer's own words, what could NOT be read (frames, speech, a
+   * page, a label). The server sets it on ExtractResponse; the upload used to
+   * drop it, so a partially readable file claimed completeness to the model.
+   * Absent on older saved attachments: no note, the pre-audit wording rides.
+   */
+  coverageNote?: string;
 
   /*
    * Knowledge index (server-side). Set when the content exceeded the prompt

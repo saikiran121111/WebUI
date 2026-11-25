@@ -238,6 +238,15 @@ export function toWireMessage(m: {
  *   3. No closing tag (truncated by max_tokens): fall back to the content
  *      from `<compacted_context>` to the end, so a partial summary is still
  *      usable rather than thrown away.
+ *
+ * F153 §2c — the SUMMARY-INTEGRITY law. The prompt makes the model QUOTE the
+ * user's constraints verbatim, so a folded turn can itself contain the literal
+ * closing tag (this app's own chats discuss compaction). Taking the FIRST
+ * close truncates the snapshot at that quote, and the tag inside the body
+ * closes the wrapper compactConversation builds EARLY — every section after
+ * the quote then rides every later send as unframed prompt text. So the span
+ * is the WIDEST block (first open → last close) and embedded closes in the
+ * body are neutralized: the promoted block is always exactly one block.
  */
 export function extractCompactedContext(raw: string): string | null {
   if (!raw) return null;
@@ -252,9 +261,13 @@ export function extractCompactedContext(raw: string): string | null {
   const openMatch = openRe.exec(text);
   if (!openMatch) return null;
   const bodyStart = openMatch.index + openMatch[0].length;
-  const closeIdx = text.toLowerCase().indexOf("</compacted_context>", bodyStart);
-  const inner = closeIdx === -1 ? text.slice(bodyStart) : text.slice(bodyStart, closeIdx);
-  const trimmed = inner.trim();
+  const closeIdx = text.toLowerCase().lastIndexOf("</compacted_context>");
+  const inner =
+    closeIdx === -1 || closeIdx < bodyStart
+      ? text.slice(bodyStart) // truncated block: keep the partial summary
+      : text.slice(bodyStart, closeIdx);
+  // Folded user text must never close the promoted block early.
+  const trimmed = inner.replace(/<\/compacted_context>/gi, "").trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 

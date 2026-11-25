@@ -67,6 +67,47 @@ _LOADER_FIT_STABLE_S = 10
 _sleep = time.sleep
 
 
+def _span(t0: float) -> dict[str, Any]:
+    """The wall clock of ONE recognition pass, timed from the pass's own start.
+
+    Item 5 (user brief 2026-11-24): the engine-use proof must answer which engine ran
+    AND when recognition started and finished. The policy, device and fallback reason
+    were recorded; the clock existed nowhere. The UTC stamps come from this process's
+    clock at the pass boundaries, and `started_epoch`/`finished_epoch` ride along so a
+    consumer can order passes finer than the second-resolution strings allow.
+    """
+    t1 = time.time()
+    return {"started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0)),
+            "finished_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t1)),
+            "started_epoch": round(t0, 3), "finished_epoch": round(t1, 3),
+            "wall_s": round(t1 - t0, 2)}
+
+
+def _recognition_window(casc: dict[str, Any]) -> dict[str, Any]:
+    """The ONE recognition window of a run, aggregated from the per-pass clocks present.
+
+    Computed from the report at WRITE time (the durable record is written INSIDE the
+    operation, before run()'s tail) and again at the tail for the live report; both
+    reads see the same pass clocks, so the record and the report can never disagree.
+    A pass that never ran has no clock and contributes nothing: a pure resumed run
+    (no engine started) reports NO window, because it recognised nothing in this run.
+    """
+    passes = [p for p in ((casc.get("primary") or {}).get("recognition"),
+                          (casc.get("fallback") or {}).get("recognition"))
+              if isinstance(p, dict)]
+    if not passes:
+        return {}
+    return {
+        "started_utc": min(p["started_utc"] for p in passes),
+        "finished_utc": max(p["finished_utc"] for p in passes),
+        "wall_s": round(sum(p["wall_s"] for p in passes), 2),
+        "note": ("wall clock the recognition engines ran in this run; each pass carries "
+                 "its own span on casc.primary.recognition / casc.fallback.recognition; "
+                 "no window means no engine ran (a pure resumed run reuses persisted "
+                 "evidence and recognises nothing here)"),
+    }
+
+
 def _free_commit_mib() -> "int | None":
     """System free commit through the handoff gate's own probe; None = unreadable host.
 
@@ -469,6 +510,7 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
                                               "pages are labelled with the engine that read them")}
         log("ocr", f"Tesseract recovery for {len(pending)} unit(s): {reason}")
         sampler.stage("fallback")
+        rec_t0 = time.time()
         try:
             fb_pages = ocr_tesseract.ocr_pdf_pages(
                 pdf_path, pending, language=language, dpi=dpi, rotations=rotations,
@@ -482,6 +524,10 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
         except ocr_tesseract.OcrUnavailable as exc:
             casc["fallback"]["failed"] = {"kind": exc.kind, "detail": str(exc),
                                           "human_step": exc.human_step}
+        # Item 5: the recovery pass's own wall clock, recorded after the try so a pass
+        # that FAILED still reports when it ran - an engine attempt that died is a
+        # recognised fact with a duration, not an event with no time.
+        casc["fallback"]["recognition"] = _span(rec_t0)
         casc["fallback"]["peak"] = sampler.stage_peak("fallback")
         return pending
 
@@ -538,7 +584,12 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
         sampler.start()
         sampler.stage("primary")
         try:
+            rec_t0 = time.time()
             pages, stats = _attempt(want, device, inside_window=inside_window)
+            # Item 5: the primary pass's own wall clock, settle retries included - the
+            # span the attempt actually occupied. A whole-run refusal still gets one:
+            # the attempt ran, and its duration is a recorded fact.
+            casc["primary"]["recognition"] = _span(rec_t0)
             primary_stats.update(stats)
             casc["primary"]["run"] = stats
             _merge(pages)
@@ -751,6 +802,12 @@ def run(pdf_path: str, units: Sequence[int], *, language: str, dpi: int,
     # unresolved as an explicit failure - reporting it as resolved would overstate coverage.
     casc["units_unresolved"] = [p.page for p in ordered if p.state not in ("recognised", "empty")]
     casc["units_not_read"] = [p.page for p in ordered if p.state == "skipped"]
+    # Item 5: ONE recognition window for the run, aggregated from the pass clocks. The
+    # durable record computes the same window at WRITE time from the same clocks
+    # (`_write_result`), so record and report agree by construction.
+    window = _recognition_window(casc)
+    if window:
+        casc["recognition"] = window
     return ordered, report
 
 
@@ -932,7 +989,9 @@ def _write_result(pdf_path: str, want: list[int], *, language: str, dpi: int,
                      "handoff": casc.get("handoff") or {},
                      "fallback_ran": bool(fallback.get("ran")),
                      "fallback_reason": str(fallback.get("reason") or ""),
-                     "selection_note": str(casc.get("selection_note") or "")},
+                     "selection_note": str(casc.get("selection_note") or ""),
+                     # Item 5: the record states WHEN recognition ran, not just that it did.
+                     "recognition": _recognition_window(casc)},
         "peaks": casc.get("peaks") or {},
         "units": [pages[u].to_dict() for u in sorted(pages)],
         "coverage": {"requested": len(want),

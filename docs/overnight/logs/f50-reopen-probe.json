@@ -1,7 +1,7 @@
 {
   "files": [
     {
-      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_L308gI\\Basin_Water_Review.docx",
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_rEKEZ4\\Basin_Water_Review.docx",
       "ok": true,
       "kind": "docx",
       "blocks": 10,
@@ -135,6 +135,7 @@
       "meta": {
         "unit_numbering": "1-based block/paragraph index; tables are numbered by body order",
         "tables": 1,
+        "embedded_images": [],
         "revision_paragraphs": 0,
         "side_parts": [],
         "not_extracted": [
@@ -158,6 +159,7 @@
         "note": "heading hierarchy and table cells preserved; tracked deletions kept inline labeled '[deleted revision: ...]'; footnotes/endnotes/headers/footers read"
       },
       "meta_keys": [
+        "embedded_images",
         "not_extracted",
         "revision_paragraphs",
         "side_parts",
@@ -259,7 +261,7 @@
       ]
     },
     {
-      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_L308gI\\Launch_Brief.pptx",
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_rEKEZ4\\Launch_Brief.pptx",
       "ok": true,
       "kind": "pptx",
       "blocks": 9,
@@ -400,6 +402,7 @@
           "ppt/notesSlides/notesSlide3.xml"
         ],
         "charts": [],
+        "embedded_images": [],
         "not_extracted": [
           "SmartArt",
           "animations",
@@ -424,6 +427,7 @@
       },
       "meta_keys": [
         "charts",
+        "embedded_images",
         "not_extracted",
         "note_parts",
         "slides",
@@ -498,7 +502,7 @@
       ]
     },
     {
-      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_L308gI\\Revenue_Model.xlsx",
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_rEKEZ4\\Revenue_Model.xlsx",
       "ok": true,
       "kind": "xlsx",
       "blocks": 12,
@@ -689,6 +693,7 @@
         ],
         "corrupt_cells": [],
         "sheet_failures": [],
+        "embedded_images": [],
         "unit_numbering": "1-based sheet index"
       },
       "coverage": {
@@ -705,6 +710,7 @@
       },
       "meta_keys": [
         "corrupt_cells",
+        "embedded_images",
         "empty_cells",
         "merged_ranges",
         "sheet_failures",
@@ -849,7 +855,7 @@
       ]
     },
     {
-      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_L308gI\\Basin_Operations_Review.pdf",
+      "path": "D:\\Projects\\WebUI\\WebUI\\.data\\tmp\\reopen_parity_rEKEZ4\\Basin_Operations_Review.pdf",
       "ok": true,
       "kind": "pdf",
       "blocks": 3,
@@ -978,6 +984,7 @@
         "pages": 3,
         "bytes": 36340,
         "page_numbering": "1-based",
+        "embedded_images": [],
         "page_failures": [],
         "needs_ocr": []
       },
@@ -997,6 +1004,7 @@
       },
       "meta_keys": [
         "bytes",
+        "embedded_images",
         "metadata",
         "needs_ocr",
         "page_failures",

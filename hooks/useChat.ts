@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Attachment, ChatMode, Conversation, EffortLevel, Message } from "../lib/types";
 import { ChatClient, ChatClientError } from "../lib/chat/client";
+import { acceptsTurn, acceptsEdit } from "../lib/chat/composerGate";
 import { handleBrowserStage } from "../lib/browser-client/browserStore";
 import {
   compactConversation,
@@ -62,7 +63,10 @@ export interface UseChatReturn {
   reasoningContent: string;
   load: (conversation: Conversation) => void;
   clear: () => void;
-  send: (text: string, opts?: { mode?: ChatMode; attachments?: any[] }) => void;
+  /** Returns ACCEPTANCE: true = the turn started; false = refused (busy, or
+   *  no text AND no ready evidence — composerGate.acceptsTurn). The composer
+   *  clears the draft/tray only on true (F153). */
+  send: (text: string, opts?: { mode?: ChatMode; attachments?: any[] }) => Promise<boolean>;
   stop: () => void;
   retry: () => void;
   edit: (id: string, newContent: string) => void;
@@ -85,6 +89,29 @@ export interface UseChatReturn {
   activeTokenCount: () => number;
   compactThresholds: CompactThresholds | null;
   setCompactThresholds: (t: CompactThresholds) => void;
+}
+
+/**
+ * F153 (2026-11-24): the retry rewind, as ONE operation. Retry reuses the
+ * original user turn and its attachments EXACTLY ONCE — in the UI, in the
+ * saved history and in the model request — so the rewind removes the last
+ * assistant reply AND the user message that prompted it (send() appends the
+ * fresh user bubble itself). Removing only the reply (the previous behavior)
+ * left the original user bubble behind: after a retry the UI and the saved
+ * history carried the same user turn twice, and the no-pending llm rewind,
+ * which dropped only the reply by id, repeated the duplicate in the model
+ * request.
+ */
+export function retryRewind(prev: Message[]): { filtered: Message[]; removedIds: string[] } {
+  const reversed = [...prev].reverse();
+  const idx = reversed.findIndex(m => m.role === "assistant");
+  if (idx < 0) return { filtered: prev, removedIds: [] };
+  const assistant = reversed[idx];
+  const aPos = prev.findIndex(m => m.id === assistant.id);
+  const user = aPos > 0 && prev[aPos - 1].role === "user" ? prev[aPos - 1] : null;
+  const removedIds = user ? [user.id, assistant.id] : [assistant.id];
+  const kill = new Set(removedIds);
+  return { filtered: prev.filter(m => !kill.has(m.id)), removedIds };
 }
 
 function uid(prefix = ""): string {
@@ -673,14 +700,22 @@ export function useChat({
     decisionMode: RendererMode | null,
     locate: (content: string) => BrokenFence[],
     stopAfterFirstApply = false,
-  ) => {
+  ): Promise<"clean" | "repaired" | "aborted" | "unrepaired"> => {
+    // F153 (2026-11-24): the TERMINAL-OUTCOME law. Every exit of a repair
+    // round resolves the "Auto-repairing…" badge: clean, applied, aborted,
+    // or — rounds exhausted with fences still broken — an honest terminal
+    // notice. The badge must never keep spinning on a finished turn.
+    const settleBadge = (badge: string | undefined) =>
+      setMessages(prev => prev.map(m =>
+        (m.id === assistantId && (m.fenceRepair !== undefined || badge !== undefined))
+          ? { ...m, fenceRepair: badge } : m));
     for (let attempt = 0; attempt < MAX_FENCE_REPAIRS; attempt++) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) { settleBadge(undefined); return "aborted"; }
       const content = streamContentRef.current;
       const broken = locate(content);
       if (broken.length === 0) {
-        setMessages(prev => prev.map(m => (m.id === assistantId && m.fenceRepair ? { ...m, fenceRepair: undefined } : m)));
-        return;
+        settleBadge(undefined);
+        return "clean";
       }
 
       const lang = broken[0].lang;
@@ -711,17 +746,22 @@ export function useChat({
           controller.signal,
         );
       } catch {
-        return;
+        settleBadge(undefined); // the turn is already ending on its own error
+        return "aborted";
       }
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) { settleBadge(undefined); return "aborted"; }
 
       const corrected = extractFenceBody(reply, lang);
       if (!corrected) continue;
       const repaired = applyFenceRepair(content, broken[0], corrected);
       streamContentRef.current = repaired;
       setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: repaired, fenceRepair: undefined } : m)));
-      if (stopAfterFirstApply) return;
+      if (stopAfterFirstApply) return "repaired";
     }
+    // Rounds exhausted and a fence is still broken: the badge resolves to
+    // an honest terminal notice — the viewer card keeps the exact error.
+    settleBadge("Auto-repair did not produce a valid fence — the viewer shows the exact error.");
+    return "unrepaired";
   }, [model, apiUrl, apiKey]);
 
   // The 3D/CAD runtime-error repair path (requestFenceRepair) was removed
@@ -730,8 +770,16 @@ export function useChat({
   // directive). Streaming-completion auto-repair (runRepairRounds) stays
   // for document fences.
 
-  const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}) => {
-    if (!text.trim() || sendBusyRef.current) return;
+  const send = useCallback(async (text: string, opts: { mode?: ChatMode; attachments?: any[] } = {}): Promise<boolean> => {
+    // F153 (2026-11-24): the composerGate acceptance law — a turn exists with
+    // text OR ready evidence. A ready file with no typed text is a complete
+    // request (the model's task is to read it). A REFUSED send (busy, nothing
+    // sendable) answers false and the composer leaves the draft and tray
+    // untouched: previously this guard silently returned on an attachment-only
+    // send while ChatInput had already emptied the tray — the ready file was
+    // destroyed and no request was ever made.
+    if (sendBusyRef.current) return false;
+    if (!acceptsTurn({ text, attachments: opts.attachments ?? [] })) return false;
     sendBusyRef.current = true;
     // Fold the finished previous turn into the model-facing array before
     // this turn measures tokens or reads the history (the rebuild is lazy so
@@ -1001,6 +1049,9 @@ export function useChat({
       stopProgressTick();
       setStatus(prev => (prev === "streaming" ? "complete" : prev));
     }
+    // The turn was ACCEPTED and ran (its outcome is carried by status/error;
+    // false is returned only for a refusal, where nothing happened).
+    return true;
   }, [model, apiUrl, apiKey, handleEvent, runRepairRounds, flushPending,
       flushProgress, stopProgressTick, finishProgress, compact, materializeLlmHistory,
       closeReasoningInterval, closeOpenActivities]);
@@ -1026,43 +1077,58 @@ export function useChat({
   }, [flushPending, finishProgress, closeReasoningInterval, closeOpenActivities]);
 
   const retry = useCallback(() => {
-    if (lastInputRef.current) {
-      releaseCompactOwnership(); // I28: the rewind invalidates any in-flight fold
-      const { text, mode, attachments } = lastInputRef.current;
-      // Compute the filtered history synchronously from messagesRef (kept
-      // current by the render-time sync) — the rewind below must see it
-      // BEFORE send() starts, which an updater-form setMessages cannot
-      // guarantee.
-      const prev = messagesRef.current;
-      const reversed = [...prev].reverse();
-      const idx = reversed.findIndex(m => m.role === "assistant");
-      if (idx >= 0) {
-        const removeId = reversed[idx].id;
-        const filtered = prev.filter(m => m.id !== removeId);
-        messagesRef.current = filtered;
-        setMessages(filtered);
-        // Rewind the model-facing history in lockstep with the UI. Normally
-        // the retried turn still lives inside a PENDING rebuild: rolling
-        // back to that base drops BOTH the old reply and the user message
-        // being re-sent — send() appends the fresh user message itself.
-        const p = llmPendingRef.current;
-        if (p) {
-          llmPendingRef.current = null;
-          llmHistoryRef.current = p.base;
-        } else {
-          // No rebuild pending (e.g. a manual /compact ran after that
-          // turn): drop the retried reply by id. A compacted replacement
-          // array carries synthetic ids, so it is left untouched by design.
-          llmHistoryRef.current = llmHistoryRef.current.filter(m => m.id !== removeId);
-        }
+    if (!lastInputRef.current) return;
+    // F153: rewind + accepted resend is ONE operation. If the send owner
+    // would refuse — a turn is generating, or nothing is sendable — retry
+    // does NOTHING: the histories stay exactly as they were. (Previously
+    // the rewind ran first and the silent send rejection left the
+    // conversation rewound with nothing re-sent.)
+    if (sendBusyRef.current) return;
+    const { text, mode, attachments } = lastInputRef.current;
+    if (!acceptsTurn({ text, attachments: attachments as Attachment[] })) return;
+    releaseCompactOwnership(); // I28: the rewind invalidates any in-flight fold
+    // Compute the filtered history synchronously from messagesRef (kept
+    // current by the render-time sync) — the rewind below must see it
+    // BEFORE send() starts, which an updater-form setMessages cannot
+    // guarantee.
+    const { filtered, removedIds } = retryRewind(messagesRef.current);
+    if (removedIds.length) {
+      messagesRef.current = filtered;
+      setMessages(filtered);
+      // Rewind the model-facing history in lockstep with the UI. Normally
+      // the retried turn still lives inside a PENDING rebuild: rolling
+      // back to that base drops BOTH the old reply and the user message
+      // being re-sent — send() appends the fresh user message itself.
+      const p = llmPendingRef.current;
+      if (p) {
+        llmPendingRef.current = null;
+        llmHistoryRef.current = p.base;
+      } else {
+        // No rebuild pending (e.g. a manual /compact ran after that
+        // turn): drop the retried reply AND its user prompt by id — the
+        // F153 single-use law; send() appends the fresh user message. A
+        // compacted replacement array carries synthetic ids, so it is
+        // left untouched by design.
+        const kill = new Set(removedIds);
+        llmHistoryRef.current = llmHistoryRef.current.filter(m => !kill.has(m.id));
       }
-      setError(null);
-      send(text, { mode, attachments });
     }
+    setError(null);
+    send(text, { mode, attachments });
   }, [send, releaseCompactOwnership]);
 
   const edit = useCallback((id: string, newContent: string) => {
+    // F153: validate BEFORE touching history. An empty edit is not an edit
+    // (acceptsEdit), and an edit while a turn is generating is refused -
+    // previously both truncated the histories, and the refused resend
+    // destroyed the conversation with nothing sent in its place.
+    if (!acceptsEdit(newContent) || sendBusyRef.current) return;
     releaseCompactOwnership(); // I28: rewinding invalidates an in-flight fold
+    // Capture the generation AFTER this edit-s bump: a chat switch
+    // (load/clear) between now and the deferred resend bumps it again, and
+    // the resend belongs to the chat that ASKED for the edit - never to
+    // whatever chat is open when the timeout fires.
+    const gen = historyGenRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
 
@@ -1083,7 +1149,12 @@ export function useChat({
     lastInputRef.current = { text: newContent, mode: resend.mode, attachments: resend.attachments };
     setMessages(filtered);
     setStatus("complete");
-    setTimeout(() => send(newContent, resend), 0);
+    setTimeout(() => {
+      // F153: a chat switch (load/clear) between the edit and its deferred
+      // resend bumps the generation - the resend belongs to the chat that
+      // asked for the edit, never to whatever chat is open now.
+      if (historyGenRef.current === gen) send(newContent, resend);
+    }, 0);
   }, [send, releaseCompactOwnership]);
 
   return {

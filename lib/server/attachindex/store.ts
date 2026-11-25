@@ -95,6 +95,219 @@ export function writeIndex(
   shownDelete(attId);
 }
 
+/** One region refreshed by a targeted reread (F152). */
+export interface RegionRereadUpdate {
+  /** IndexDir-relative frame file whose pixels are refreshed (must be in meta.frames). */
+  file: string;
+  /** The region's NEW rendered pixels — ONLY this region's bytes change. */
+  bytes: Buffer;
+  /** The region state the fresh inspection reported. */
+  state: string;
+  /** Recovered text to persist as a unit-header passage (null = nothing recovered). */
+  text: string | null;
+  /** Embedding for the persisted passage; [] = embed unavailable, text not persisted. */
+  vec: number[];
+}
+
+/**
+ * F152: the durable half of a targeted reread. One region's inspection re-ran;
+ * this writes back EXACTLY that region: refreshed pixels under the same frame
+ * file, the frame's region state in meta.json, and (when embeddable) the
+ * recovered text appended as a passage whose unit header ("### slide 2") is
+ * what the retrieval pairing reads on later follow-ups — so ordinary
+ * follow-ups reuse this evidence and only an explicit reread refreshes again.
+ * Surgical (meta.json + chunks.jsonl edited, not a full re-publish): the
+ * shown ledger and every other region's evidence stay intact. Pixels are
+ * written BEFORE meta.json so meta never names a missing file; the LRU is
+ * dropped so the next read sees the refresh. Serialized under the same
+ * per-attachment write lock as builds.
+ */
+export async function applyRegionReread(attId: string, updates: RegionRereadUpdate[]): Promise<void> {
+  if (!updates.length) return;
+  await withIndexWriteLock(attId, async () => {
+    const dir = indexDir(attId);
+    const metaPath = path.join(dir, "meta.json");
+    if (!fs.existsSync(metaPath)) return;
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as IndexMeta;
+    const chunkPath = path.join(dir, "chunks.jsonl");
+    const lines = fs.existsSync(chunkPath)
+      ? fs.readFileSync(chunkPath, "utf8").split("\n").filter(l => l.trim())
+      : [];
+    let nextI = 0;
+    for (const l of lines) {
+      try {
+        const n = (JSON.parse(l) as IndexChunk).i;
+        if (Number.isFinite(n) && n + 1 > nextI) nextI = n + 1;
+      } catch { /* an unparseable line is left verbatim; ids only grow past it */ }
+    }
+    for (const u of updates) {
+      try {
+        fs.writeFileSync(path.join(dir, u.file), u.bytes);
+      } catch {
+        continue; // unwritable pixels: this region keeps its old frame, state unchanged
+      }
+      const fe = (meta.frames ?? []).find(f => f.file === u.file);
+      if (fe) fe.state = u.state;
+      if (u.text && u.vec.length)
+        lines.push(JSON.stringify({ i: nextI++, startSec: null, endSec: null, text: u.text, vec: u.vec } satisfies IndexChunk));
+    }
+    atomicWrite(chunkPath, lines.length ? lines.join("\n") + "\n" : "");
+    atomicWrite(metaPath, JSON.stringify(meta));
+    cacheDelete(attId);
+  });
+}
+
+/** One timed passage persisted by a fresh audio decode (F153 item 3). */
+export interface TimedChunkUpdate {
+  text: string;
+  startSec: number;
+  endSec: number;
+  /** Embedding for the passage; [] = embed unavailable, lexical-only chunk. */
+  vec: number[];
+}
+
+/** Merge overlapping/adjacent [lo,hi] spans into a sorted disjoint list. */
+function mergeSpans(spans: Array<[number, number]>): Array<[number, number]> {
+  const sorted = spans
+    .filter(s => Array.isArray(s) && Number.isFinite(s[0]) && Number.isFinite(s[1]) && s[1] > s[0])
+    .slice()
+    .sort((a, b) => a[0] - b[0]);
+  const out: Array<[number, number]> = [];
+  for (const s of sorted) {
+    const last = out[out.length - 1];
+    if (last && s[0] <= last[1] + 0.001) last[1] = Math.max(last[1], s[1]);
+    else out.push([s[0], s[1]]);
+  }
+  return out;
+}
+
+/**
+ * F153 item 3 (2026-11-25): the durable half of a bounded fresh audio decode.
+ * A follow-up about a time the transcript never covered re-read the ORIGINAL
+ * for that window; this persists EXACTLY that work: the timed passage as a
+ * searchable chunk, and the decoded window merged into meta.speech.examined
+ * (unexamined recomputed, complete set when the merged spans cover the whole
+ * timeline) — so the same span is never decoded twice and an ordinary
+ * follow-up reuses this evidence through retrieval, like every other chunk.
+ * Surgical (meta.json + chunks.jsonl edited, not a full re-publish), under
+ * the same per-attachment write lock as builds and region rereads; the shown
+ * ledger stays intact (new ids only grow past the existing ones).
+ */
+export async function appendTimedChunks(
+  attId: string,
+  updates: TimedChunkUpdate[],
+  examinedSpans: Array<[number, number]> = [],
+): Promise<void> {
+  if (!updates.length && !examinedSpans.length) return;
+  await withIndexWriteLock(attId, async () => {
+    const dir = indexDir(attId);
+    const metaPath = path.join(dir, "meta.json");
+    if (!fs.existsSync(metaPath)) return;
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as IndexMeta;
+    const chunkPath = path.join(dir, "chunks.jsonl");
+    const lines = fs.existsSync(chunkPath)
+      ? fs.readFileSync(chunkPath, "utf8").split("\n").filter(l => l.trim())
+      : [];
+    let nextI = 0;
+    for (const l of lines) {
+      try {
+        const n = (JSON.parse(l) as IndexChunk).i;
+        if (Number.isFinite(n) && n + 1 > nextI) nextI = n + 1;
+      } catch { /* an unparseable line is left verbatim; ids only grow past it */ }
+    }
+    for (const u of updates) {
+      if (!u.text.trim()) continue;
+      lines.push(JSON.stringify({
+        i: nextI++,
+        startSec: u.startSec,
+        endSec: u.endSec,
+        text: u.text,
+        vec: u.vec,
+      } satisfies IndexChunk));
+    }
+    if (examinedSpans.length) {
+      const dur = meta.speech?.durationSec ?? meta.durationSec ?? 0;
+      const examined = mergeSpans([...(meta.speech?.examined ?? []), ...examinedSpans]);
+      const unexamined: Array<[number, number]> = [];
+      if (dur > 0) {
+        let cursor = 0;
+        for (const [lo, hi] of examined) {
+          if (lo - cursor > 0.001) unexamined.push([cursor, lo]);
+          cursor = Math.max(cursor, hi);
+        }
+        if (dur - cursor > 0.001) unexamined.push([cursor, dur]);
+      }
+      meta.speech = {
+        durationSec: dur,
+        examined,
+        unexamined,
+        complete: dur > 0 && unexamined.length === 0,
+      };
+    }
+    meta.chunkCount = lines.length;
+    atomicWrite(chunkPath, lines.length ? lines.join("\n") + "\n" : "");
+    atomicWrite(metaPath, JSON.stringify(meta));
+    cacheDelete(attId);
+  });
+}
+
+/** One frame delivered by a chat-time visual seek, to be saved durably (F153 item 4). */
+export interface SeekedFrameUpdate {
+  /** The media time the decoded picture shows (the worker's own time_s). */
+  at: number;
+  /** The encoded picture bytes (PNG from the seek decoder). */
+  bytes: Buffer;
+  /** The worker's state for this instant: "recognised" | "pixels" | "duplicate". */
+  state: string;
+}
+
+/**
+ * F153 item 4 (2026-11-25): the durable half of a chat-time visual seek. A
+ * follow-up about a moment no saved keyframe covers decoded the ORIGINAL for
+ * that instant; this persists the picture as a saved frame, so the next
+ * follow-up finds it through the ordinary nearestFrames law and never pays
+ * ffmpeg for the same instant twice. Seek frames use the "s_" prefix — it can
+ * never collide with a build's "f_%05d.jpg" names — and the ".png" extension
+ * is what the mime-by-extension serving law reads. Surgical under the same
+ * per-attachment write lock as builds and region rereads; the frame of an
+ * instant already saved (within 0.5 s, video axis) is never duplicated.
+ */
+export async function appendFrames(attId: string, frames: SeekedFrameUpdate[]): Promise<number> {
+  if (!frames.length) return 0;
+  return withIndexWriteLock(attId, async () => {
+    const dir = indexDir(attId);
+    const metaPath = path.join(dir, "meta.json");
+    if (!fs.existsSync(metaPath)) return 0;
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as IndexMeta;
+    const fdir = framesDir(attId);
+    fs.mkdirSync(fdir, { recursive: true });
+    const entries = meta.frames ?? [];
+    let next = 0;
+    for (const f of entries) {
+      const m = /^s_(\d+)\.png$/.exec(path.basename(f.file));
+      if (m) next = Math.max(next, Number(m[1]) + 1);
+    }
+    let written = 0;
+    for (const fr of frames) {
+      if (!Number.isFinite(fr.at) || fr.at < 0 || !fr.bytes?.length) continue;
+      if (entries.some(f => !f.label && Math.abs(f.at - fr.at) < 0.5)) continue;
+      const file = `frames/s_${String(next++).padStart(5, "0")}.png`;
+      // Temp-then-rename inside the frames dir: a reader mid-turn can never
+      // observe a half-written picture (the publish law, applied per file).
+      const tmp = path.join(fdir, `.tmp_${path.basename(file)}`);
+      fs.writeFileSync(tmp, fr.bytes);
+      fs.renameSync(tmp, path.join(dir, file));
+      entries.push({ at: fr.at, file, state: fr.state });
+      written++;
+    }
+    if (!written) return 0;
+    meta.frames = entries;
+    atomicWrite(metaPath, JSON.stringify(meta));
+    cacheDelete(attId);
+    return written;
+  });
+}
+
 /* --------------------------------------------------------------------------
  * Per-index write ownership (F09)
  *

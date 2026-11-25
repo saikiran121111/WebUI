@@ -321,6 +321,121 @@ describe("speech.asr capability caller", () => {
   });
 });
 
+describe("F152 question-driven interval + durable record", () => {
+  it("a named span travels to the worker as its own payload keys", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const out = await transcribeViaCapability("clip.wav", {
+      startSec: 760,
+      endSec: 790,
+      runJob: async (_capability, payload) => {
+        seen.push(payload);
+        return envelope(asrPayload({
+          cache: { state: "stored", key: "k1", span: [760, 790] },
+          complete: false,
+          coverage: { skipped: [[0, 760], [790, 65.0]] },
+        }));
+      },
+    });
+    expect(out.state).toBe("ready");
+    expect(seen[0].start_s).toBe(760);
+    expect(seen[0].end_s).toBe(790);
+    if (out.state !== "ready") return;
+    expect(out.asr.cacheState).toBe("stored");
+    expect(out.asr.cacheSpan).toEqual([760, 790]);
+    // A partial pass says so in the attribution, never reads as a whole-track verdict.
+    expect(speechEngineNote(out.asr)).toContain("coverage was partial");
+  });
+
+  it("a half-named or unserializable span is never sent", async () => {
+    for (const over of [
+      { startSec: 10 },                        // no end
+      { endSec: 20 },                          // no start
+      { startSec: Number.NaN, endSec: 20 },    // not a number
+      { startSec: 20, endSec: 20 },            // degenerate
+      { startSec: -1, endSec: 20 },            // negative
+    ]) {
+      let sent: Record<string, unknown> = {};
+      await transcribeViaCapability("clip.wav", {
+        ...over,
+        runJob: async (_capability, payload) => {
+          sent = payload;
+          return envelope(asrPayload());
+        },
+      });
+      expect(sent.start_s).toBeUndefined();
+      expect(sent.end_s).toBeUndefined();
+    }
+  });
+
+  it("a record hit is stated as provenance, from the worker's own cache state", async () => {
+    const out = await transcribeViaCapability("clip.wav", {
+      runJob: async () =>
+        envelope(asrPayload({ cache: { state: "hit", key: "k1", span: [760, 790] } })),
+    });
+    expect(out.state).toBe("ready");
+    if (out.state !== "ready") return;
+    expect(out.asr.cacheState).toBe("hit");
+    expect(speechEngineNote(out.asr)).toContain("durable record");
+    // A run with no cache field at all invents nothing.
+    const plain = await transcribeViaCapability("clip.wav", {
+      runJob: async () => envelope(asrPayload()),
+    });
+    if (plain.state !== "ready") throw new Error("expected ready");
+    expect(plain.asr.cacheState).toBe("");
+    expect(plain.asr.cacheSpan).toEqual([]);
+    expect(speechEngineNote(plain.asr)).not.toContain("durable record");
+  });
+
+  it("the recognition clock reaches the adapter surface and the attribution line", async () => {
+    // Item 5 (user brief 2026-11-24): "record selected engine, actual backend/device,
+    // recognition start/finish". The worker stamps the adapter call's wall clock; the
+    // adapter surface must carry it, and the attribution line must state it to the user.
+    const out = await transcribeViaCapability("clip.wav", {
+      runJob: async () =>
+        envelope(asrPayload({
+          recognition: {
+            engine: "ruke_ml.speech.parakeet", device: "cuda",
+            started_utc: "2026-11-25T04:12:03Z", finished_utc: "2026-11-25T04:12:41Z",
+            wall_s: 38.2,
+          },
+        })),
+    });
+    expect(out.state).toBe("ready");
+    if (out.state !== "ready") return;
+    expect(out.asr.recognition).toEqual({
+      engine: "ruke_ml.speech.parakeet", device: "cuda",
+      startedAt: "2026-11-25T04:12:03Z", finishedAt: "2026-11-25T04:12:41Z", wallS: 38.2,
+    });
+    const note = speechEngineNote(out.asr);
+    expect(note).toContain("recognised 2026-11-25T04:12:03Z by ruke_ml.speech.parakeet (38.2s wall)");
+    // A worker that predates the clock invents nothing.
+    const plain = await transcribeViaCapability("clip.wav", {
+      runJob: async () => envelope(asrPayload()),
+    });
+    if (plain.state !== "ready") throw new Error("expected ready");
+    expect(plain.asr.recognition).toEqual({
+      engine: "", device: "", startedAt: "", finishedAt: "", wallS: null,
+    });
+    expect(speechEngineNote(plain.asr)).not.toContain("recognised");
+  });
+
+  it("the worker's geometry refusal surfaces as a structural verdict, not a crash", async () => {
+    const out = await transcribeViaCapability("clip.wav", {
+      startSec: 70,
+      endSec: 90,
+      runJob: async () =>
+        failEnvelope(
+          "input_rejected",
+          "the requested span 70.0-90.0s does not fit the track (65.0s): the start must sit inside the audio and the end must come after it",
+        ),
+    });
+    expect(out.state).toBe("unavailable");
+    if (out.state !== "unavailable") return;
+    expect(out.structural).toBe(true);
+    expect(out.reason).toBe("input_rejected");
+  });
+});
+
 describe("the upload path actually calls the Python speech engine", () => {
   const scratch = (name: string) => path.join(".data", "tmp", `speech_wire_${Date.now().toString(36)}_${name}`);
 
@@ -408,5 +523,98 @@ describe("the upload path actually calls the Python speech engine", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * F153 item 2 (2026-11-24): the MAX_SEGMENTS cap must never eat the tail
+ * silently. Repro from the brief: 20,001 VALID segments with a unique fact
+ * in the LAST one — the old adapter returned 20,000, segmentCount=20001,
+ * droppedSegments=0, complete=true, and index.ts's
+ * `timedTranscriptText(asr.segments) || asr.text` precedence meant the final
+ * fact reached NO consumer: not the delivered evidence, not the index, not
+ * the cache, not reload/compaction. The law now: inspect every slice the cap
+ * touches — keep the head plus a bounded TAIL window so the final fact rides
+ * with its timestamp, and when a middle is skipped, SAY so (cappedSegments
+ * counted, complete forced false, the full timed transcript kept durably).
+ * ------------------------------------------------------------------ */
+describe("F153: the segment cap keeps the tail and reports what it skips", () => {
+  const longPayload = (n: number, over: Record<string, unknown> = {}) => {
+    const segments = Array.from({ length: n }, (_, i) => ({
+      start: i * 0.15,
+      end: i * 0.15 + 0.14,
+      text: `filler reading number ${i}`,
+    }));
+    if (n > 20_100) segments[20_100] = { start: 3015.0, end: 3015.14, text: "middle marker five five alpha" };
+    segments[n - 1] = {
+      start: 3599.4,
+      end: 3600.25,
+      text: "the final ledger entry is sealed on March third",
+    };
+    return asrPayload({
+      segments,
+      segment_count: n,
+      duration: 3600,
+      complete: true,
+      text: "filler opening ... the final ledger entry is sealed on March third",
+      ...over,
+    });
+  };
+  const runWith = (n: number, over: Record<string, unknown> = {}) =>
+    transcribeViaCapability("long.wav", { runJob: async () => envelope(longPayload(n, over)) });
+
+  it("20,001 valid segments: the final fact survives with its timestamp; counts agree", async () => {
+    const out = await runWith(20_001);
+    expect(out.state).toBe("ready");
+    if (out.state !== "ready") return;
+    const asr = out.asr;
+    const tail = asr.segments.find((s) => s.text.includes("final ledger entry"));
+    expect(tail, "the final segment vanished from the adapter output").toBeTruthy();
+    expect(tail!.start).toBe(3599.4);
+    expect(tail!.end).toBe(3600.25);
+    expect(asr.segmentCount).toBe(20_001);
+    expect(asr.droppedSegments).toBe(0);
+    expect(asr.cappedSegments).toBe(0);
+    // The worker said complete and the adapter dropped NOTHING: the claim is true.
+    expect(asr.complete).toBe(true);
+  });
+
+  it("20,500 segments: the skipped middle is REPORTED, the tail rides, the full timed transcript is durable", async () => {
+    const out = await runWith(20_500);
+    expect(out.state).toBe("ready");
+    if (out.state !== "ready") return;
+    const asr = out.asr;
+    const tail = asr.segments.find((s) => s.text.includes("final ledger entry"));
+    expect(tail, "the final segment vanished from the adapter output").toBeTruthy();
+    expect(asr.segments.some((s) => s.text.includes("middle marker"))).toBe(false);
+    expect(asr.cappedSegments).toBe(300); // 20,500 - 20,000 head - 200 tail window
+    // The worker's complete=true must NOT survive a real cap drop.
+    expect(asr.complete).toBe(false);
+    expect(asr.segmentCount).toBe(20_500);
+    // The full timestamped transcript is preserved durably (bounded pages live
+    // in the index layer; the adapter hands over the timed text it builds from
+    // EVERY validated segment, middle included).
+    expect(asr.fullTranscriptText).toContain("middle marker five five alpha");
+    expect(asr.fullTranscriptText).toContain("the final ledger entry is sealed on March third");
+    expect(asr.fullTranscriptText).toContain("[00:59:59 - 01:00:00] the final ledger entry");
+  });
+
+  it("superseded-fragment slice audit: the worker count stays honest when the audit list caps", async () => {
+    const frags = Array.from({ length: 20_001 }, (_, i) => ({
+      start: i,
+      end: i + 0.5,
+      text: `fragment ${i}`,
+      window: [0, 60],
+      cut_at: "end",
+      superseded_by: { start: i, end: i + 0.4 },
+      reason: "superseded",
+    }));
+    const out = await runWith(2, { superseded: frags, superseded_fragments: 25_000 });
+    expect(out.state).toBe("ready");
+    if (out.state !== "ready") return;
+    // Fragments are audit-only evidence (never part of `text`): the worker's own
+    // count is preserved, the serialized list is capped — auditable, not hidden.
+    expect(out.asr.supersededFragments).toBe(25_000);
+    expect(out.asr.superseded.length).toBe(20_000);
   });
 });

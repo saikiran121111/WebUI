@@ -197,13 +197,21 @@ def transcribe(src: str, *, model_id: str = PARAKEET_TDT_V3, language: str = "",
                overlap_s: float = DEFAULT_OVERLAP_S, cancel: threading.Event | None = None,
                progress: Callable[[str, str], None] | None = None, ffmpeg: str = "",
                vad_filter: bool = True, snapshot_dir: str = "",
-               device: str = "", placement_reason: str = "") -> Transcript:
+               device: str = "", placement_reason: str = "",
+               start_s: float = 0.0, end_s: float = 0.0) -> Transcript:
     """Transcribe on the shared contract; module docstring for the laws.
 
     `device` is the planner's verdict ("gpu" | "cpu"); "" keeps the legacy probe.
     `placement_reason` is the measured reason the plan carries, reported verbatim
     when the run lands on CPU, so a reader can tell a chosen CPU from a starved
     one.
+
+    F152 (question-driven interval): `start_s`/`end_s` bound the DECODED span
+    (accurate-seek windows over the span, the pcm source-offset law: every window
+    offset is absolute source time). The Transcript stays a fact about the WHOLE
+    source: `duration` is the full track, the un-inspected head/tail appear in the
+    coverage gaps, and `complete` is False for a bounded run - an interval answer
+    can never be read as a verdict on audio that was never decoded.
     """
     prog = progress or (lambda state, note: None)
     cancel = cancel or threading.Event()
@@ -252,17 +260,25 @@ def transcribe(src: str, *, model_id: str = PARAKEET_TDT_V3, language: str = "",
                         "at CPU speed")
 
     duration = float(duration or 0.0)
-    single = window_s is None and 0.0 < duration <= MAX_FULL_ATTENTION_S
+    span_start = max(0.0, min(float(start_s or 0.0), duration))
+    span_end = min(float(end_s), duration) if float(end_s or 0.0) > 0 else duration
+    if span_end - span_start < 0.5:      # a degenerate bound is the whole-file run
+        span_start, span_end = 0.0, duration
+    inspecting = span_start > 0.0 or span_end < duration
+    single = (window_s is None and not inspecting
+              and 0.0 < duration <= MAX_FULL_ATTENTION_S)
     if single:
         windows = [(0.0, duration)]
     else:
         bound = float(window_s) if window_s else MAX_FULL_ATTENTION_S
-        windows = [(w.start_s, w.end_s) for w in
-                   pcm_windows(duration, window_s=bound, overlap_s=overlap_s, src=src)]
+        # Tiling happens over the SPAN; the offsets shift to absolute source time,
+        # the same law pcm_command's accurate seek enforces on the decode itself.
+        windows = [(span_start + w.start_s, span_start + w.end_s) for w in
+                   pcm_windows(span_end - span_start, window_s=bound,
+                               overlap_s=overlap_s, src=src)]
 
     segments: list[dict[str, Any]] = []
     examined: list[tuple[float, float]] = []
-    texts: list[str] = []
     cancelled = False
     try:
         import torch  # noqa: PLC0415 - loaded by load_worker's side effects already
@@ -294,7 +310,6 @@ def transcribe(src: str, *, model_id: str = PARAKEET_TDT_V3, language: str = "",
             text = (decoded[0] if decoded else "").strip()
             stamps = (stamped[0] if stamped else []) or []
             if text:
-                texts.append(text)
                 segments.extend(_segments_from(stamps, text, offset=a, window=(a, b),
                                                word_timestamps=word_timestamps))
             examined.append((a, b))
@@ -307,13 +322,22 @@ def transcribe(src: str, *, model_id: str = PARAKEET_TDT_V3, language: str = "",
         seg.pop("_window", None)
     gaps = uncovered_gaps(duration, examined)
     note_parts: list[str] = []
+    if inspecting:
+        note_parts.append(
+            f"bounded interval inspection {span_start:.1f}-{span_end:.1f}s: audio outside "
+            "the span was never decoded, so this run says nothing about it")
     if cpu_note:
         note_parts.append(cpu_note)
     if vad_filter:
         note_parts.append("speech gating is not published for this engine; the run is ungated")
     if cancelled:
         note_parts.append("cancelled mid-run: the transcript covers the decoded windows only")
-    text = " ".join(texts).strip()
+    # The delivered text is built from the MERGED segments, never a raw join of the
+    # per-window decodes: overlapping windows repeat their overlap-span words, and a
+    # superseded fragment (cut off at a window edge, reheard whole by the next window)
+    # must never appear on the wire. whisper_ct2.py established this law; a Parakeet
+    # run over overlapping windows proved the raw join duplicated sentences.
+    text = " ".join(s["text"] for s in merged).strip()
     return Transcript(
         text=text, segments=merged,
         language=lang,

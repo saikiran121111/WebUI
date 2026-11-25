@@ -1,0 +1,26 @@
+{"ts":"2026-11-24T16:34:56.594Z","row":"batch.identity","runId":"0f1453fb-bfdf-4a43-a84d-6bdcef66ded5","appStartedUtc":"/Date(1795536264279)/","llmResolved":"http://127.0.0.1:8099/v1/chat/completions (env)","handoffAuthorized":true}
+{"ts":"2026-11-24T16:35:01.719Z","row":"fr-F153a","runId":"0f1453fb-bfdf-4a43-a84d-6bdcef66ded5","repairRequests":1}
+{"ts":"2026-11-24T16:35:06.506Z","row":"fr-F153b","runId":"0f1453fb-bfdf-4a43-a84d-6bdcef66ded5","repairRequests":2}
+{"ts":"2026-11-24T16:35:11.248Z","row":"fr-F153c.headers","runId":"0f1453fb-bfdf-4a43-a84d-6bdcef66ded5","issues":"1","summary":"issues%3D1%3B%20B3%20missing_value"}
+{"ts":"2026-11-24T16:35:11.252Z","row":"fr-F153c.warning","text":"Partial export — 1 value decision(s): issues=1; B3 missing_value"}
+{"ts":"2026-11-24T16:35:11.734Z","row":"milestone","phase":"processing","at":1795538111734}
+{"ts":"2026-11-24T16:35:12.259Z","row":"milestone","phase":"ready","at":1795538112259}
+{"ts":"2026-11-24T16:35:23.516Z","row":"fr-F153c.uploadback","said":"Rent — 1200 Cloud — (B3 is empty; no value in the file) Tools — 300"}
+{"ts":"2026-11-24T16:35:28.897Z","row":"fr-F153d.setup","runId":"0f1453fb-bfdf-4a43-a84d-6bdcef66ded5","idA":"c_hcrrj0h5cmwux1h6y","idB":"c_n5ais0mvtmwux1iug"}
+{"ts":"2026-11-24T16:35:33.238Z","row":"fr-F153d.phase1","shown":"BRAVOMARKER noted."}
+{"ts":"2026-11-24T16:35:37.584Z","row":"fr-F153d.phase2","bodies":0}
+{"ts":"2026-11-24T16:35:39.778Z","row":"fr-F153e","phase":"queued","at":1795538139778,"file":"au-1.mp3"}
+{"ts":"2026-11-24T16:35:40.101Z","row":"milestone","phase":"processing","at":1795538140101}
+{"ts":"2026-11-24T16:37:14.525Z","row":"milestone","phase":"error","at":1795538234525}
+{"ts":"2026-11-25T01:37:29.448Z","row":"batch.identity","runId":"2f483a0f-75fc-4988-9e6a-8ef89267d2e6","appStartedUtc":"/Date(1795570612482)/","llmResolved":"http://127.0.0.1:8099/v1/chat/completions (env)","handoffAuthorized":true}
+{"ts":"2026-11-25T01:37:32.397Z","row":"milestone","phase":"processing","at":1795570652397}
+{"ts":"2026-11-25T01:39:15.342Z","row":"milestone","phase":"error","at":1795570755342}
+{"ts":"2026-11-25T01:39:15.343Z","row":"fr-F153f1","runId":"2f483a0f-75fc-4988-9e6a-8ef89267d2e6","phase":"ready","status":"error","phases":["processing","error"],"extractMs":103273}
+{"ts":"2026-11-25T01:39:16.061Z","row":"batch.identity","runId":"2f483a0f-75fc-4988-9e6a-8ef89267d2e6","appStartedUtc":"/Date(1795570612482)/","llmResolved":"http://127.0.0.1:8099/v1/chat/completions (env)","handoffAuthorized":true}
+{"ts":"2026-11-25T01:39:16.998Z","row":"batch.identity","runId":"2f483a0f-75fc-4988-9e6a-8ef89267d2e6","appStartedUtc":"/Date(1795570612482)/","llmResolved":"http://127.0.0.1:8099/v1/chat/completions (env)","handoffAuthorized":true}
+{"ts":"2026-11-25T01:39:17.900Z","row":"batch.identity","runId":"2f483a0f-75fc-4988-9e6a-8ef89267d2e6","appStartedUtc":"/Date(1795570612482)/","llmResolved":"http://127.0.0.1:8099/v1/chat/completions (env)","handoffAuthorized":true}
+{"ts":"2026-11-25T01:39:18.807Z","row":"batch.identity","runId":"2f483a0f-75fc-4988-9e6a-8ef89267d2e6","appStartedUtc":"/Date(1795570612482)/","llmResolved":"http://127.0.0.1:8099/v1/chat/completions (env)","handoffAuthorized":true}
+{"ts":"2026-11-25T01:58:03.032Z","row":"batch.identity","runId":"1ffc4c76-bb29-4fcb-8066-2f2804e5fe36","appStartedUtc":"/Date(1795571872613)/","llmResolved":"http://127.0.0.1:8099/v1/chat/completions (env)","handoffAuthorized":true}
+{"ts":"2026-11-25T01:58:05.661Z","row":"milestone","phase":"processing","at":1795571885661}
+{"ts":"2026-11-25T01:59:27.096Z","row":"milestone","phase":"error","at":1795571967096}
+{"ts":"2026-11-25T01:59:27.096Z","row":"fr-F153f1","runId":"1ffc4c76-bb29-4fcb-8066-2f2804e5fe36","phase":"ready","status":"error","phases":["processing","error"],"extractMs":81758}

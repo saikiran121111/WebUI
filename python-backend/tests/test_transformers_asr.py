@@ -362,6 +362,64 @@ class CancellationLaw(unittest.TestCase):
         self.assertTrue(t.text, "the already-decoded window is kept, not thrown away")
 
 
+class FullTranscriptLaw(unittest.TestCase):
+    """F152: the delivered text is built from the MERGED segments (the
+    whisper_ct2.py law), never a raw join of the per-window decodes. A raw
+    join put the overlap's evidence on the wire twice: an edge-cut fragment
+    beside the full re-hearing that supersedes it, and a sentence the
+    overlap re-heard verbatim beside its first reading."""
+
+    def test_a_superseded_edge_fragment_never_appears_in_the_text(self):
+        # Window [0,10) hears "final words now" cut at the window edge; the
+        # overlapping window [8,18) re-hears the whole span untruncated
+        # (the merge's keeper). The fragment is REPORTED, the full reading
+        # is what the user reads - the raw join delivered both.
+        engine = Engine(cuda=True, window_tokens=[
+            _tokens(8.8, ["final", "words", "now"], 1.2),          # abs 8.8-9.76, edge-cut
+            _tokens(0.4, ["final", "words", "now", "to", "remember", "clearly"], 2.4),  # abs 8.4-10.32
+            _tokens(0.5, ["tail"], 0.4),                            # abs 16.5-16.9, plain
+        ])
+        t = _Harness(engine).run(20.0, window_s=10.0, overlap_s=2.0, language="en")
+        self.assertEqual(
+            len([s for s in t.superseded if s["text"] == "final words now"
+                 and s["cut_at"] == "end"]), 1,
+            f"the edge-cut reading must be reported as superseded: {t.superseded}")
+        self.assertEqual(t.text.count("final words"), 1,
+                         f"the cut fragment must not ride the wire beside the full "
+                         f"re-hearing that supersedes it: {t.text!r}")
+        self.assertIn("final words now to remember", t.text)
+        self.assertNotIn("final words now to remember",
+                         " ".join(s["text"] for s in t.superseded))
+
+    def test_a_verbatim_rehearing_in_the_overlap_is_delivered_once(self):
+        # A heavy overlap (8 s) re-hears one whole sentence verbatim; the
+        # merge's _dedupe_exact drops the second reading (proven identical
+        # text inside already-covered time). The raw join delivered it twice.
+        # w0 [0,10) hears the sentence at abs 4.0-4.96; w1 [2,12) re-hears the
+        # SAME span at the same absolute time (window-relative offset 2.0).
+        engine = Engine(cuda=True, window_tokens=[
+            _tokens(4.0, ["the", "same", "sentence"], 4.0),
+            _tokens(2.0, ["the", "same", "sentence"], 4.0),
+            [], [], [], [],
+        ])
+        t = _Harness(engine).run(20.0, window_s=10.0, overlap_s=8.0, language="en")
+        self.assertEqual(t.text.count("the same sentence"), 1,
+                         f"the verbatim overlap re-hearing is the same utterance read "
+                         f"twice: {t.text!r}")
+        self.assertEqual(len([s for s in t.segments if s["text"] == "the same sentence"]), 1)
+
+    def test_legitimate_repetition_at_a_different_time_survives(self):
+        # The dedupe law keeps genuine repeats: the same words at a LATER span
+        # are evidence of a real repeated sentence, not a window artefact.
+        engine = Engine(cuda=True, window_tokens=[
+            _tokens(1.0, ["again"], 1.0),   # abs 1.0-1.32
+            _tokens(1.0, ["again"], 1.0),   # window [8,18) -> abs 9.0-9.32
+        ])
+        t = _Harness(engine).run(20.0, window_s=10.0, overlap_s=2.0, language="en")
+        self.assertEqual(t.text.count("again"), 2,
+                         f"a real repeat at a different source time must survive: {t.text!r}")
+
+
 class InstallFaultLaw(unittest.TestCase):
     """F123: the runtime installation fault is NAMED, never laundered into a
     claim that the host has no GPU. On this project's CUDA-capable hosts the

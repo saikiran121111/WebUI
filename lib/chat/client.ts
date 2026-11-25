@@ -156,6 +156,25 @@ const NUMERIC_FIDELITY_LAW =
   "that have different values. This applies to every restated version anywhere in the answer, " +
   "including brief asides.";
 
+/**
+ * F152 audit (2026-11-24): the reader's coverage verdict rides the model-facing
+ * turn as the file's own limitation. The model answers from what WAS read and
+ * states precisely what could not be ("I couldn't read the label on page 2") —
+ * it never guesses the unreadable part and never names the software, workers
+ * or services that read the file (those details stay in diagnostics).
+ */
+function coverageLimitPart(note: string): any {
+  return {
+    type: "text",
+    text:
+      `Coverage of this file, as recorded by the reader: ${note}\n` +
+      `When a question depends on content named as unreadable, do not guess it: give the answer from ` +
+      `what WAS read, or state precisely what could not be read (for example "I couldn't read the label ` +
+      `on page 2"). Speak of the file's content only — never name the software, workers or services ` +
+      `that read it.`,
+  };
+}
+
 /** One attachment rendered into whatever the model can actually perceive. */
 export function attachmentParts(att: Attachment): any[] {
   const label = `Attached file: ${att.name}`;
@@ -168,15 +187,21 @@ export function attachmentParts(att: Attachment): any[] {
     const timed = att.category === "audio" || att.category === "video";
     const isVideo = att.category === "video";
     const preview = att.transcript ?? att.text;
+    // F152 audit: "(nothing was discarded)" and "complete" are claims about
+    // coverage, not decoration — they ride ONLY when the reader recorded no
+    // limitation. With a coverageNote the claim is grounded ("the content
+    // recovered from it") and the limitation is stated for the model to honor.
+    const note = att.coverageNote;
     const parts: any[] = [
       {
         type: "text",
         text:
-          `${label} — this ${isVideo ? "video" : timed ? "recording" : "document"} is long, so its complete content is kept in a local knowledge index ` +
-          `(nothing was discarded). You are shown its structural map and its opening; passages relevant to each question ` +
+          `${label} — this ${isVideo ? "video" : timed ? "recording" : "document"} is long, so ${note ? "the content recovered from it" : "its complete content"} is kept in a local knowledge index ` +
+          (note ? "" : "(nothing was discarded). ") +
+          `You are shown its structural map and its opening; passages relevant to each question ` +
           `are supplied as timestamped evidence when needed.` +
           (isVideo
-            ? ` This video's complete saved record is kept whole in the index; you are shown parts of it: the ` +
+            ? ` This video's ${note ? "saved record" : "complete saved record"} is kept whole in the index; you are shown parts of it: the ` +
               `images below are moments from it, and its spoken content is part of the record. Speak of the video ` +
               `as a whole — never claim to have watched it ` +
               `yourself, never mention frames, sampled images, keyframes, an audio track or transcription, and ` +
@@ -211,6 +236,7 @@ export function attachmentParts(att: Attachment): any[] {
         text: `Opening of the content:\n[content begins]\n${preview}\n[content continues — the remainder is indexed, not shown]`,
       });
     }
+    if (note) parts.push(coverageLimitPart(note));
     parts.push({
       type: "attachment_ref",
       att_id: att.indexId ?? att.id,
@@ -234,9 +260,17 @@ export function attachmentParts(att: Attachment): any[] {
       // fidelity defect, not a model failure. No verified size ⇒ no claim.
       const dims = att.width && att.height ? ` — ${att.width} × ${att.height} pixels` : "";
       const frames = att.frames ?? [];
+      // F152: OCR-recovered text rides AFTER the pixels and stays labelled as
+      // recovered (its own provenance header names the engine and region) —
+      // visual evidence and recovered text remain distinguishable, and the
+      // picture stays the primary source for anything about appearance.
+      const recovered = att.text
+        ? [{ type: "text", text: `Text recovered from this picture by the document reader (recovered from the pixels — the file carries no text layer; answer questions about appearance from the picture itself):\n${att.text}` }]
+        : [];
       if (!frames.length)
         return [{ type: "text", text: `${label} (image${dims})` },
-                { type: "image_url", image_url: { url: att.dataUrl } }];
+                { type: "image_url", image_url: { url: att.dataUrl } },
+                ...recovered];
       const parts: any[] = [];
       if (att.pages && att.pages > 1) {
         const shown = 1 + frames.length;
@@ -269,6 +303,7 @@ export function attachmentParts(att: Attachment): any[] {
           parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
         }
       }
+      parts.push(...recovered);
       return parts;
     }
 
@@ -277,7 +312,7 @@ export function attachmentParts(att: Attachment): any[] {
         {
           type: "text",
           text:
-            `${label} — you are given its complete saved record. The images below are moments from it` +
+            `${label} — you are given its ${att.coverageNote ? "saved record" : "complete saved record"}. The images below are moments from it` +
             (att.transcript ? ", and after them is what is spoken in it" : "") +
             `.\nDescribe the video from this record: what happens, what appears on screen, what is said. ` +
             `Never claim to have watched it yourself; never mention frames, sampled images, keyframes, an audio ` +
@@ -305,6 +340,7 @@ export function attachmentParts(att: Attachment): any[] {
           type: "text",
           text: `What is spoken in this video:\n[spoken content begins]\n${att.transcript}\n[spoken content ends]`,
         });
+      if (att.coverageNote) parts.push(coverageLimitPart(att.coverageNote));
       return parts;
     }
 
@@ -321,25 +357,66 @@ export function attachmentParts(att: Attachment): any[] {
               `not be read.`,
           },
         ];
+      // F152 audit: "its complete spoken content, taken directly from the
+      // recording" is a coverage claim. It rides only when the reader recorded
+      // no limitation (older attachments without the field keep it verbatim);
+      // with a coverageNote the content is labelled as what was RECOVERED and
+      // the limitation is stated beside it.
       return [
         {
           type: "text",
           text:
-            `${label} (audio recording — its complete spoken content, taken directly from the recording, follows)\n` +
+            `${label} (audio recording — ${att.coverageNote ? "the spoken content recovered from the recording follows" : "its complete spoken content, taken directly from the recording, follows"})\n` +
             `[spoken content begins]\n${att.transcript}\n[spoken content ends]\n` +
             `Answer in terms of what the recording says and what the speakers say. Never claim to have listened to ` +
             `it yourself, never mention a transcript or speech recognition, and never tell the user you cannot ` +
             `access its spoken content.`,
         },
+        ...(att.coverageNote ? [coverageLimitPart(att.coverageNote)] : []),
       ];
 
     default: {
-      if (!att.text) return [{ type: "text", text: `${label} — no readable text was found` }];
-      const body =
-        `${label}\n[file content begins]\n${att.text}\n[file content ends]` +
-        (att.truncated ? "\n[the file was truncated]" : "") +
-        `\n${NUMERIC_FIDELITY_LAW}`;
-      return [{ type: "text", text: body }];
+      // F152: usable pixels are saved INDEPENDENTLY of OCR and its deadline —
+      // a file whose text is empty but whose pages were rendered must never
+      // early-return "no readable text" and discard them (an image-only PDF
+      // is answered from its rendered pages). The refusal below is only for
+      // a file with NEITHER readable text NOR rendered pixels.
+      const frames = att.frames ?? [];
+      if (!att.text && !frames.length)
+        return [{ type: "text", text: `${label} — no readable text was found` }];
+      const body = att.text
+        ? `${label}\n[file content begins]\n${att.text}\n[file content ends]` +
+          (att.truncated ? "\n[the file was truncated]" : "") +
+          `\n${NUMERIC_FIDELITY_LAW}`
+        : `${label} — this file's content is pictures: it carries no readable text layer. ` +
+          `The labelled images below are the file's own rendered pages; answer from what they ` +
+          `show, and when a part of one cannot be read, say plainly which part you could not read. ` +
+          `Never say you were not given the file's content — these pictures ARE it.`;
+      const parts: any[] = [{ type: "text", text: body }];
+      // F152: the reader renders the file's DRAWN content — PDF pages whose
+      // marks are vector paint, and the embedded rasters of office documents
+      // (a PPTX legend, a DOCX screenshot, an XLSX chart image, photos). The
+      // text body above is what is READABLE; these images are what is PICTURED,
+      // and a visual question ("which coloured line crosses the threshold?")
+      // is unanswerable from text alone. Each frame is labelled with its
+      // source unit so the visual keeps its location; the frames never
+      // replace the text body — the two stay distinguishable.
+      if (frames.length) {
+        parts.push({
+          type: "text",
+          text:
+            `The file also contains drawn content that text alone cannot express. The images ` +
+            `below are the file's own pictures, each labelled with where it sits in the file. ` +
+            `When the question is about appearance — a chart's shape, a legend, a colour, a ` +
+            `layout, what an image shows — answer from the labelled image, and say which one ` +
+            `you read it from:`,
+        });
+        for (const f of frames) {
+          parts.push({ type: "text", text: `${f.label ?? `Page ${f.at}`} — drawn content:` });
+          parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+        }
+      }
+      return parts;
     }
   }
 }

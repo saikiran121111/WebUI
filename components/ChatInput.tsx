@@ -27,7 +27,10 @@ const EFFORT_LABEL: Record<EffortLevel, string> = {
 };
 
 interface ChatInputProps {
-  onSend: (text: string, attachments: Attachment[]) => void;
+  /** Returns ACCEPTANCE: true = the turn started, false = the send owner
+   *  refused (busy, nothing sendable). The draft and tray clear only on
+   *  acceptance (F153) — a refused send leaves both exactly as they were. */
+  onSend: (text: string, attachments: Attachment[]) => boolean | Promise<boolean>;
   onStop: () => void;
   isLoading: boolean;
   isThinking: boolean;
@@ -277,13 +280,24 @@ export default function ChatInput({
       setTimeout(() => textareaRef.current?.focus(), 0);
       return;
     }
-    onSend(trimmed, attachments.filter(a => a.status === "ready"));
-    setValue("");
-    // The gate only opens with EVERY attachment ready, so the tray empties.
-    for (const a of attachments) attachFiles.current.delete(a.id);
-    setAttachments([]);
-    onAttachmentsChange([]);
-    setTimeout(() => textareaRef.current?.focus(), 0);
+    const ready = attachments.filter(a => a.status === "ready");
+    // F153 (2026-11-24): clear ONLY on acceptance. The send owner answers
+    // true when the turn started and false when it refused (busy); a refused
+    // send leaves the draft and tray EXACTLY as they were. Previously the
+    // tray emptied before the owner ran, and an attachment-only send — which
+    // the gate opens — was silently dropped: the ready file was destroyed
+    // and nothing was asked.
+    const clear = () => {
+      setValue("");
+      // The gate only opens with EVERY attachment ready, so the tray empties.
+      for (const a of attachments) attachFiles.current.delete(a.id);
+      setAttachments([]);
+      onAttachmentsChange([]);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+    const result = onSend(trimmed, ready);
+    if (result instanceof Promise) void result.then(accepted => { if (accepted) clear(); });
+    else if (result) clear();
   }, [value, isLoading, attachments, onSend, onAttachmentsChange, onCompactCommand]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

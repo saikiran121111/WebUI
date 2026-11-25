@@ -34,6 +34,22 @@ pub struct IndexChunk {
 pub struct FrameEntry {
     pub at: f64,
     pub file: String,
+    /// F152: document frames name their unit ("slide 1", "sheet 2, cell
+    /// C4"); video keyframes carry no label. The label also marks `at` as
+    /// a UNIT ORDINAL (page axis) rather than seconds, which is what the
+    /// retrieval pairing checks before matching.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// F152: stable region id ("pptx:1:ppt/media/image-3-1.png") for the
+    /// targeted reread.
+    #[serde(default)]
+    pub region: Option<String>,
+    /// F152: what the last inspection of this region recorded
+    /// ("recognised", "skipped", "ocr_read", "unreadable"). The cached
+    /// evidence an explicit reread refreshes; absent for frames written
+    /// before the state law.
+    #[serde(default)]
+    pub state: Option<String>,
 }
 
 /// `SpineBlock` — read for the notes pass (chunk range + degrade
@@ -49,6 +65,26 @@ pub struct SpineBlock {
     pub keywords: Vec<String>,
     pub opening: String,
     pub closing: String,
+}
+
+/// `SpeechCoverage` — `meta.speech` (F153 item 3, ⇔ types.ts): what an audio
+/// decode pass ACTUALLY listened to. `examined` spans are spans whose audio
+/// was decoded (words found, silence measured, or decode finished with none);
+/// `unexamined` is the recomputed complement inside `[0, durationSec]`.
+/// `complete` is true only when no gap remains — the one state that lets a
+/// timed gap be answered as a MEASURED absence. Written by the Node builder
+/// (deliverSpoken) and by `append_timed_chunks`; read tolerantly like every
+/// other meta field.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SpeechCoverage {
+    pub duration_sec: f64,
+    #[serde(default)]
+    pub complete: bool,
+    #[serde(default)]
+    pub examined: Vec<[f64; 2]>,
+    #[serde(default)]
+    pub unexamined: Vec<[f64; 2]>,
 }
 
 /// `IndexMeta` — `meta.json`.
@@ -75,6 +111,10 @@ pub struct IndexMeta {
     /// by the builder and quoted as the disclosed reason. Read tolerantly.
     #[serde(default)]
     pub embed_note: Option<String>,
+    /// F153 item 3: audio decode coverage. Absent for every non-audio index
+    /// and for audio indexed before the coverage law; read tolerantly.
+    #[serde(default)]
+    pub speech: Option<SpeechCoverage>,
 }
 
 /// `EmbedStamp` - provenance of the vectors an index stores. Written by the

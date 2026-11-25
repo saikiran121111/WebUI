@@ -154,6 +154,16 @@ def _parse_result(ctx: JobContext, doc: Any, assessment: Any, ocr_payload: dict[
     from ..documents import render as render_mod
     rendered = render_mod.render_units(doc)
     visual = _visual_pages(doc, target)
+    # Region frames (embedded rasters of office documents, standalone images): every
+    # region that RENDERED - including photos the OCR decision skipped, whose pixels
+    # are the answer to a visual question. `page` is the unit axis (slide/sheet/
+    # paragraph ordinal), `label` names it, `region` is the stable region id.
+    region_frames = ocr_payload.get("region_frames") or []
+    if region_frames:
+        visual["pages"] = list(visual["pages"]) + region_frames
+        visual["note"] = ((visual["note"] + " | ") if visual["note"] else "") + (
+            f"{len(region_frames)} embedded-image region(s) rendered for visual questions; "
+            "`page` is the unit ordinal (slide / sheet / body-paragraph), `label` names it")
     if visual["pages"]:
         note = f"{note} | {visual['note']}"
     return ctx.ready(
@@ -196,11 +206,34 @@ def run_ocr_stage(ctx: JobContext, doc: Any, target: Any, assessment: Any) -> di
                             or "the assessment routed this document to the native text layer")
         return report
     if doc.kind != "pdf":
+        regions = (getattr(doc, "meta", {}) or {}).get("embedded_images") or []
+        if regions:
+            # Office packages and standalone images carry their text-bearing pixels in
+            # rasters the native reader cannot read. Each region gets a cheap raster
+            # inspection; only label-bearing regions reach the cascade, under the SAME
+            # engine policy, ceilings and busy-window law as a PDF page (documents/
+            # region_ocr.py wraps the raster so ocr_cascade.run needs no second path).
+            return run_region_ocr_stage(ctx, doc, target, report, list(regions))
         report["reason"] = f"the OCR cascade is wired for pdf; this document is {doc.kind}"
         return report
     units = [int(u) for u in (assessment.units or [])]
+    # F152 PDF region law: pages whose text layer is USABLE and that carry embedded
+    # rasters (the F73 branch in documents/pdf.py) sit in meta["embedded_images"]
+    # with the page's own native text. Their eligibility is decided by per-region
+    # inspection - raster words minus the page's text layer - so a decorative logo
+    # on a prose page costs zero engine calls and an image-only legend gets read.
+    # Weak- and empty-layer pages carry no region record and stay on the batch
+    # cascade unchanged (the scanned-page law, frozen by F73).
+    pdf_regions = list((getattr(doc, "meta", {}) or {}).get("embedded_images") or [])
+    if pdf_regions:
+        _merge_region_pass(report, _pdf_region_pass(ctx, doc, target, pdf_regions))
+    units = [u for u in units if u not in {int(r["unit"]) for r in pdf_regions}]
     if not units:
-        report["reason"] = "the assessment flagged no specific unit to OCR"
+        if pdf_regions:
+            report["reason"] = ((report["reason"] + "; ") if report.get("reason") else "") + \
+                "every flagged page was inspected as a region; the batch cascade had no unit left"
+        else:
+            report["reason"] = "the assessment flagged no specific unit to OCR"
         return report
     if not catalog().executable_for("documents.ocr"):
         _, blockers = catalog().blockers_for("documents.ocr")
@@ -259,6 +292,9 @@ def run_ocr_stage(ctx: JobContext, doc: Any, target: Any, assessment: Any) -> di
         return report
     casc = cascade_report["cascade"]
     report["cascade"] = casc
+    # Item 5 (user brief 2026-11-24): the worker's own surface names WHEN the
+    # recognition engines ran, not only which ones the policy selected.
+    report["recognition"] = casc.get("recognition") or {}
     if casc.get("waiting"):
         # F122: the exclusive window was busy. The pages stay in the OCR-pending set
         # (nothing is recognised, nothing is substituted), and the report says the job is
@@ -296,6 +332,176 @@ def run_ocr_stage(ctx: JobContext, doc: Any, target: Any, assessment: Any) -> di
                          f"recognised per engine: {per_engine or 'none'}")
     report["engines_recognised"] = per_engine
     _absorb_ocr_units(doc, pages, recognized)
+    return report
+
+
+def _pdf_region_pass(ctx: JobContext, doc: Any, target: Any,
+                     regions: list[dict[str, Any]]) -> dict[str, Any]:
+    """One region inspection over the PDF's region inventory (fresh sub-report)."""
+    sub: dict[str, Any] = {"ran": False, "attempted": 0, "recognized": 0, "pages": [],
+                           "summary": "", "reason": "", "language": "", "language_source": ""}
+    return run_region_ocr_stage(ctx, doc, target, sub, list(regions))
+
+
+def _merge_region_pass(report: dict[str, Any], sub: dict[str, Any]) -> None:
+    """Merge a completed region pass into the cascade report of the same stage.
+
+    Recognised region text is ALREADY a block when the pass ran; this merges the
+    EVIDENCE - per-region records, frames, invocation counts, waiting/retryable
+    state, targeted-scope ledgers and the honest summaries - so one report answers
+    for the whole stage and nothing is silently dropped.
+    """
+    report["regions"] = (report.get("regions") or []) + (sub.get("regions") or [])
+    report["region_frames"] = (report.get("region_frames") or []) + (sub.get("region_frames") or [])
+    inv = report.setdefault("invocations", {"probe": 0, "engine": 0})
+    for key, value in (sub.get("invocations") or {}).items():
+        inv[key] = inv.get(key, 0) + value
+    eng = report.setdefault("engines_recognised", {})
+    for key, value in (sub.get("engines_recognised") or {}).items():
+        eng[key] = eng.get(key, 0) + value
+    report["attempted"] = report.get("attempted", 0) + sub.get("attempted", 0)
+    report["recognized"] = report.get("recognized", 0) + sub.get("recognized", 0)
+    if sub.get("ran"):
+        report["ran"] = True
+    for key in ("waiting", "retryable"):
+        if sub.get(key):
+            report[key] = True
+    for key in ("regions_requested", "regions_unknown", "regions_skipped"):
+        if key in sub:
+            report[key] = (report.get(key) or []) + sub[key]
+    if sub.get("region_scope"):
+        report["region_scope"] = sub["region_scope"]
+    if sub.get("summary"):
+        report["summary"] = (f"{report['summary']} | {sub['summary']}"
+                             if report.get("summary") else sub["summary"])
+    if sub.get("reason"):
+        report["reason"] = (f"{report['reason']}; {sub['reason']}"
+                            if report.get("reason") else sub["reason"])
+
+
+def run_region_ocr_stage(ctx: JobContext, doc: Any, target: Any, report: dict[str, Any],
+                         regions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Inspect every embedded-raster region; run the cascade on exactly the eligible ones.
+
+    The per-region evidence (state, reason, probe features, engine, invocation counts)
+    is the record of why a region was skipped, queued, read, or left unreadable - the
+    user brief's demand, answered from the report alone. Recognised text is a separate
+    ocr_text block with the region's location; pixels of EVERY region that rendered
+    (photos included) stay available as frames for visual questions.
+    """
+    from ..documents import region_ocr
+    if not catalog().executable_for("documents.ocr"):
+        _, blockers = catalog().blockers_for("documents.ocr")
+        report["reason"] = ("the OCR engine is not executable here: "
+                            + ("; ".join(blockers) if blockers else "no executable row"))
+        return report
+    requested = str(ctx.req.payload.get("language", "") or "").strip()
+    declared = ""
+    for key, value in (getattr(doc, "meta", {}) or {}).get("metadata", {}).items():
+        if str(key).lower() in ("/lang", "lang"):
+            declared = str(value or "").strip()
+            if declared:
+                break
+    dpi = int(ctx.req.payload.get("dpi", DEFAULT_OCR_DPI) or DEFAULT_OCR_DPI)
+    # F152 targeted reread: payload["regions"] is a list of region ids
+    # ("{kind}:{unit}:{part}") that narrows the inspection to EXACTLY those
+    # regions — asking for a closer read of one figure re-runs only that
+    # region's inspection and leaves every other region's cached evidence
+    # untouched. Unknown ids are recorded, never silently dropped; a scope
+    # that resolves to nothing runs zero probes and zero engine calls.
+    only = ctx.req.payload.get("regions")
+    if isinstance(only, (list, tuple)):
+        wanted = {str(x) for x in only}
+        by_id = {region_ocr.region_id(doc.kind, r): r for r in regions}
+        regions = [by_id[i] for i in by_id if i in wanted]
+        report["regions_requested"] = sorted(wanted)
+        report["regions_unknown"] = sorted(wanted - set(by_id))
+        report["regions_skipped"] = sorted(set(by_id) - wanted)
+        report["region_scope"] = (f"targeted: {len(regions)} of {len(by_id)} "
+                                  f"region(s) selected for reread")
+    ctx.progress("ocr", f"{len(regions)} region(s) to inspect, "
+                        f"language={'requested' if requested else 'validated per-region detection'}")
+    result = region_ocr.inspect_regions(
+        str(target), doc.kind, regions,
+        requested_language=requested, declared_language=declared, dpi=dpi,
+        cancel=ctx.cancel.is_set, deadline_at=ctx.deadline_at(),
+        job_id=ctx.req.job_id or "documents.ocr")
+    recs = result["regions"]
+    report["ran"] = True
+    report["attempted"] = len(recs)
+    report["invocations"] = result["invocations"]
+    unit_kind = {"pptx": "slide", "docx": "paragraph", "xlsx": "sheet", "pdf": "page",
+                 "image": "image"}.get(doc.kind, "unit")
+    per_engine: dict[str, int] = {}
+    recognized = 0
+    frames: list[dict[str, Any]] = []
+    total_b64 = 0
+    clean: list[dict[str, Any]] = []
+    for r in recs:
+        clean.append({k: v for k, v in r.items() if k != "png"} | {"png_bytes": len(r.get("png") or b"")})
+        if r["state"] == "recognised" and r["text"]:
+            recognized += 1
+            doc.blocks.append(_Block(r["text"], "ocr_text", doc.source_id, doc.source_hash,
+                                     {"region": r["region"], "unit": r["unit"], "part": r["part"],
+                                      "anchor": r.get("anchor", ""),
+                                      "engine": r["engine"], "language_code": r["language"],
+                                      "provenance": "ocr"}))
+            per_engine[str(r["engine"] or "none")] = per_engine.get(str(r["engine"] or "none"), 0) + 1
+        png = r.get("png") or b""
+        if png:
+            encoded = base64.b64encode(png).decode("ascii")
+            if len(encoded) <= MAX_VISUAL_PAGE_B64 and total_b64 + len(encoded) <= MAX_VISUAL_TOTAL_B64:
+                total_b64 += len(encoded)
+                label = f"{unit_kind} {r['unit']}"
+                if r.get("anchor"):
+                    label += f", cell {r['anchor']}"
+                # F152: a page with two figures has two regions, and a follow-up that
+                # asks for a closer look at ONE of them is answered by the label.
+                # Without a figure ordinal both frames read "page 1" and the request
+                # can only name the page - which would re-inspect both.
+                image_index = str(r.get("part") or "").rsplit("/image:", 1)
+                if len(image_index) == 2 and image_index[1].isdigit():
+                    label += f", figure {int(image_index[1]) + 1}"
+                frames.append({"page": r["unit"], "region": r["region"], "label": label,
+                               "region_state": r["state"], "png_base64": encoded})
+    report["regions"] = clean
+    report["region_frames"] = frames
+    report["recognized"] = recognized
+    report["engines_recognised"] = per_engine
+    states: dict[str, int] = {}
+    for r in recs:
+        states[r["state"]] = states.get(r["state"], 0) + 1
+    report["summary"] = (f"{recognized}/{len(recs)} region(s) recognised; states {states}; "
+                         f"probe passes {result['invocations']['probe']}, engine calls "
+                         f"{result['invocations']['engine']}; recognised per engine: "
+                         f"{per_engine or 'none'}")
+    if result.get("waiting"):
+        report["waiting"] = True
+        report["retryable"] = True
+        report["reason"] = ("resource_busy: the exclusive window is held by another owner; "
+                            "the queued regions stay pending and the job is retryable — no "
+                            "engine was substituted")
+    cov = doc.coverage
+    for r in recs:
+        u = int(r["unit"])
+        if r["state"] == "recognised":
+            cov.units_succeeded = sorted(set(cov.units_succeeded) | {u})
+            cov.units_empty = [x for x in cov.units_empty if x != u]
+            cov.units_needing_ocr = [x for x in cov.units_needing_ocr if x != u]
+            cov.units_failed = [x for x in cov.units_failed if x != u]
+        elif r["state"] == "skipped" and doc.kind == "pdf":
+            # The inspection DECIDED this page's raster: blank, photographic, or every
+            # word it renders already sits in the page's own text layer. There is no
+            # text to recover, the prose is recorded, and the pixels stay on the visual
+            # channel - keeping the page OCR-pending forever would claim unread content
+            # the evidence says is not there.
+            cov.units_needing_ocr = [x for x in cov.units_needing_ocr if x != u]
+        elif r["state"] in ("unreadable", "needs_language", "waiting"):
+            cov.units_needing_ocr = sorted(set(cov.units_needing_ocr) | {u})
+    cov.units_extracted = len(set(cov.units_succeeded))
+    tail = (f"region inspection: {len(recs)} region(s), "
+            f"{result['invocations']['engine']} engine call(s), {recognized} recognised")
+    cov.note = f"{cov.note} | {tail}" if cov.note else tail
     return report
 
 

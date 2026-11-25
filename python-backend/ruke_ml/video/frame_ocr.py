@@ -25,6 +25,7 @@ Two further refusals, both inherited from the document OCR path:
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import subprocess
 from dataclasses import dataclass, field
@@ -36,12 +37,16 @@ from ..models.binaries import path_for
 # A single PNG frame over this bound is a decoder anomaly, not a frame we should keep
 # feeding through a pipe to the OCR engine.
 MAX_PNG_BYTES = 32 << 20
+# Pixels ride the RPC response only when the caller asked for them (include_image); the
+# transport bound keeps one response bounded — over it the frame ships its digest and the
+# omission is STATED in the frame's own detail, never silently dropped.
+MAX_IMAGE_B64_BYTES = 3 << 20
 FRAME_TIMEOUT_S = 60.0
 MAX_FRAMES = 64
 MAX_CHARS_PER_FRAME = 20000
 
 FRAME_STATES = ("recognised", "empty", "frame_failed", "ocr_failed",
-                "duplicate", "out_of_range", "skipped", "not_run")
+                "duplicate", "out_of_range", "skipped", "not_run", "pixels")
 
 
 class FrameDecodeFailed(Exception):
@@ -141,22 +146,39 @@ class FrameReading:
     engine: str = ""
     language_code: str = ""
     copy_of_time: float | None = None      # set when this frame is a byte-identical duplicate
+    image_b64: str = ""                    # set only when the caller asked for pixels
 
     def to_dict(self) -> dict[str, Any]:
-        return {"time_s": self.time_s, "state": self.state, "text": self.text[:MAX_CHARS_PER_FRAME],
-                "detail": self.detail, "confidence": self.confidence,
-                "lines": self.lines[:200], "width": self.width, "height": self.height,
-                "frame_digest": self.digest, "engine": self.engine,
-                "language_code": self.language_code, "copy_of_time": self.copy_of_time,
-                "provenance": "frame_ocr", "timebase": "presentation"}
+        out = {"time_s": self.time_s, "state": self.state, "text": self.text[:MAX_CHARS_PER_FRAME],
+               "detail": self.detail, "confidence": self.confidence,
+               "lines": self.lines[:200], "width": self.width, "height": self.height,
+               "frame_digest": self.digest, "engine": self.engine,
+               "language_code": self.language_code, "copy_of_time": self.copy_of_time,
+               "provenance": "frame_ocr", "timebase": "presentation"}
+        if self.image_b64:
+            out["image_b64"] = self.image_b64
+        return out
 
     @property
     def read(self) -> bool:
-        return self.state in ("recognised", "duplicate")
+        # A "pixels" frame was decoded and its picture delivered: the instant
+        # is examined (coverage), and the frame is not "unresolved" — only its
+        # TEXT stayed unread, and the detail says why.
+        return self.state in ("recognised", "duplicate", "pixels")
 
     @property
     def unresolved(self) -> bool:
-        return self.state not in ("recognised", "empty", "duplicate")
+        return self.state not in ("recognised", "empty", "duplicate", "pixels")
+
+
+def _pixels(png: bytes) -> tuple[str, str]:
+    """(base64 PNG, omission note). A frame over the transport bound ships its digest and
+    says the pixels were omitted — the caller never has to guess which it got."""
+    b64 = base64.b64encode(png).decode("ascii")
+    if len(b64) > MAX_IMAGE_B64_BYTES:
+        return ("", "; pixels omitted: the decoded frame is over the transport bound "
+                     f"({len(b64)} > {MAX_IMAGE_B64_BYTES} base64 chars)")
+    return (b64, "")
 
 
 def _engine_ocr(png: bytes, language: str) -> tuple[list[dict[str, Any]], str]:
@@ -170,7 +192,8 @@ def ocr_frames(src: str, times: list[float], *, language: str, duration: float =
                ocr_fn: Callable[[bytes, str], tuple[list[dict[str, Any]], str]] | None = None,
                cancel: Any = None, progress: Callable[[str, str], None] | None = None,
                deadline_at: float = 0.0,
-               max_frames: int = MAX_FRAMES) -> tuple[list[FrameReading], dict[str, Any]]:
+               max_frames: int = MAX_FRAMES,
+               include_image: bool = False) -> tuple[list[FrameReading], dict[str, Any]]:
     """Decode + recognise one frame per requested instant, releasing nothing in between.
 
     Injectable `frame_fn`/`ocr_fn` exist so the DISPATCH mechanics can be tested without a
@@ -194,13 +217,19 @@ def ocr_frames(src: str, times: list[float], *, language: str, duration: float =
     run_frame = frame_fn or (lambda s, t: extract_frame_png(s, t, ffmpeg=ffmpeg,
                                                             cancel=cancel))
     run_ocr = ocr_fn or (lambda png, lang: _engine_ocr(png, lang))
-    eng = engine_state()
+    # F153 item 4: a chat-time visual seek asks for the PICTURE (a color, a
+    # layout — no glyphs). With pixels requested and no text language
+    # configured, the OCR pass is skipped honestly: every frame is decoded
+    # and delivered, and each record states that the text was NOT read.
+    # Never-defaulting-the-language stands: pixels-only never guesses English.
+    pixels_only = bool(include_image) and not (language or "").strip()
+    eng = engine_state() if not pixels_only else {"found": True, "version": "", "languages": []}
     engine_version = str(eng.get("version", "") or "")
     if not eng.get("found") and ocr_fn is None:
         raise OcrUnavailable("engine_missing",
                              "no validated tesseract copy was found, so frames cannot be read",
                              "install the project-local OCR runtime or set RUKE_TESSERACT")
-    if ocr_fn is None:
+    if ocr_fn is None and not pixels_only:
         # Checked ONCE, before any pixel is decoded. The language does not change from frame
         # to frame, so discovering an unaddressable language on frame 1 of 40 would waste 40
         # decodes and invent 40 separate failures for one cause.
@@ -259,14 +288,26 @@ def ocr_frames(src: str, times: list[float], *, language: str, duration: float =
             continue
         digest = frame_digest(png)
         w, h = png_dimensions(png)
+        img, omit = _pixels(png) if include_image else ("", "")
         if digest in seen:
             out.append(FrameReading(t, "duplicate", digest=digest, width=w, height=h,
                                     copy_of_time=seen[digest], engine=engine_version,
+                                    image_b64=img,
                                     detail=f"byte-identical to the frame at {seen[digest]:.3f}s; "
-                                         "not recognised twice"))
+                                         f"not recognised twice{omit}"))
             note("reading", f"{t:.3f}s duplicates {seen[digest]:.3f}s")
             continue
         seen[digest] = t
+        if pixels_only:
+            # The picture is the evidence. The frame states plainly that the
+            # text was not read — the absence of OCR here is a stated scope,
+            # never a silent one.
+            out.append(FrameReading(t, "pixels", digest=digest, width=w, height=h,
+                                    image_b64=img,
+                                    detail="decoded: pixels delivered; on-screen text not read "
+                                           f"(no text language configured){omit}"))
+            note("reading", f"{index + 1}/{len(planned)} frame(s) at {t:.3f}s (pixels only)")
+            continue
         try:
             lines, code = run_ocr(png, language)
         except OcrUnavailable as exc:
@@ -294,12 +335,13 @@ def ocr_frames(src: str, times: list[float], *, language: str, duration: float =
         if text.strip():
             out.append(FrameReading(t, "recognised", text=text, confidence=conf, lines=lines,
                                     width=w, height=h, digest=digest, engine=engine_version,
-                                    language_code=code))
+                                    language_code=code, image_b64=img,
+                                    detail=omit.lstrip("; ")))
         else:
             # "The engine ran and found no glyphs" is a measured negative, not a failure.
             out.append(FrameReading(t, "empty", width=w, height=h, digest=digest,
-                                    engine=engine_version, language_code=code,
-                                    detail="decoded and recognised: no glyph was found"))
+                                    engine=engine_version, language_code=code, image_b64=img,
+                                    detail="decoded and recognised: no glyph was found" + omit))
         note("reading", f"{index + 1}/{len(planned)} frame(s) at {t:.3f}s")
 
     read = [f for f in out if f.state == "recognised"]
@@ -307,6 +349,9 @@ def ocr_frames(src: str, times: list[float], *, language: str, duration: float =
         "engine": engine_version,
         "engine_languages": list(eng.get("languages", []) or []),
         "requested_language": language,
+        # False = the recogniser was never run (pixels-only seek): a consumer
+        # must not read recognised==0 as "the screen had no text".
+        "text_pass": not pixels_only,
         "planned": len(planned),
         "decoded": sum(1 for f in out if f.digest),
         "recognised": len(read),

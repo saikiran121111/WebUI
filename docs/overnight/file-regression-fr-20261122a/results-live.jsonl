@@ -1594,3 +1594,7 @@
 {"ts":"2026-11-23T23:31:22.239Z","row":"fr-C2 stop midstream then one clean subsequent turn.milestone","phase":"first-token","ttftMs":87465}
 {"ts":"2026-11-23T23:31:22.567Z","row":"fr-C2.next","said":"READY.","readyMs":0,"ttftMs":87465,"totalMs":87792,"newReplies":1,"driving":0,"bottomGap":0.600006103515625,"chipLabel":"","refused":""}
 {"ts":"2026-11-23T23:31:22.570Z","row":"fr-C2 stop midstream then one clean subsequent turn","phase":"end","status":"passed","durationMs":322482}
+{"ts":"2026-11-24T11:16:00.996Z","row":"fr-U1 chapter 1 opening scene","phase":"start"}
+{"ts":"2026-11-24T11:16:03.797Z","row":"fr-U1 chapter 1 opening scene","phase":"end","status":"failed","durationMs":2662}
+{"ts":"2026-11-24T11:56:32.971Z","row":"fr-U1 chapter 1 opening scene","phase":"start"}
+{"ts":"2026-11-24T11:56:35.621Z","row":"fr-U1 chapter 1 opening scene","phase":"end","status":"failed","durationMs":2500}

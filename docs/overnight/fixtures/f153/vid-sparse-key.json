@@ -1,0 +1,47 @@
+{
+  "schema": "ruke.f153.video-key.v1",
+  "fixture": "vid-sparse.mp4",
+  "built": "2026-11-25",
+  "source": "32-min synthetic sparse-speech video. 640x360 25fps h264 + AAC 22050 stereo. Three solid-color slideshow segments (ffmpeg color+drawtext) concatenated with speech excerpts from LibriVox huck_finn_librivox chapters 1/4/7 (same narration as au-1h.mp3; see au-1h-key.json for the source law). Segment audio = anullsrc base + adelay'd speech (amix normalize=0).",
+  "measured": "ffmpeg Duration 00:32:00.05; volumedetect: speech windows mean -21.3/-21.7/-21.3 dB, silence windows mean/max -91.0 dB; label frames visually verified at t=300 (PHASE ALPHA BLUE), t=995 (MARK-27 over red), t=1500 (PHASE CHARLIE GREEN).",
+  "segments": [
+    { "phase": "ALPHA", "color": "dark blue", "from": 0, "to": 600, "label": "PHASE ALPHA BLUE (whole segment)", "speech": [90, 190] },
+    { "phase": "BRAVO", "color": "dark red", "from": 600, "to": 1200, "label": "PHASE BRAVO RED (whole segment)", "visualEvent": { "text": "MARK-27 (yellow, centered)", "from": 990, "to": 1000 }, "speech": [930, 990] },
+    { "phase": "CHARLIE", "color": "dark green", "from": 1200, "to": 1920, "label": "PHASE CHARLIE GREEN (whole segment)", "speech": [1830, 1890] }
+  ],
+  "tolerance": "SEMANTIC (same recorded law as au-1h-key.json): grade the FACT/label/color, not verbatim wording.",
+  "facts": {
+    "earlySpeech": {
+      "window": [90, 190],
+      "fact": "The Widow Douglas could not stand to see Huck sweat; she called sweating unsocial and cussed. (chapter 1 narration, 30-130 s excerpt)",
+      "ask": "In the first three minutes, what did the speaker say about sweating?"
+    },
+    "labelBlue": { "window": [0, 600], "fact": "The screen shows the on-screen text PHASE ALPHA BLUE on a dark blue background." },
+    "visualEvent": {
+      "window": [990, 1000],
+      "fact": "Brief yellow centered text MARK-27 appears over the red phase (a 10 s visual event; the red phase itself stays PHASE BRAVO RED).",
+      "ask": "What brief on-screen text appears around 16:30?"
+    },
+    "middleSpeech": {
+      "window": [930, 990],
+      "fact": "Graveyard scene: Huck and Tom carry a dead cat at midnight; Injun Joe kills Dr. Robinson and lays the knife on the drunk Muff Potter. (chapter 4 narration, 5-65 s excerpt)",
+      "ask": "What happened in the audio around 15:30?"
+    },
+    "lateSpeech": {
+      "window": [1830, 1890],
+      "fact": "The new judge takes drunk Pap into his home to reform him; during the night the fire engine is called and Pap is found drunk in the garden lying in the snow. (chapter 7 narration, 790-850 s excerpt)",
+      "ask": "Near the end, what happened at the new judge's house?"
+    },
+    "colorPhases": {
+      "fact": "Background color order: dark blue first third, dark red middle, dark green last. A pixel-only question (e.g. 'what color is the screen around 20 minutes in') is answerable only from frames, not the transcript."
+    },
+    "silentSpans": {
+      "fact": "No speech between 190-930 and 990-1830 (measured -91.0 dB). Correct answers report absence in inspected spans, never invent speech."
+    }
+  },
+  "companion": {
+    "fixture": "vid-quiet.mp4",
+    "measured": "Duration 00:10:00.00, video stream ONLY (no audio track), 640x360, label SILENT SLIDE.",
+    "use": "Audio-only-container / missing-track honesty row: a video with no track must report no-track, never silence-as-speech or invented transcript."
+  }
+}

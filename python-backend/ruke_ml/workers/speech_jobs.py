@@ -14,6 +14,12 @@ from ..contracts import Coverage, ModelIdentity, StructuredError
 from ..models.registry import catalog
 from .jobs import JobContext, typed_from_kind
 
+# F152 (2026-11-24): one question-driven inspection decodes at most 3 hours of
+# audio. The bound is a memory bound (windows tile the span; the whole span is
+# decoded and claimed) and an honesty bound: the answer is about what was decoded,
+# and a range wider than the bound is a refusal, never a silent truncation.
+MAX_INSPECT_S = 10800.0
+
 # F136 (2026-11-23, accept-12): the loader death IS the pagefile-shrink transient. The
 # sampler's shape (f91-accept-12/f91-host.csv): after the release the system-managed pagefile
 # EXPANDS (~78-84 GB free commit, a ~30-45 s plateau), then COLLAPSES within 15 s (22:59:46
@@ -121,6 +127,22 @@ def _resolve_source(ctx: JobContext) -> Any:
     return target
 
 
+def _recognition_span(adapter: str, device: str, t0: float) -> dict[str, Any]:
+    """Item 5 (user brief 2026-11-24): the engine-use proof includes WHEN recognition
+    ran. This is the adapter call's own wall clock, stamped by this worker at the call
+    boundaries; the loader/settle time around the call is the placement's story (the
+    placement block and the window journal), the engine's story is this span.
+    """
+    t1 = time.time()
+    return {"engine": adapter,
+            "device": str(device),
+            "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0)),
+            "finished_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t1)),
+            "started_epoch": round(t0, 3),
+            "finished_epoch": round(t1, 3),
+            "wall_s": round(t1 - t0, 2)}
+
+
 def asr_job(ctx: JobContext) -> Any:
     """Transcribe the selected audio track with the row the registry says is executable."""
     import importlib
@@ -157,11 +179,38 @@ def asr_job(ctx: JobContext) -> Any:
     # ---- measured content fact BEFORE any inference: is there anything to transcribe?
     # Skipping ASR here is not an optimisation, it is the difference between an honest
     # "this track is silent" and a model's hallucinated sentence about nothing.
-    from ..speech import levels
+    from ..speech import asr_cache, levels
     duration = float(probe["duration"] or 0.0)
+    # ---- F152 (2026-11-24): question-driven interval. The caller can name the span
+    # a question is about ("what happens at 12:40?"): the level pass, the windows and
+    # the coverage then speak ONLY about that span, decoded with accurate seeks. The
+    # span is bounded (MAX_INSPECT_S) so one inspection never decodes unbounded audio.
+    raw_start = ctx.req.payload.get("start_s")
+    raw_end = ctx.req.payload.get("end_s")
+    inspecting = raw_start not in (None, "") or raw_end not in (None, "")
+    start_s = float(raw_start) if raw_start not in (None, "") else 0.0
+    end_s = float(raw_end) if raw_end not in (None, "") else 0.0
+    if inspecting:
+        if start_s < 0.0 or end_s <= start_s or start_s >= duration or end_s > duration + 1.0:
+            return ctx.failed("input_rejected",
+                              f"the requested span {start_s:.1f}-{end_s:.1f}s does not fit "
+                              f"the track ({duration:.1f}s): the start must sit inside the "
+                              "audio and the end must come after it",
+                              human_step="name a span inside the track's duration; the probe "
+                                         "reports the duration in seconds")
+        end_s = min(end_s, duration)
+        if end_s - start_s > MAX_INSPECT_S:
+            return ctx.failed("input_rejected",
+                              f"the requested span is {end_s - start_s:.0f}s and one "
+                              f"inspection decodes at most {MAX_INSPECT_S:.0f}s (3 hours); "
+                              "an answer is bounded by what was decoded",
+                              human_step="ask for a span of at most 3 hours; longer ranges "
+                                         "are covered by consecutive spans")
+    span_s = round(end_s - start_s, 3) if inspecting else duration
     level = levels.measure_level(
         str(target), ffmpeg=str(ctx.req.payload.get("ffmpeg", "") or ""),
-        duration_s=duration,
+        duration_s=span_s,
+        start_s=start_s if inspecting else 0.0,
         noise_floor_db=float(ctx.req.payload.get("noise_floor_db", levels.NOISE_FLOOR_DBFS)))
     if ctx.cancel.is_set():
         return ctx.cancelled()
@@ -172,7 +221,8 @@ def asr_job(ctx: JobContext) -> Any:
     elif not level.ok:
         return ctx.failed("corrupt_input", level.error, human_step=level.human_step)
     elif level.is_silence():
-        return _silence_result(ctx, probe, level, duration)
+        return _silence_result(ctx, probe, level, duration,
+                               span=(start_s, end_s) if inspecting else None)
 
     route = asr.language_route(language)
     # FINAL DECISION 2026-11-22: the ASR model selector is removed; the routing law
@@ -193,6 +243,44 @@ def asr_job(ctx: JobContext) -> Any:
         return ctx.failed("not_configured",
                           f"the routing decision {route['decision']} named no model",
                           human_step=str(route.get("human_step", "")))
+
+    # ---- durable source+range record (the OCR record law, mirrored: asr_cache).
+    # A repeat of the SAME bytes, span and engine identity is answered from the
+    # record: zero engine loads, zero probes, zero placement work. Staleness is
+    # CONTENT (sha256), never mtime. The check sits AFTER the routing law resolves
+    # the row (the row's model id is part of the key - the F122 attribution law)
+    # and BEFORE provisioning, placement and any model load, so a hit touches no
+    # inference machinery at all.
+    cache_key = asr_cache.request_key(
+        str(target), start_s=start_s, end_s=end_s, duration=duration,
+        language=language, model_id=model_id,
+        word_timestamps=bool(ctx.req.payload.get("word_timestamps", False)),
+        vad_filter=bool(ctx.req.payload.get("vad_filter", True)),
+        window_s=ctx.req.payload.get("window_s"))
+    if ctx.cancel.is_set():
+        return ctx.cancelled()
+    record = asr_cache.lookup(cache_key)
+    if record is not None:
+        stored_cov = record.get("coverage") or {}
+        examined = [tuple(x) for x in stored_cov.get("examined", [])]
+        coverage = Coverage(
+            units="seconds", total_source=duration, examined=examined,
+            skipped=_uncovered(duration, examined),
+            complete=bool(stored_cov.get("complete", False)),
+            note="served from the durable record of these bytes, this span and this "
+                 "engine identity: zero engine invocations, zero probes; "
+                 + str(stored_cov.get("note", "")))
+        cached = dict(record.get("payload") or {})
+        cached["cache"] = {"state": "hit", "key": cache_key.get("key", ""),
+                           "stored_utc": str(record.get("stored_utc", "")),
+                           "identity": asr_cache.identity_core(
+                               cache_key.get("identity", {})),
+                           "span": (cache_key.get("request") or {}).get("span", [])}
+        model_ident = ModelIdentity(
+            id=model_id, revision=str(_revision(model_id)), provider="huggingface",
+            quantization=str((record.get("model") or {}).get("quantization", "")))
+        return ctx.ready(cached, coverage=coverage, model=model_ident)
+
     executable_ids = [s.id for s in catalog().executable_for("speech.asr")]
     snapshot_dir = ""
     if model_id not in executable_ids:
@@ -292,6 +380,12 @@ def asr_job(ctx: JobContext) -> Any:
             snapshot_dir = state.path
     if snapshot_dir and _accepts_kwarg(engine, "snapshot_dir"):
         kwargs["snapshot_dir"] = snapshot_dir
+    # F152: the interval rides the SAME published-signature law as snapshot_dir/device:
+    # an adapter that names start_s/end_s decodes the span; one that does not is
+    # never handed them (the retired whisper_ct2 reference keeps its whole-file shape).
+    if inspecting and _accepts_kwarg(engine, "start_s"):
+        kwargs["start_s"] = start_s
+        kwargs["end_s"] = end_s
 
     # GPU-first placement (F91 law, 2026-11-23 - the Parakeet half). The engine used to
     # self-place on "is CUDA importable", and devices.device_plan answered CPU whenever
@@ -335,12 +429,14 @@ def asr_job(ctx: JobContext) -> Any:
             if _accepts_kwarg(engine, "placement_reason"):
                 run_kwargs["placement_reason"] = reason
         try:
+            rec_t0 = time.time()
             box["transcript"] = engine.transcribe(
                 str(target), model_id=model_id, language=language, duration=duration,
                 word_timestamps=word_timestamps,
                 allow_download=bool(ctx.req.payload.get("allow_download", False)),
                 cancel=ctx.cancel,
                 progress=lambda state, note: ctx.progress(state, note), **run_kwargs)
+            box["recognition"] = _recognition_span(adapter_name, device, rec_t0)
         except BackendUnavailable as exc:
             box["failure"] = exc
         except OSError as exc:
@@ -583,17 +679,50 @@ def asr_job(ctx: JobContext) -> Any:
     # per-segment device below is what the engine REPORTS it ran on - the placement is
     # the request, the report is the proof; the two together are the acceptance evidence.
     payload["placement"] = placement
+    # Item 5: WHEN recognition ran, from the engine call's own boundaries. Placement is
+    # the request and the window journal; this is the span the adapter call occupied.
+    # A device fallback overwrites it with the pass whose transcript is the answer, and
+    # the per-segment engine stamps above name the same adapter - clock and engine
+    # cannot disagree because they read the same in-scope facts. Rides into the durable
+    # record below, and a cache hit replays the ORIGINAL run's clock: no engine ran,
+    # so the only honest timestamp is the one recorded when one did.
+    payload["recognition"] = box.get("recognition") or {}
+    # Persist the record BEFORE answering, so the next identical request - same
+    # bytes, same span, same engine - finds it. The wire payload names the record
+    # state; a write failure never fails the run (the transcript itself succeeded).
+    stored_rec = asr_cache.store(
+        cache_key, payload=payload,
+        coverage={"units": "seconds", "total_source": duration,
+                  "examined": [[a, b] for a, b in transcript.examined],
+                  "complete": transcript.complete, "note": transcript.note},
+        model={"id": model_id, "revision": identity.revision,
+               "quantization": transcript.compute_type or ""})
+    payload["cache"] = {"state": "stored" if stored_rec.get("ok") else "not_stored",
+                        "key": cache_key.get("key", ""),
+                        "path": str(stored_rec.get("path", "")),
+                        "detail": str(stored_rec.get("detail", "")),
+                        "identity": asr_cache.identity_core(cache_key.get("identity", {})),
+                        "span": (cache_key.get("request") or {}).get("span", [])}
     return ctx.ready(payload, coverage=coverage, model=identity)
 
 
-def _silence_result(ctx: JobContext, probe: dict, level: Any, duration: float) -> Any:
-    """A silent track is a RESULT, not an error, and it was measured, not guessed."""
-    span = [(0.0, round(duration, 3))] if duration > 0 else []
+def _silence_result(ctx: JobContext, probe: dict, level: Any, duration: float,
+                    span: tuple[float, float] | None = None) -> Any:
+    """A silent track is a RESULT, not an error, and it was measured, not guessed.
+
+    F152: with a bounded span the verdict is about the SPAN only - the loudness
+    pass decoded exactly that range, so the head/tail stay unexamined and the
+    coverage says so; a silent 30 s span is never a silence verdict on a 3 h track.
+    """
+    lo, hi = span if span else (0.0, round(duration, 3))
+    span_lst = [(lo, round(hi, 3))] if hi > lo else []
+    whole = duration > 0 and lo <= 0.0 and hi >= duration - 0.001
+    skipped = _uncovered(duration, span_lst)
     return ctx.ready(
         {"state": "silence", "text": "", "segments": [], "segment_count": 0,
          "language": "", "language_source": "none", "language_probability": None,
-         "duration": duration, "examined": [[a, b] for a, b in span],
-         "complete": duration > 0, "word_timestamps": False,
+         "duration": duration, "examined": [[a, b] for a, b in span_lst],
+         "complete": whole, "word_timestamps": False,
          "model": "", "device": "", "compute_type": "",
          "asr_ran": False,
          "audio_level": level.as_dict(),
@@ -601,14 +730,18 @@ def _silence_result(ctx: JobContext, probe: dict, level: Any, duration: float) -
                    "selected_audio": probe["selected_audio"],
                    "stream_start_offsets": probe["stream_start_offsets"],
                    "subtitle_tracks": probe["subtitle_tracks"]},
-         "note": (f"the selected track decoded and was measured at {level.max_volume_db:.1f} "
+         "note": (f"the {lo:.1f}-{hi:.1f}s span decoded and was measured at "
+                  f"{level.max_volume_db:.1f} "
                   f"dBFS peak, at or below the {level.noise_floor_db:.0f} dBFS floor, so no "
                   "ASR pass ran; nothing audible was present to transcribe. This is not a "
-                  "failed run, not a missing track, and not a no-speech model verdict")},
-        coverage=Coverage(units="seconds", total_source=duration, examined=span,
-                          skipped=[], complete=duration > 0,
-                          note=("the loudness pass decoded the whole track; ASR was skipped "
-                                "because the measured peak is at/below the noise floor")),
+                  "failed run, not a missing track, and not a no-speech model verdict"
+                  + ("" if whole else f"; audio outside {lo:.1f}-{hi:.1f}s was never decoded, "
+                                      "so this says nothing about it"))},
+        coverage=Coverage(units="seconds", total_source=duration, examined=span_lst,
+                          skipped=skipped, complete=whole,
+                          note=(f"the loudness pass decoded {lo:.1f}-{hi:.1f}s; ASR was "
+                                "skipped because the measured peak is at/below the noise floor"
+                                + ("" if whole else "; the rest of the track was never decoded"))),
         model=None)
 
 

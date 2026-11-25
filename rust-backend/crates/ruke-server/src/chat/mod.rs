@@ -34,16 +34,19 @@
 
 pub mod answer_release;
 pub mod attach;
+pub mod audio;
 pub mod browser_loop;
 pub mod clock;
 pub mod error;
 pub mod forward;
+pub mod frame_seek;
 pub mod handler;
 pub mod headers;
 pub mod log_safety;
 pub mod next_search;
 pub mod pipeline;
 pub mod policy;
+pub mod reread;
 pub mod scrubber;
 pub mod sse;
 pub mod web_loop;

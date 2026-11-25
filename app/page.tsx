@@ -21,6 +21,8 @@ import CompactDividerBadge from "../components/ui/CompactDividerBadge";
 const BrowserPanel = dynamic(() => import("../components/browser/BrowserPanel"), { ssr: false });
 import type { Attachment, Conversation, ConversationMeta, EffortLevel } from "../lib/types";
 import { useChat } from "../hooks/useChat";
+import { createNavOwner } from "../lib/chat/navOwner";
+import { showRetryBanner } from "../lib/chat/errorSurface";
 import { useTokenMeter } from "../hooks/useTokenMeter";
 import { listConversations, getConversation, saveConversation, deleteConversation as deleteConv, requestTitleGeneration } from "../lib/persistence";
 import { buildDemoConversation } from "../lib/render/demoShowcase";
@@ -272,13 +274,15 @@ export default function HomePage() {
     const demo = new URLSearchParams(window.location.search).get("demo");
     if (demo === "ui") loadDemo();
   }, [loadDemo]);
-  const runSend = useCallback((text: string, attachments: Attachment[] = []) => {
-    if (text.trim() === "/demo-ui") { loadDemo(); return; }
+  const runSend = useCallback((text: string, attachments: Attachment[] = []): Promise<boolean> => {
+    // The boolean is ACCEPTANCE (F153): ChatInput clears the draft and tray
+    // only when the send owner started the turn.
+    if (text.trim() === "/demo-ui") { loadDemo(); return Promise.resolve(true); }
     // F19: a NEW turn starts following, synchronously, before the first delta
     // arrives - an unpin the reader made while reading older messages must not
     // suppress the view of the answer they just asked for.
     followNow();
-    send(text, { attachments });
+    return send(text, { attachments });
   }, [send, loadDemo, followNow]);
 
 
@@ -425,13 +429,20 @@ export default function HomePage() {
     };
   }, [messages, activeId, status, refreshList, saveTick]);
 
+  // F153 (2026-11-24): the navigation-ownership law — the LATEST navigation
+  // owns the screen. Opening a chat awaits IndexedDB; a resolution from a
+  // superseded navigation (a slower chat opened first, a New pressed while it
+  // loaded) is discarded whole: no load, no setActiveId, no badge write.
+  const navOwner = useRef(createNavOwner()).current;
+
   const handleNew = useCallback(() => {
+    navOwner.cancel(); // New owns the screen; a load in flight is superseded.
     // Clear messages too — leaving them in state with a null activeId makes
     // the persist effect re-save them under a brand-new id (a phantom clone).
     clear();
     setActiveId(null);
     followNow();
-  }, [clear, followNow]);
+  }, [clear, followNow, navOwner]);
 
   // Cmd/Ctrl+Shift+N → new chat.
   useEffect(() => {
@@ -443,7 +454,12 @@ export default function HomePage() {
   }, [handleNew]);
 
   const handleSelect = useCallback(async (id: string) => {
+    const gen = navOwner.begin();
     const conv = await getConversation(id);
+    // F153: a superseded navigation is discarded WHOLE — the chat opened
+    // after this one (or the New pressed while this load ran) owns the
+    // screen, and its histories own the next request.
+    if (!navOwner.isCurrent(gen)) return;
     if (conv) {
       // Mark the loaded messages as "in sync" so the persist effect doesn't
       // treat opening the chat as an edit (which would reorder the sidebar).
@@ -466,7 +482,7 @@ export default function HomePage() {
     // On desktop (sm+) it's a permanent column; collapsing it on chat select
     // was jarring, so leave the user's layout choice untouched.
     if (window.matchMedia("(max-width: 639px)").matches) setSidebarOpen(false);
-  }, [load, followNow]);
+  }, [load, followNow, navOwner]);
 
   const handleDelete = useCallback(async (id: string) => {
     setConfirmDelete({ id });
@@ -638,7 +654,12 @@ export default function HomePage() {
               </AnimatePresence>
             )}
 
-            {error && (
+            {/* F153 single-visible-status law (lib/chat/errorSurface): the
+                bubble is the single visible status for a turn that ended in
+                error; this banner stays only for the banner-only outcomes
+                (truncation, mid-stream failure, preflight refusal) and as
+                the Retry carrier. */}
+            {showRetryBanner(error, messages) && (
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 className="mt-3 flex items-start gap-2.5 px-4 py-3 rounded-xl bg-white/[0.03] border border-[rgba(255,255,255,0.12)]">
                 <AlertCircle className="w-4 h-4 text-white/60 flex-shrink-0 mt-0.5" />
@@ -770,7 +791,7 @@ export default function HomePage() {
 function EmptyState({
   onSend, effort, onEffortChange, isLoading, onStop,
 }: {
-  onSend: (text: string, attachments: Attachment[]) => void;
+  onSend: (text: string, attachments: Attachment[]) => boolean | Promise<boolean>;
   effort: EffortLevel;
   onEffortChange: (effort: EffortLevel) => void;
   isLoading: boolean;

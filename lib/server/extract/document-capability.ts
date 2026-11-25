@@ -81,6 +81,12 @@ export interface CapabilityRequestOptions {
   signal?: AbortSignal;
   deadlineMs?: number;
   language?: string;
+  /**
+   * F152 targeted reread: region ids ("{kind}:{unit}:{part}") narrowing the
+   * inspection to EXACTLY those regions — a closer read of one figure must not
+   * re-inspect the others. Absent = inspect every eligible region.
+   */
+  regions?: string[];
 }
 
 export type UnitProvenance = "text-layer" | "text-layer-weak" | "ocr";
@@ -113,6 +119,9 @@ export interface CapabilityOcrReport {
   primaryReady: boolean;
   /** Where the language came from: request, document metadata, or none. */
   languageSource: string;
+  /** Wall clock the recognition engines ran, from the cascade's own clock
+   *  (item 5, user brief 2026-11-24). "" / null = a worker that recorded no clock. */
+  recognition: { startedAt: string; finishedAt: string; wallS: number | null };
 }
 
 /** One unit's OCR outcome: recognised | empty | ocr_failed | raster_failed | skipped. */
@@ -152,6 +161,15 @@ export interface CapabilityVisualPage {
   ops: number;
   /** Rendered page image, PNG data URL (the reader bounded pages and total bytes). */
   dataUrl: string;
+  /**
+   * F152: for embedded-raster regions (office documents, standalone images) the
+   * reader names the unit ("slide 1", "sheet 2, cell C4") and carries the stable
+   * region id + the region's inspection state. PDF page renders have no label;
+   * consumers fall back to "Page {page}".
+   */
+  label?: string;
+  region?: string;
+  region_state?: string;
 }
 
 export interface CapabilityDoc {
@@ -317,13 +335,28 @@ export function normalizeDocument(result: unknown): CapabilityDoc | null {
   const engines = Array.isArray(ocrRaw.engines)
     ? (ocrRaw.engines as unknown[]).map((engine) => asString(engine)).filter(Boolean)
     : [];
+  // Item 5 (user brief 2026-11-24): the worker records the wall clock its recognition
+  // engines ran. "" / null = a worker that predates the clock, read as honestly unknown.
+  const recRaw =
+    ocrRaw.recognition && typeof ocrRaw.recognition === "object" && !Array.isArray(ocrRaw.recognition)
+      ? (ocrRaw.recognition as Record<string, unknown>)
+      : {};
   const visualPages: CapabilityVisualPage[] = [];
   for (const raw of Array.isArray(p.visual_pages) ? p.visual_pages : []) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const v = raw as Record<string, unknown>;
     const page = asNumber(v.page, 0);
     const png = asString(v.png_base64);
-    if (page > 0 && png) visualPages.push({ page, ops: asNumber(v.ops, 0), dataUrl: `data:image/png;base64,${png}` });
+    if (page > 0 && png) {
+      const label = asString(v.label);
+      const region = asString(v.region);
+      const regionState = asString(v.region_state);
+      visualPages.push({
+        page, ops: asNumber(v.ops, 0), dataUrl: `data:image/png;base64,${png}`,
+        ...(label ? { label } : {}), ...(region ? { region } : {}),
+        ...(regionState ? { region_state: regionState } : {}),
+      });
+    }
   }
   const doc: CapabilityDoc = {
     kind: asString(rawDoc.kind, "unknown"),
@@ -352,6 +385,13 @@ export function normalizeDocument(result: unknown): CapabilityDoc | null {
       enginesRecognised,
       primaryReady: ocrRaw.primary_ready === true,
       languageSource: asString(ocrRaw.language_source),
+      recognition: {
+        startedAt: asString(recRaw.started_utc),
+        finishedAt: asString(recRaw.finished_utc),
+        wallS: typeof recRaw.wall_s === "number" && Number.isFinite(recRaw.wall_s)
+          ? recRaw.wall_s
+          : null,
+      },
     },
     meta,
   };
@@ -375,6 +415,7 @@ export async function readDocumentViaCapability(
   const language = (opts.language ?? process.env[DOCUMENT_OCR_LANGUAGE_ENV] ?? "").trim();
   const payload: Record<string, unknown> = { path: resolved, root: path.dirname(resolved) };
   if (language) payload.language = language;
+  if (opts.regions?.length) payload.regions = opts.regions;
 
   const envelope = await run(DOCUMENT_PARSE_CAPABILITY, payload, {
     deadlineMs: opts.deadlineMs ?? DOCUMENT_PARSE_DEADLINE_MS,

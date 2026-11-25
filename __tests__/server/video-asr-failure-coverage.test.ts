@@ -106,4 +106,48 @@ describe("video with unreadable speech keeps its visual evidence (I16)", () => {
       }
     }
   }, 300_000);
+
+  it("F152: single-scene clip (zero keyframes, no decoder throw) still NAMES the speech blocker", async () => {
+    // The F152 Part 3-D gap: the frames-only index needs keyframes, and the
+    // old plain return wove the coverage note ONLY on a decoder failure. A
+    // short single-scene clip yields ZERO scene-change keyframes by the
+    // sampler's own law — decoder ran fine, frameIssue is null — so blocked
+    // speech delivered previews with NO explanation. The typed admission must
+    // be named on every return that recovers no spoken content.
+    const ATT2 = "att_single_scn1";
+    const dir = path.join(process.cwd(), ".data", "tmp", `vid_1scn_${Date.now().toString(36)}`);
+    const src = path.join(dir, "one-scene.mp4");
+    fs.mkdirSync(dir, { recursive: true });
+    const bin = await ffmpegPath();
+    try {
+      await ffmpeg(bin, [
+        "-f", "lavfi", "-i", "color=c=blue:s=32x32:d=4:r=5",
+        "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+        "-map", "0:v", "-map", "1:a", "-t", "4",
+        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        src,
+      ]);
+      const { extractFileFromPath } = await import("../../lib/server/extract");
+      const res = await extractFileFromPath("one-scene.mp4", src, ATT2);
+      expect(res.error).toBeUndefined();
+      // Speech recovery: BLOCKED, no transcript, no index (no keyframes to carry).
+      expect(res.transcript, "a blocked backend never invents a transcript").toBeUndefined();
+      expect(res.frames?.length ?? 0, "the visual previews ride along (channel independence)")
+        .toBeGreaterThan(0);
+      const note = String(res.coverageNote ?? "");
+      expect(note, "the plain return must NAME the speech blocker, never pass silently")
+        .toContain("its spoken content could not be read");
+      expect(note).toContain("pinned speech backend is not available");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      try {
+        const { removeIndex, removeUpload } = await import("../../lib/server/attachindex/store");
+        removeIndex(ATT2);
+        removeUpload(ATT2);
+      } catch {
+        /* best-effort hygiene */
+      }
+    }
+  }, 300_000);
 });

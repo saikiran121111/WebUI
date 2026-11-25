@@ -52,7 +52,29 @@ param(
     # owner; Claude stays dormant; zero :8080 inference while Strata is
     # unloaded). -NoMlGrant keeps the pre-F129 law: the lock refuses every
     # ML handoff for the whole window.
-    [switch]$NoMlGrant
+    [switch]$NoMlGrant,
+    # F152 Part 1 (2026-11-24): a live run graded on saved evidence must be served
+    # by an app whose conversation store, python result root (WEBUI_DATA_DIR drives
+    # ruke_ml runtime_dir) and model-request capture the launcher ITSELF wired.
+    # The f152-live-1 attempt lost its wire proof to a FOREIGN app on :3000 that
+    # wrote to the real store with the proxy bypassed. -RequireIsolation refuses
+    # to reuse a foreign-owned :3000/:3101, NEVER kills it, and with
+    # -WaitForReleaseSeconds > 0 waits for release and starts the isolated
+    # instance itself; on timeout it hard-stops with exit 87.
+    [switch]$RequireIsolation,
+    [int]$WaitForReleaseSeconds = 0,
+    # Set on the app this launcher starts so the run's capture proxy sees every
+    # final model request (settings.json llm_api_url still wins — the documented
+    # chain — and the identity record below prints the resolved store either way).
+    [string]$LlmProxyUrl = "",
+    # F153 §4b case (b) (2026-11-24): the brief's handoff case (b) row runs the
+    # AUTHORIZED handoff-ON journey (real Parakeet transcript under a real
+    # unload/restore). The pin below keeps the DEFAULT handoff-off, so a
+    # constrained-memory admission stays an honest retryable refusal naming the
+    # policy. An operator who authorizes handoff FOR THIS RUN passes
+    # -AuthorizeHandoff: the inversion is loud, per-run, and lands in the
+    # identity record; the default and machine settings never change.
+    [switch]$AuthorizeHandoff
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,6 +142,23 @@ function Test-HttpUp([string]$Url) {
     }
 }
 
+# F152 Part 1: WHO owns a port, printed before any costly run so app identity is
+# verified, not assumed (the f152-live-1 run reused a foreign app started 08:02
+# whose environment owned the evidence trail). Read-only: never kills, never
+# touches the owner.
+function Get-PortOwner([int]$Port) {
+    $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $conns) { return $null }
+    $procId = ($conns | Select-Object -First 1).OwningProcess
+    $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+    return [pscustomobject]@{
+        Pid     = $procId
+        Name    = $(if ($p) { $p.ProcessName } else { "?" })
+        Path    = $(try { $p.Path } catch { "?" })
+        Started = $(try { $p.StartTime } catch { "?" })
+    }
+}
+
 $lockDir = Join-Path $root ".ai-coordination"
 $lockPath = Join-Path $lockDir "playwright.lock"
 New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
@@ -168,6 +207,23 @@ Write-Output ("Playwright lock acquired: $lockPath (runId " + $lock.RunId +
 New-Item -ItemType Directory -Force -Path $store.Path | Out-Null
 $env:WEBUI_DATA_DIR = $store.Path
 Write-Output "e2e conversation store isolated: $($store.Path) (source: $($store.Source))"
+
+# F153 §4: the live batches run under the PINNED handoff-off policy, in the
+# maintained template and not just in a generated kit (the f152-submit pin at
+# lines 83-84 is this law's per-batch copy). Handoff OFF is what makes a
+# constrained-memory ML admission an honest retryable refusal naming the
+# policy (lifecycle._commit_ceiling_shortfall, test_memory_policy.py:152) —
+# the graded truth the batches assert; a silently-widened exclusive window
+# launders a real shortage away. The OCR unload pin keeps the engine
+# resident for the same honesty. Supervisor + Rust children inherit.
+if ($AuthorizeHandoff) {
+    $env:RUKE_LLM_AUTOMATIC_HANDOFF = "1"
+    Write-Output "PIN INVERTED BY OPERATOR AUTHORIZATION THIS RUN: RUKE_LLM_AUTOMATIC_HANDOFF=1 (handoff case (b) live row); RUKE_OCR_ALLOW_UNLOAD stays 0; default handoff-off law UNCHANGED; recorded in launcher-identity.json"
+} else {
+    $env:RUKE_LLM_AUTOMATIC_HANDOFF = "0"
+    Write-Output "pins RUKE_LLM_AUTOMATIC_HANDOFF=0 RUKE_OCR_ALLOW_UNLOAD=0 (env; supervisor + Rust inherit)"
+}
+$env:RUKE_OCR_ALLOW_UNLOAD = "0"
 
 # The model-asset cache is a SHARED download root (PaddlePaddle/PaddleOCR-VL-1.6,
 # PP-DocLayoutV3, HF snapshots), not per-store user data. Isolating it made the
@@ -220,13 +276,46 @@ try {
     }
 
     # ── app: Next :3000 (supervisor also owns Rust :3101) ────────────────
+    # F152 Part 1: -RequireIsolation refuses a FOREIGN-owned :3000/:3101 — the
+    # owner is identified and PRINTED, never touched. With -WaitForReleaseSeconds
+    # the launcher waits for the owner to release, then starts its own fully
+    # isolated instance (store + python result root + capture wired by it);
+    # a foreign listener that does not release is a hard stop (exit 87), never
+    # a reuse and never a kill.
+    if ($RequireIsolation -and ((Test-HttpUp "http://localhost:3000") -or (Test-TcpPort "127.0.0.1" 3101))) {
+        $o3 = Get-PortOwner 3000
+        $o1 = Get-PortOwner 3101
+        Write-Output ("Foreign port owners (NOT touched): :3000 PID=" + $(if ($o3) { "$($o3.Pid) $($o3.Name) started=$($o3.Started)" } else { "free" }) +
+            "; :3101 PID=" + $(if ($o1) { "$($o1.Pid) $($o1.Name) started=$($o1.Started)" } else { "free" }))
+        $relDeadline = (Get-Date).AddSeconds($WaitForReleaseSeconds)
+        while ((Test-HttpUp "http://localhost:3000") -or (Test-TcpPort "127.0.0.1" 3101)) {
+            if ((Get-Date) -ge $relDeadline) {
+                Write-Output "Ports not released within $WaitForReleaseSeconds s. The foreign listener is LEFT ALONE (leave-it-alone law): it is not this run's app, its environment owns its evidence, and this launcher never kills it. Re-run when the ports are free."
+                exit 87
+            }
+            Start-Sleep -Seconds 5
+        }
+        Write-Output "Foreign app released the ports; starting the launcher-owned isolated instance."
+    }
+    $reused = $false
     if (Test-HttpUp "http://localhost:3000") {
-        Write-Output "Reusing dev app already answering on :3000"
+        $reused = $true
+        $o3 = Get-PortOwner 3000
+        Write-Output ("Reusing dev app already answering on :3000 (owner PID " +
+            $(if ($o3) { "$($o3.Pid) $($o3.Name)" } else { "unknown" }) + ")")
         # The reused server was started by someone else, so it may be using a
         # different (possibly non-isolated) store. Say so instead of implying
         # the isolation above applied to it.
-        Write-Warning "Reused app was NOT started by this script: its conversation store is whatever its own environment says. For a guaranteed-isolated live run, stop that app first (or pass -DataDir and start it yourself)."
+        Write-Warning "Reused app was NOT started by this script: its conversation store is whatever its own environment says. For a guaranteed-isolated live run, pass -RequireIsolation (it refuses reuse and never kills the owner) or stop that app first (or pass -DataDir and start it yourself)."
     } else {
+        if ($LlmProxyUrl -and $LlmProxyUrl.Trim()) {
+            # The capture proxy rides the app's env (chain: settings.json
+            # llm_api_url > LLM_API_URL > .env.local > :8080; a settings.json
+            # pin wins, and the identity record prints what the app resolves).
+            $env:LLM_API_URL = $LlmProxyUrl.Trim()
+            Write-Output "app LLM_API_URL = $($env:LLM_API_URL) (capture proxy; settings.json llm_api_url would win)"
+        }
+        $appStartUtc = (Get-Date).ToUniversalTime()
         # Supervisor stdout/err (ruke-server tracing rides stderr) are
         # captured so model-round rounds/latency census survives the run
         # for the ANALYZE phase — display only, never a test input.
@@ -248,15 +337,91 @@ try {
         Write-Output "Dev supervisor started (PID tree $($appProc.Id))"
     }
 
+    # ── app identity record (F152 Part 1) ────────────────────────────────
+    # f152-live-1 rode a FOREIGN app started 08:02 — before the Stage-6 edits,
+    # with .env.local's store and a direct :8080 — so the run proved nothing
+    # about the tree under test. The launcher that OWNS the app writes the
+    # facts BEFORE Playwright starts: store, python OCR result root, the
+    # RESOLVED LLM URL (chain settings.json > LLM_API_URL > .env.local > :8080;
+    # the settings pin wins), and :3000/:3101 owner PID + start time. The live
+    # spec asserts against this file pre-run. Under -RequireIsolation the Rust
+    # server must be THIS launcher's child (start time >= app start): a server
+    # predating the binary under test silently runs old assembly, so that is a
+    # hard stop (exit 87) — the old process is reported, never killed.
+    $idPath = Join-Path $store.Path "launcher-identity.json"
+    if ($RequireIsolation -and -not $reused) {
+        $rustDeadline = (Get-Date).AddSeconds(120)
+        while (-not (Test-TcpPort "127.0.0.1" 3101) -and (Get-Date) -lt $rustDeadline) {
+            Start-Sleep -Seconds 2
+        }
+        if (-not (Test-TcpPort "127.0.0.1" 3101)) {
+            Write-Output "-RequireIsolation: the supervisor never brought up the Rust server on :3101 within 120 s — the chat path under test would not be the production path."
+            exit 87
+        }
+    }
+    $o3 = Get-PortOwner 3000
+    $o1 = Get-PortOwner 3101
+    $pin = $null
+    $rootSettings = Join-Path $root "settings.json"
+    if (Test-Path $rootSettings) {
+        try { $pin = (Get-Content $rootSettings -Raw | ConvertFrom-Json).llm_api_url } catch { $pin = "UNPARSEABLE" }
+    }
+    $envLocalUrl = $null
+    $envLocalFile = Join-Path $root ".env.local"
+    if (Test-Path $envLocalFile) {
+        $m = Select-String -Path $envLocalFile -Pattern '^\s*LLM_API_URL\s*=\s*(.+)$' | Select-Object -Last 1
+        if ($m) { $envLocalUrl = $m.Matches[0].Groups[1].Value.Trim().Trim('"') }
+    }
+    $resolvedLlm = if ($pin) { "$pin (settings.json pin WINS)" } `
+        elseif ($env:LLM_API_URL) { "$($env:LLM_API_URL) (env)" } `
+        elseif ($envLocalUrl) { "$envLocalUrl (.env.local)" } `
+        else { "http://localhost:8080 (fallback)" }
+    $identity = [ordered]@{
+        schema          = "ruke.e2e-launcher-identity.v1"
+        runId           = $lock.RunId
+        appStartedUtc   = $appStartUtc
+        reusedForeign   = $reused
+        storePath       = $store.Path
+        storeSource     = $store.Source
+        pythonOcrResultRoot = Join-Path $store.Path "python\ocr-results"
+        llmResolved     = $resolvedLlm
+        llmEnvSet       = $env:LLM_API_URL
+        llmSettingsPin  = $pin
+        llmEnvLocal     = $envLocalUrl
+        owner3000       = $o3
+        owner3101       = $o1
+        requireIsolation = [bool]$RequireIsolation
+        handoffAuthorized = [bool]$AuthorizeHandoff
+    }
+    $identity | ConvertTo-Json -Depth 4 | Out-File -Encoding ascii $idPath
+    Write-Output ("launcher identity -> " + $idPath + " : store=" + $store.Path +
+        " llm=" + $resolvedLlm +
+        " :3000=" + $(if ($o3) { "PID $($o3.Pid) start $($o3.Started)" } else { "none" }) +
+        " :3101=" + $(if ($o1) { "PID $($o1.Pid) start $($o1.Started)" } else { "none" }))
+    if ($RequireIsolation -and -not $reused) {
+        if (-not $o1 -or $o1.Started -eq "?" -or $o1.Started -lt $appStartUtc) {
+            Write-Output ("-RequireIsolation: :3101 owner PID " + $(if ($o1) { $o1.Pid } else { "none" }) +
+                " started " + $(if ($o1) { $o1.Started } else { "?" }) + " predates this launcher's app start " + $appStartUtc +
+                " — an OLD server assembly would prove nothing. Hard stop; the old process is LEFT ALONE, never killed.")
+            exit 87
+        }
+        Write-Output "identity verified: :3101 server (PID $($o1.Pid)) started THIS launcher — post-edit binary, isolated store."
+    }
+
     # ── Playwright, foreground; artifacts preserved by the config ────────
     # (PS 5.1 has no ternary — build the suffix the old way.)
     $grepNote = ""
     if ($Grep -ne "") { $grepNote = " grep = $Grep" }
     Write-Output "Playwright starting: test files = $($TestFiles -join ', ')$grepNote"
+    # node.exe direct, NOT the npx.cmd shim: cmd.exe re-parses the command
+    # line, so a grep containing `|` (e.g. "fr-F152|fr-F153") splits at the
+    # pipe into two commands (F153 batch evidence: pre-lock fast fail).
+    # node.exe receives the variable argument verbatim.
+    $pwCli = Join-Path $root "node_modules\@playwright\test\cli.js"
     if ($Grep -ne "") {
-        & npx.cmd playwright test -g $Grep @TestFiles
+        & node $pwCli test -g $Grep @TestFiles
     } else {
-        & npx.cmd playwright test @TestFiles
+        & node $pwCli test @TestFiles
     }
     $testExit = $LASTEXITCODE
     Write-Output "Playwright exit code: $testExit"

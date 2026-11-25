@@ -598,15 +598,24 @@ class PdfReading(unittest.TestCase):
             pdf_mod.load_pdf(p, max_pages=5)
         self.assertIn("silently dropping", str(caught.exception))
 
-    def test_empty_text_layer_page_is_not_reported_as_read(self):
+    def test_weak_native_page_without_imagery_is_read_not_ocr_scheduled(self):
+        # F152 amendment of the old weak-layer law. A one-character page with NO raster
+        # and NO drawn content has nothing an engine could find: rendering it and running
+        # OCR spends a real pass on pixels that already ARE the text. The page is recorded
+        # read (its block is delivered) and the WEAKNESS travels on the block's extraction
+        # marker; OCR eligibility stays reserved for pages with imagery (see the F73
+        # heading-over-raster test below), which is where the old law's real risk lived.
         p = self._pdf("mixed.pdf", [
             _text_stream("Native text page one for the mixed document case. " * 2),
             _text_stream("x"),
         ])
         doc = parser.load_document(p)
-        self.assertIn(2, doc.coverage.units_needing_ocr,
-                     "a one-character 'text layer' is decoration, not extraction")
-        self.assertFalse(doc.coverage.complete)
+        self.assertIn(2, doc.coverage.units_succeeded, "the page's native text IS delivered")
+        self.assertNotIn(2, doc.coverage.units_needing_ocr,
+                         "a clean one-word native page costs zero engine work (F152)")
+        page2 = [b for b in doc.blocks if b.loc.get("page") == 2]
+        self.assertEqual([b.loc["extraction"] for b in page2], ["pypdf-plain-weak"],
+                         "the weakness of the layer is RECORDED, not hidden behind 'read'")
 
     def test_a_heading_only_text_layer_over_a_raster_is_also_ocr_eligible(self):
         # F73 production (frozen fixture d1_mixed p1): the text layer carried only the page

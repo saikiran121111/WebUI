@@ -530,7 +530,15 @@ export async function videoKeyframesFromPath(
       }
     } catch { /* unseekable spot (or cancelled) — skip */ }
   };
-  for (let t = 60; t < duration && frames.length < cap; t += 120) {
+  // F153 §4: the step ADAPTS to the remaining slot budget. The fixed 120 s
+  // step spent the whole cap at duration/120 samples, so any video longer
+  // than cap*120 s ran out of slots mid-timeline — at the production cap of
+  // 150 that is every lecture past ~5 h — and the tail anchor below, gated
+  // on a FREE slot, never fired. A bounded budget buys COVERAGE: spread the
+  // free slots across the uncovered stretch (short videos keep the 120 s
+  // cadence, so the I17 law and its fixture are untouched).
+  const step = Math.max(120, Math.ceil((duration - 60) / Math.max(1, cap - frames.length)));
+  for (let t = 60; t < duration && frames.length < cap; t += step) {
     if (opts.signal?.aborted) break;
     // I17: the skip radius widens 30 s → 60 s — a scene frame at 150 s makes
     // a seek at 180 s pointless, and the freed slot buys coverage further out.
@@ -539,7 +547,24 @@ export async function videoKeyframesFromPath(
   }
   // Tail anchor: the end of the timeline is the most-asked-about spot in a
   // lecture ("what was the summary?") — it must never be frame-less.
-  if (duration > 0 && frames.length && frames[frames.length - 1].at < duration - 90 && frames.length < cap) {
+  // F153 §4: this is a LAW, not a leftover-slot luxury. When the budget is
+  // spent, evict the most redundant interior frame (the one whose neighbours
+  // sit closest — its removal loses the least coverage; with no interior
+  // frame the old tail frame yields, and the new anchor reaches further)
+  // and buy the tail with that slot. The cap itself never grows.
+  if (duration > 0 && frames.length && frames[frames.length - 1].at < duration - 90) {
+    if (frames.length >= cap) {
+      let drop = frames.length - 1;
+      if (frames.length >= 3) {
+        let best = Infinity;
+        for (let i = 1; i < frames.length - 1; i++) {
+          const gap = frames[i + 1].at - frames[i - 1].at;
+          if (gap < best) { best = gap; drop = i; }
+        }
+      }
+      try { fs.rmSync(path.join(outDir, frames[drop].name), { force: true }); } catch { /* ignore */ }
+      frames.splice(drop, 1);
+    }
     await grab(Math.max(0, duration - 30));
   }
   return frames;

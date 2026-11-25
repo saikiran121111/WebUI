@@ -148,18 +148,55 @@ impl ConversationStore {
 
     /// Test-visible clock seam (the 5000 ms tombstone window otherwise
     /// forces a 5-second sleep test).
+    ///
+    /// F153 (2026-11-24) — the PERSISTENCE-ORDERING law (⇔ TS
+    /// `saveConversationOnDisk`): a document whose `meta.updatedAt` predates
+    /// the delete tombstone is stale at ANY delay (the 5 s wall-clock window
+    /// alone let a queued save landing 6 s later recreate a deleted chat);
+    /// a document NEWER than the delete is a legitimate recreation and
+    /// retires the tombstone. Undated (legacy/unparseable) writes keep the
+    /// old race window. Out-of-order saves are decided by the CONTENT
+    /// timestamp: a late save never clobbers a newer stored document.
     fn save_at(&self, id: &str, json: &str, now: i64) -> Result<(), String> {
+        let incoming_at = Self::doc_updated_at(json);
         {
             let mut tomb = self.recently_deleted.lock().unwrap();
             if let Some(deleted_at) = tomb.get(id).copied() {
-                if now - deleted_at < 5000 {
-                    return Ok(()); // racing a delete — DROP the write
+                if incoming_at > 0 {
+                    if incoming_at <= deleted_at {
+                        return Ok(()); // stale by content — never resurrect
+                    }
+                    tomb.remove(id); // newer content: a recreation retires the tombstone
+                } else if now - deleted_at < 5000 {
+                    return Ok(()); // undated write racing a delete — DROP
+                } else {
+                    tomb.remove(id);
                 }
-                tomb.remove(id);
             }
+        }
+        let stored_at = self
+            .get(id)
+            .map(|raw| Self::doc_updated_at(&raw))
+            .unwrap_or(0);
+        if stored_at > 0 && incoming_at > 0 && incoming_at < stored_at {
+            return Ok(()); // out-of-order: the newer stored document owns the file
         }
         self.ensure_dir()?;
         fs::write(self.file(id), json).map_err(|e| e.to_string())
+    }
+
+    /// `docUpdatedAt` in TS: meta.updatedAt as an integer stamp; 0 when the
+    /// document is missing/undated/unparseable.
+    fn doc_updated_at(json: &str) -> i64 {
+        serde_json::from_str::<Value>(json)
+            .ok()
+            .and_then(|v| {
+                v.get("meta")?
+                    .get("updatedAt")?
+                    .as_f64()
+                    .map(|f| f as i64)
+            })
+            .unwrap_or(0)
     }
 
     /// `deleteConversationOnDisk`: tombstone FIRST, then unlink — errors
@@ -334,6 +371,41 @@ mod tests {
         s.save("conv_x", "{\"v\":4}").unwrap(); // no tombstone now
         assert_eq!(s.get("conv_x").unwrap(), "{\"v\":4}");
     }
+
+    #[test]
+    fn dated_stale_save_never_resurrects_a_deleted_chat() {
+        // F153 (2026-11-24): the 5 s wall-clock window alone let a queued
+        // save landing 6 s after the delete RECREATE the deleted chat. The
+        // ordering law: meta.updatedAt <= the delete stamp is stale by
+        // content — dropped at ANY delay; a document NEWER than the delete
+        // is a legitimate recreation.
+        let (s, _t) = store();
+        let stale = "{\"meta\":{\"updatedAt\":1000}}";
+        s.save("conv_y", stale).unwrap();
+        let base = now_ms();
+        s.delete_at("conv_y", base);
+        s.save_at("conv_y", stale, base + 6000).unwrap(); // the 6 s case
+        assert!(
+            s.get("conv_y").is_none(),
+            "a document predating the delete must not recreate the chat"
+        );
+        let fresh = format!("{{\"meta\":{{\"updatedAt\":{}}}}}", base + 500);
+        s.save_at("conv_y", &fresh, base + 6000).unwrap();
+        assert_eq!(s.get("conv_y").unwrap(), fresh, "newer content recreates legitimately");
+    }
+
+    #[test]
+    fn out_of_order_save_does_not_clobber_a_newer_document() {
+        // F153: last writer is decided by the CONTENT timestamp, not arrival.
+        let (s, _t) = store();
+        s.save("conv_o", "{\"meta\":{\"updatedAt\":1000}}").unwrap();
+        s.save("conv_o", "{\"meta\":{\"updatedAt\":500}}").unwrap(); // late, stale
+        assert_eq!(s.get("conv_o").unwrap(), "{\"meta\":{\"updatedAt\":1000}}");
+        // Equal timestamps are the same revision (title merge rides it): writes.
+        s.save("conv_o", "{\"meta\":{\"updatedAt\":1000,\"title\":\"t2\"}}").unwrap();
+        assert!(s.get("conv_o").unwrap().contains("\"t2\""));
+    }
+
 
     #[test]
     fn list_reads_raw_names_then_restats_sanitized_path() {
